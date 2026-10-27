@@ -7,6 +7,7 @@ import type { Block, ChatMessage, ContextUsage, SessionDetail, SessionSummary } 
 import { activeSessions } from "./active";
 import { contextWindowFor, getLimits } from "./limits";
 import { pinnedIds } from "./pins";
+import { recentSessions } from "./recent";
 import { subThreadSessionIds } from "./threads";
 
 export const PROJECTS_DIR = path.join(os.homedir(), ".claude", "projects");
@@ -211,10 +212,11 @@ function summaryTitle(p: Parsed) {
 const summaryCache = new Map<string, { mtimeMs: number; summary: SessionSummary | null }>();
 
 export async function listSessions(): Promise<SessionSummary[]> {
-  const [hidden, active, pins, limits] = await Promise.all([
+  const [hidden, active, pins, recent, limits] = await Promise.all([
     subThreadSessionIds(),
     activeSessions(),
     pinnedIds(),
+    recentSessions(),
     getLimits(),
   ]);
   let dirs: string[] = [];
@@ -276,6 +278,7 @@ export async function listSessions(): Promise<SessionSummary[]> {
         ...s,
         active: run && { status: run.status, entrypoint: run.entrypoint, startedAt: run.startedAt },
         pinOrder: pins.includes(s.id) ? pins.indexOf(s.id) : undefined,
+        recentAt: recent.get(s.id),
         context: s.context && withWindow(s.context, limits.contextWindows),
       };
     })

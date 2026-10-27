@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { activeSessions } from "./active";
 import { setPinned } from "./pins";
+import { forgetRecent } from "./recent";
 import { findSessionFile } from "./sessions";
 import { updateStore } from "./threads";
 
@@ -51,5 +52,6 @@ export async function deleteSession(id: string): Promise<DeleteResult> {
   });
   await Promise.all([id, ...subSessions].map(trashFiles));
   await setPinned(id, false);
+  await forgetRecent(id);
   return { ok: true };
 }

@@ -226,6 +226,8 @@ export function useTreeChat() {
   );
   const renameSession = (id: string, title: string) =>
     manage(`/api/sessions/${id}`, { method: "PATCH", body: JSON.stringify({ title }) });
+  const forgetRecent = (id: string) =>
+    manage(`/api/sessions/${id}`, { method: "PATCH", body: JSON.stringify({ recent: false }) });
   const pinSession = (id: string, pinned: boolean) =>
     manage(`/api/sessions/${id}`, { method: "PATCH", body: JSON.stringify({ pinned }) });
   const endSession = (id: string) => manage(`/api/sessions/${id}/end`, { method: "POST" });
@@ -514,6 +516,7 @@ export function useTreeChat() {
     refreshingLimits,
     refreshLimits,
     pinSession,
+    forgetRecent,
     endSession,
     deleteSession,
   };

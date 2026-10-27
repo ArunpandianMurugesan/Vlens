@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { imageBlocks, parseImages } from "@/lib/images";
 import { modelArgs } from "@/lib/models";
 import { streamClaude } from "@/lib/runClaude";
+import { lensPluginArgs } from "@/lib/lensPlugin";
 import { getSettings } from "@/lib/settings";
 import { getThread, updateStore } from "@/lib/threads";
 import type { ChatMessage, SubThread } from "@/lib/types";
@@ -84,6 +85,7 @@ export async function POST(req: Request) {
       "--permission-mode",
       "plan",
       ...modelArgs(settings.subAgentModel || settings.defaultModel),
+      ...lensPluginArgs(settings),
       ...(saved.claudeSessionId ? ["--resume", saved.claudeSessionId] : ["--append-system-prompt", SYSTEM_PROMPT]),
     ],
     cwd: saved.cwd,

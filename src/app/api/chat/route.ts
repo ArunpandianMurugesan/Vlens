@@ -3,7 +3,9 @@ import { streamClaude } from "@/lib/runClaude";
 import { resolveDir } from "@/lib/folders";
 import { parseImages } from "@/lib/images";
 import { isModel, modelArgs } from "@/lib/models";
+import { markRecent } from "@/lib/recent";
 import { getSession } from "@/lib/sessions";
+import { lensPluginArgs } from "@/lib/lensPlugin";
 import { getSettings } from "@/lib/settings";
 import type { ChatMessage } from "@/lib/types";
 
@@ -34,7 +36,8 @@ export async function POST(req: Request) {
   if (!body.prompt?.trim() && !images.length) return Response.json({ error: "prompt required" }, { status: 400 });
   if (!MODES.has(body.mode)) return Response.json({ error: "bad mode" }, { status: 400 });
   if (body.model !== undefined && !isModel(body.model)) return Response.json({ error: "bad model" }, { status: 400 });
-  const model = modelArgs(body.model ?? (await getSettings()).defaultModel);
+  const settings = await getSettings();
+  const model = [...modelArgs(body.model ?? settings.defaultModel), ...lensPluginArgs(settings)];
 
   if (!body.sessionId) {
     const cwd = await resolveDir(body.cwd ?? "");
@@ -46,6 +49,8 @@ export async function POST(req: Request) {
       cwd,
       signal: req.signal,
       sessionId: null,
+      // Keep it on the sidebar after the reply, when its process has exited.
+      onSession: (id) => void markRecent(id),
       onFinish: async (blocks) => ({
         id: randomUUID(),
         parentId: null,
@@ -58,6 +63,7 @@ export async function POST(req: Request) {
 
   const session = await getSession(body.sessionId);
   if (!session) return Response.json({ error: "session not found" }, { status: 404 });
+  await markRecent(session.id);
 
   return streamClaude({
     prompt: body.prompt,

@@ -121,3 +121,33 @@ body {
   color: var(--accent);
   animation: blink 1s steps(1) infinite;
 }
+
+/* Mermaid diagrams */
+.lens-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+.lens-diagram-full svg {
+  max-width: none;
+  width: min(100%, 1400px);
+  max-height: 100%;
+}
+/* Edges marked `animate: true` in the diagram, and every arrow when
+   "Animate every arrow" is on in Settings. */
+.lens-diagram.animate-all .flowchart-link,
+.lens-diagram.animate-all .messageLine0,
+.lens-diagram.animate-all .messageLine1,
+.lens-diagram.animate-all .transition {
+  stroke-dasharray: 6 5;
+  animation: lens-flow 0.9s linear infinite;
+}
+@keyframes lens-flow {
+  to {
+    stroke-dashoffset: -11;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lens-diagram * {
+    animation: none !important;
+  }
+}

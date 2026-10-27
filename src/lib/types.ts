@@ -26,6 +26,7 @@ export interface SessionSummary {
   messageCount: number;
   active?: ActiveInfo; // set while a Claude Code process has this session open
   pinOrder?: number; // set when pinned: position in pin order
+  recentAt?: string; // when Lens last started or replied in it (within the Recent window)
   context?: ContextUsage;
 }
 
@@ -96,6 +97,9 @@ export interface Settings {
   subAgentModel: string; // "" = same as defaultModel
   autoRestore: boolean; // reopen crashed sessions without asking
   terminalApp: "Terminal" | "iTerm"; // where restored sessions open
+  showDiagrams: boolean; // draw ```mermaid blocks as diagrams
+  animateDiagrams: boolean; // animate every arrow, not just the ones marked animate
+  diagramSkill: boolean; // load the built-in lens:diagrams skill into Lens runs
 }
 
 // A CLI session whose process stopped without closing normally (crash, reboot).

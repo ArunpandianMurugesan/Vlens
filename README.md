@@ -2,7 +2,7 @@
 
 A web UI for your Claude Code CLI sessions, with nested sub-agent threads.
 
-- **Sidebar**: shows **Active** sessions, meaning ones open in a running Claude Code process (terminal or desktop app), plus **Pinned** ones and the session you have open. A solid green dot means it's working, a hollow dot means it's waiting for you. Refreshes every 5s.
+- **Sidebar**: shows **Active** sessions, meaning ones open in a running Claude Code process (terminal or desktop app), plus **Pinned** ones, the session you have open, and **Recent**: sessions Lens started or replied in during the last 24 hours (their `claude -p` process exits after each reply, so they'd otherwise drop off). Remove one with ⋯ → Remove from Recent. A solid green dot means it's working, a hollow dot means it's waiting for you. Refreshes every 5s.
 - **Session menu** (`⋯` on each item): **Rename** (the same as `/rename`, so the CLI sees it), **Pin / Unpin**, **End session** (stops the Claude CLI process; desktop-app sessions have to be ended in the app), and **Delete** (only once it's stopped; files move to `data/trash/`, so you can move them back to `~/.claude/projects/<project>/`).
 - **Usage**: the bottom of the sidebar shows your plan's **5-hour** and **weekly** limits (how much is used and when each resets). Each session shows how full its **context window** is, in the bar and in the header. Limits update whenever Lens runs Claude; the refresh button sends one tiny Haiku request (about $0.0004). The page refreshes on its own only when the data is over 15 minutes old.
 - **Chat view**: renders a session like a chat (markdown, thinking, tool calls with their output). A session that's still running in the terminal updates live.
@@ -11,6 +11,12 @@ A web UI for your Claude Code CLI sessions, with nested sub-agent threads.
 - **Reply to a session**: type at the bottom to continue the session with `claude --resume`. The reply is saved in the same session file, so the CLI sees it too. Pick **Can edit files** or **Read-only** under the box.
 - **Sub-agents**: select any text in an answer and click **Ask Sub-Agent**. A panel slides in and runs a real `claude -p` in that session's project folder, focused on the snippet. You can select text inside a sub-agent answer to go one level deeper, as many times as you like.
 - **Terminal console**: the bottom of each panel shows the real commands the sub-agent ran.
+
+## Flow diagrams (built in)
+
+Replies that contain a ```` ```mermaid ```` block are drawn as diagrams (flowcharts, sequence, state, ER, timeline…), in light or dark to match your system, with **code / copy / full screen** buttons. Arrows marked `animate: true` in the diagram move; Settings can animate every arrow.
+
+Lens also ships its own Claude Code plugin in [`lens-plugin/`](lens-plugin) with a **`lens:diagrams`** skill that tells Claude when and how to draw a diagram. Lens passes it with `--plugin-dir` only to the runs it starts, so your terminal `claude` doesn't get it. Settings → **Flow diagrams** turns drawing, animate-every-arrow and the skill on or off separately. More built-in skills can go in the same plugin.
 
 ## Lens Review
 
@@ -54,10 +60,13 @@ Open http://localhost:3457. You need the `claude` CLI on your `PATH`.
 | Finds and ends running sessions (`~/.claude/sessions/<pid>.json`) | `src/lib/active.ts` |
 | Rename and delete | `src/lib/manage.ts` |
 | Pins | `src/lib/pins.ts` → `data/pins.json` |
+| Recent (sessions Lens used) | `src/lib/recent.ts` → `data/recent.json` |
 | Settings (model, auto-restore, terminal) | `src/lib/settings.ts` → `data/settings.json` |
 | Crash detection and restore | `src/lib/restore.ts` → `data/restore.json` |
 | Skills | `src/lib/skills.ts` |
 | Hooks | `src/lib/hooks.ts` |
+| Mermaid diagrams | `src/components/Mermaid.tsx` |
+| Built-in skills (plugin) | `lens-plugin/`, `src/lib/lensPlugin.ts` |
 | Lens Review (GitHub via `gh`) | `src/lib/github.ts` |
 | Slash command list (from the CLI's start-up event) | `src/lib/commands.ts` |
 | Account and MCP (via `claude auth` / `claude mcp`) | `src/lib/account.ts`, `src/lib/mcp.ts` |

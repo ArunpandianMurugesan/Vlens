@@ -45,6 +45,7 @@ type Actions = Pick<
   TreeChat,
   | "renameSession"
   | "pinSession"
+  | "forgetRecent"
   | "endSession"
   | "deleteSession"
   | "limits"
@@ -102,6 +103,11 @@ export function Sidebar({
   const active = sessions
     .filter((s) => s.pinOrder === undefined && (s.active || s.id === activeId) && matches(s))
     .sort((a, b) => (b.active?.startedAt ?? Infinity) - (a.active?.startedAt ?? Infinity));
+  // Sessions Lens started or replied in lately. Their `claude -p` process exits
+  // after each reply, so without this they'd vanish when you switch away.
+  const recent = sessions
+    .filter((s) => s.pinOrder === undefined && !s.active && s.id !== activeId && s.recentAt && matches(s))
+    .sort((a, b) => b.recentAt!.localeCompare(a.recentAt!));
 
   const run = async (fn: () => Promise<void>) => {
     setError(null);
@@ -217,6 +223,13 @@ export function Sidebar({
             <p className="px-3 py-4 text-center text-xs text-muted">
               {q ? "No matches" : "No running sessions. Start one in a terminal or with New session."}
             </p>
+          )}
+          {recent.length > 0 && (
+            <>
+              <div className="mt-3" />
+              <Heading>Recent</Heading>
+              <div className="space-y-0.5">{recent.map(item)}</div>
+            </>
           )}
         </nav>
           </>
@@ -449,6 +462,11 @@ function SessionItem({
                 {s.pinOrder !== undefined ? <PinOff size={13} /> : <Pin size={13} />}{" "}
                 {s.pinOrder !== undefined ? "Unpin" : "Pin"}
               </button>
+              {s.recentAt && !s.active && s.pinOrder === undefined && (
+                <button className={menuItem} onClick={() => act(() => actions.forgetRecent(s.id))}>
+                  <X size={13} /> Remove from Recent
+                </button>
+              )}
               {s.active && (
                 <button
                   className={menuItem}

@@ -6,6 +6,7 @@ import {
   Cpu,
   ExternalLink,
   FileText,
+  Network,
   Webhook,
   KeyRound,
   Loader2,
@@ -24,6 +25,7 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { TreeChat } from "@/hooks/useTreeChat";
 import { MODELS } from "@/lib/models";
 import type { Account, HookEntry, McpServer, Settings, Skill } from "@/lib/types";
+import { MermaidBlock } from "./Mermaid";
 
 async function post<T = unknown>(url: string, body: object): Promise<T> {
   const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -189,6 +191,42 @@ function ModelSection({ settings, save }: { settings: Settings; save: (p: Partia
           ))}
         </select>
       </Row>
+    </Section>
+  );
+}
+
+// ── Flow diagrams ──────────────────────────────────────────────────────────
+
+const SAMPLE = `flowchart LR
+  U["You"] e1@--> L["Claude Lens"]
+  L e2@--> C["claude -p"]
+  C --> T["Tools"]
+  C e3@--> R["Reply"]
+  e1@{ animate: true }
+  e2@{ animate: true }
+  e3@{ animate: true }`;
+
+function DiagramsSection({ settings, save }: { settings: Settings; save: (p: Partial<Settings>) => void }) {
+  return (
+    <Section icon={Network} title="Flow diagrams" hint="Built into Lens. Mermaid diagrams in replies are drawn as real, animated diagrams.">
+      <Row label="Draw diagrams" hint="Show Mermaid code blocks as diagrams. Off: show them as code.">
+        <Toggle label="Draw diagrams" on={settings.showDiagrams} onChange={(v) => save({ showDiagrams: v })} />
+      </Row>
+      <Row label="Animate every arrow" hint="Off: only arrows the diagram marks as animated move.">
+        <Toggle label="Animate every arrow" on={settings.animateDiagrams} onChange={(v) => save({ animateDiagrams: v })} />
+      </Row>
+      <Row
+        label="Diagrams skill (lens:diagrams)"
+        hint="Tells Claude to draw a diagram when a flow, architecture or sequence explains things better. Loaded only into sessions Lens runs; your terminal claude doesn't get it."
+      >
+        <Toggle label="Diagrams skill" on={settings.diagramSkill} onChange={(v) => save({ diagramSkill: v })} />
+      </Row>
+      {settings.showDiagrams && (
+        <div className="border-t border-line pt-3">
+          <div className="mb-2 text-xs text-muted">Preview</div>
+          <MermaidBlock code={SAMPLE} />
+        </div>
+      )}
     </Section>
   );
 }
@@ -1028,6 +1066,7 @@ export function SettingsView({ chat, onBack }: { chat: TreeChat; onBack: () => v
           {settings ? (
             <>
               <ModelSection settings={settings} save={saveSettings} />
+              <DiagramsSection settings={settings} save={saveSettings} />
               <RestoreSection chat={chat} settings={settings} save={saveSettings} />
             </>
           ) : (
