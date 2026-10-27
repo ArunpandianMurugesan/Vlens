@@ -3,6 +3,7 @@
 import { Check, Code2, Copy, Maximize2, Network, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTheme } from "@/lib/theme";
 import { useLensSettings } from "./LensSettings";
 
 type MermaidApi = typeof import("mermaid").default;
@@ -11,23 +12,11 @@ type MermaidApi = typeof import("mermaid").default;
 let loading: Promise<MermaidApi> | null = null;
 const loadMermaid = () => (loading ??= import("mermaid").then((m) => m.default));
 
-function useDarkMode() {
-  const [dark, setDark] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    setDark(mq.matches);
-    const on = (e: MediaQueryListEvent) => setDark(e.matches);
-    mq.addEventListener("change", on);
-    return () => mq.removeEventListener("change", on);
-  }, []);
-  return dark;
-}
-
 // Renders a ```mermaid block. While a reply is still streaming the code is
 // often incomplete; then we keep showing the code until it parses.
 export function MermaidBlock({ code }: { code: string }) {
   const settings = useLensSettings();
-  const dark = useDarkMode();
+  const dark = useTheme() === "dark"; // follows the theme chosen in Lens
   const rawId = useId();
   const id = `mmd-${rawId.replace(/[^a-zA-Z0-9]/g, "")}`;
   const [svg, setSvg] = useState<string | null>(null);

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { THEME_BOOT_SCRIPT } from "@/lib/themeScript";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -23,8 +24,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    // The boot script sets data-theme before React loads, so the server's HTML differs on purpose.
+    <html lang="en" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
         {/* Snippets that spawned a sub-thread (CSS Custom Highlight API). */}
         <style>{`::highlight(subthread){background-color:var(--hl)}::highlight(subthread-active){background-color:var(--hl-active)}`}</style>
       </head>

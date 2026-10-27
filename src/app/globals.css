@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
-/* Warm, Claude-like palette. Light by default, dark follows the OS. */
+/* Warm, Claude-like palette. The theme is chosen in Lens (System, Light or
+   Dark) and set as data-theme on <html> before the page paints. */
 :root {
   --bg: #faf9f5;
   --panel: #ffffff;
@@ -15,10 +16,29 @@
   --term-text: #e8e2d4;
   --hl: rgba(201, 100, 66, 0.16);
   --hl-active: rgba(201, 100, 66, 0.38);
+  color-scheme: light;
 }
 
+:root[data-theme="dark"] {
+  --bg: #1f1e1b;
+  --panel: #262522;
+  --sunken: #2c2b27;
+  --border: #3a3833;
+  --text: #ecebe6;
+  --muted: #a09c92;
+  --accent: #d97757;
+  --accent-soft: #3d2a22;
+  --user-bubble: #34322d;
+  --term-bg: #121110;
+  --term-text: #e8e2d4;
+  --hl: rgba(217, 119, 87, 0.2);
+  --hl-active: rgba(217, 119, 87, 0.45);
+  color-scheme: dark;
+}
+
+/* Before the theme script runs (or without JavaScript), follow the OS. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --bg: #1f1e1b;
     --panel: #262522;
     --sunken: #2c2b27;
@@ -32,8 +52,12 @@
     --term-text: #e8e2d4;
     --hl: rgba(217, 119, 87, 0.2);
     --hl-active: rgba(217, 119, 87, 0.45);
+    color-scheme: dark;
   }
 }
+
+/* Tailwind's dark: variants follow the chosen theme, not just the OS. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme inline {
   --color-bg: var(--bg);

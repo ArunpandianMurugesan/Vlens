@@ -34,6 +34,8 @@ Local clones are found from the folders your sessions run in (and one level insi
 
 Open **Settings** at the bottom of the sidebar.
 
+- **Appearance**: System (follows your Mac), Light or Dark. The button next to the logo cycles through them. The choice is saved in your browser and applied before the page paints, so there's no flash. Diagrams follow it too.
+
 - **Account**: who the CLI is signed in as (email, org, plan). **Switch account** runs `claude auth login` in a new terminal window; **Sign out** runs `claude auth logout`.
 - **Model**: the default model for replies, new sessions and sub-agents started from Lens. You can also pick a model per message next to the message box. Your terminal `claude` is not changed. In read-only (plan) mode the CLI uses at least Sonnet.
 - **Auto-restore**: when a terminal session stops without closing normally (crash, closed window, reboot), Claude Code leaves its `~/.claude/sessions/<pid>.json` behind. Lens spots that and shows it in the sidebar with **Restore**, which reopens it with `claude --resume` in Terminal or iTerm. Turn on **Reopen automatically** to skip the click. This only works while Lens is running.

@@ -7,6 +7,7 @@ import {
   ExternalLink,
   FileText,
   Network,
+  Palette,
   Webhook,
   KeyRound,
   Loader2,
@@ -26,6 +27,7 @@ import type { TreeChat } from "@/hooks/useTreeChat";
 import { MODELS } from "@/lib/models";
 import type { Account, HookEntry, McpServer, Settings, Skill } from "@/lib/types";
 import { MermaidBlock } from "./Mermaid";
+import { ThemePicker } from "./ThemeToggle";
 
 async function post<T = unknown>(url: string, body: object): Promise<T> {
   const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -1062,6 +1064,11 @@ export function SettingsView({ chat, onBack }: { chat: TreeChat; onBack: () => v
       </header>
       <div className="flex-1 overflow-y-auto scroll-thin">
         <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
+          <Section icon={Palette} title="Appearance">
+            <Row label="Theme" hint="System follows your Mac's light or dark setting. Saved in this browser.">
+              <ThemePicker />
+            </Row>
+          </Section>
           <AccountSection />
           {settings ? (
             <>

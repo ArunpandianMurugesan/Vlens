@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Review } from "@/hooks/useReview";
 import type { TreeChat } from "@/hooks/useTreeChat";
 import { ReviewSidebar } from "./ReviewSidebar";
+import { ThemeToggle } from "./ThemeToggle";
 import { ContextBadge, PlanUsage } from "./Usage";
 import type { SessionSummary } from "@/lib/types";
 
@@ -148,7 +149,10 @@ export function Sidebar({
             <MessagesSquare size={15} />
           </div>
           <span className="font-semibold">Claude Lens</span>
-          <button onClick={onClose} className="ml-auto text-muted md:hidden" aria-label="Close sidebar">
+          <span className="ml-auto">
+            <ThemeToggle />
+          </span>
+          <button onClick={onClose} className="text-muted md:hidden" aria-label="Close sidebar">
             <X size={18} />
           </button>
         </div>
