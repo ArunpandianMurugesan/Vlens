@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import { recordEvent } from "./limits";
+import { type Decision, settle, waitForDecision } from "./permissions";
 import type { AgentEvent, Block, ChatMessage, ImageInput } from "./types";
 
 interface Options {
@@ -29,6 +30,9 @@ export function streamClaude(o: Options): Response {
     "--output-format", "stream-json",
     "--verbose",
     "--include-partial-messages",
+    // Ask Lens (over stdin/stdout) before running anything that needs approval,
+    // instead of denying it because nobody is at a terminal.
+    "--permission-prompt-tool", "stdio",
     ...o.args,
   ];
   const content = [
@@ -55,8 +59,16 @@ export function streamClaude(o: Options): Response {
       if (o.first) send(o.first);
 
       const child = spawn("claude", args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
-      child.stdin.end(JSON.stringify({ type: "user", message: { role: "user", content } }) + "\n");
-      o.signal.addEventListener("abort", () => child.kill("SIGTERM"));
+      // stdin stays open so we can answer permission questions; it's closed on "result".
+      const write = (msg: unknown) => {
+        if (!child.stdin.writableEnded) child.stdin.write(JSON.stringify(msg) + "\n");
+      };
+      write({ type: "user", message: { role: "user", content } });
+      const asked = new Set<string>(); // questions still waiting on you
+      o.signal.addEventListener("abort", () => {
+        for (const id of asked) settle(id, "deny");
+        child.kill("SIGTERM");
+      });
 
       const blocks: Block[] = [];
       let sessionId = o.sessionId;
@@ -77,7 +89,43 @@ export function streamClaude(o: Options): Response {
         }
       });
 
+      // The CLI asks before running a tool that needs approval. Show it in Lens and wait.
+      async function askPermission(ev: any) {
+        const r = ev.request;
+        const id: string = ev.request_id;
+        asked.add(id);
+        send({
+          type: "permission",
+          id,
+          tool: r.display_name ?? r.tool_name,
+          input: r.input,
+          description: r.description ?? null,
+          reason: r.decision_reason ?? null,
+          canRemember: Array.isArray(r.permission_suggestions) && r.permission_suggestions.length > 0,
+        });
+        const d: Decision = await waitForDecision(id);
+        asked.delete(id);
+        send({ type: "permission_done", id, decision: d });
+        const response =
+          d === "deny"
+            ? { behavior: "deny", message: "The user denied this in Claude Lens." }
+            : {
+                behavior: "allow",
+                updatedInput: r.input,
+                // "Always": save the CLI's own suggested rule (same as choosing "always" in the terminal).
+                ...(d === "always" && r.permission_suggestions ? { updatedPermissions: r.permission_suggestions } : {}),
+              };
+        write({ type: "control_response", response: { subtype: "success", request_id: id, response } });
+      }
+
       function handle(ev: any) {
+        if (ev.type === "control_request") {
+          if (ev.request?.subtype === "can_use_tool") void askPermission(ev);
+          // Anything else we don't support: say so, rather than leave the CLI waiting.
+          else write({ type: "control_response", response: { subtype: "error", request_id: ev.request_id, error: "Not supported by Claude Lens" } });
+          return;
+        }
+        if (ev.type === "result") child.stdin.end(); // the turn is over; let the CLI exit
         recordEvent(ev); // keeps the plan usage and context window sizes current
         if (ev.session_id && ev.session_id !== sessionId) {
           sessionId = ev.session_id;
@@ -125,6 +173,7 @@ export function streamClaude(o: Options): Response {
       });
 
       child.on("close", async (code) => {
+        for (const id of asked) settle(id, "deny"); // the run ended; drop open questions
         if (!blocks.some((b) => b.kind === "text") && code !== 0) {
           send({ type: "error", error: stderr.trim() || `claude exited with code ${code}` });
           return close();
@@ -137,5 +186,41 @@ export function streamClaude(o: Options): Response {
 
   return new Response(stream, {
     headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-cache" },
+  });
+}
+
+// Runs one `claude -p` turn to completion and returns the reply text. For short
+// jobs whose answer the server needs (a handoff note, /compact), not for chat.
+export function runClaudeOnce(o: { prompt: string; args: string[]; cwd: string | null; timeoutMs?: number }): Promise<{ ok: boolean; text: string; error?: string }> {
+  const cwd = o.cwd && fs.existsSync(o.cwd) ? o.cwd : os.homedir();
+  const env = { ...process.env };
+  delete env.CLAUDECODE;
+  return new Promise((resolve) => {
+    const child = spawn("claude", ["-p", "--output-format", "stream-json", "--verbose", ...o.args], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    child.stdin.end(o.prompt);
+    let buf = "";
+    let result: any = null;
+    let stderr = "";
+    child.stdout.on("data", (c: Buffer) => {
+      buf += c.toString();
+      let nl: number;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        try {
+          const ev = JSON.parse(line);
+          recordEvent(ev);
+          if (ev.type === "result") result = ev;
+        } catch {}
+      }
+    });
+    child.stderr.on("data", (c: Buffer) => (stderr += c.toString()));
+    const timer = setTimeout(() => child.kill("SIGTERM"), o.timeoutMs ?? 5 * 60_000);
+    child.on("close", () => {
+      clearTimeout(timer);
+      if (result && !result.is_error) resolve({ ok: true, text: String(result.result ?? "") });
+      else resolve({ ok: false, text: "", error: String(result?.result || stderr.trim() || "Claude didn't finish.").slice(0, 400) });
+    });
+    child.on("error", (e) => resolve({ ok: false, text: "", error: e.message }));
   });
 }

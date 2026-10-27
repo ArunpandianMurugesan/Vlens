@@ -1,12 +1,14 @@
 "use client";
 
-import { Check, Copy, Eye, FolderOpen, Loader2, Menu, Pencil, Plus } from "lucide-react";
+import { Check, Copy, Eye, FolderOpen, Loader2, Menu, Pencil } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ROOT, type RootMode, type TreeChat } from "@/hooks/useTreeChat";
 import { MODELS } from "@/lib/models";
 import { Composer } from "./Composer";
+import { CwdContext } from "./FileContext";
 import { FolderPicker } from "./FolderPicker";
 import { liveMessage, MessageBubble } from "./MessageBubble";
+import { PermissionCard } from "./PermissionCard";
 import { ContextBadge } from "./Usage";
 
 export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => void }) {
@@ -46,6 +48,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
   const resumeCmd = session ? `claude --resume ${session.id}` : "";
 
   return (
+    <CwdContext.Provider value={session?.cwd ?? newDraft?.cwd ?? null}>
     <main className="flex min-w-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b border-line bg-bg/80 px-4 py-3 backdrop-blur">
         <button onClick={onMenu} className="text-muted md:hidden" aria-label="Open sidebar">
@@ -105,7 +108,6 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
         // On wide screens, make room for the sub-agent panels instead of hiding under them.
         className={`flex-1 overflow-y-auto transition-[padding] duration-300 scroll-thin ${stack.length ? "xl:pr-[540px]" : ""}`}
       >
-        {!session && !newDraft && !loadingSession && <Empty onNew={() => chat.newSession()} />}
         {newDraft && !rootPending && (
           <div className="mx-auto max-w-2xl px-4 py-8">
             <h2 className="mb-1 text-xl font-semibold">Start a new session</h2>
@@ -138,6 +140,11 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
                 streaming={replying}
               />
             )}
+            {run?.asks?.map((a) => (
+              <div key={a.id} className="pl-10">
+                <PermissionCard ask={a} />
+              </div>
+            ))}
             {replying && !run.text && run.tools.length === 0 && <div className="pl-10 text-sm text-muted">Starting Claude…</div>}
             {run?.error && (
               <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600">{run.error}</div>
@@ -190,6 +197,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
         </div>
       )}
     </main>
+    </CwdContext.Provider>
   );
 }
 
@@ -212,24 +220,6 @@ function ModeToggle({ mode, onChange }: { mode: RootMode; onChange: (m: RootMode
           {o.label}
         </button>
       ))}
-    </div>
-  );
-}
-
-function Empty({ onNew }: { onNew: () => void }) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-      <div className="text-2xl font-semibold">Your Claude Code sessions</div>
-      <p className="max-w-md text-sm text-muted">
-        Pick a session on the left. Select any part of an answer and click <b>Ask Sub-Agent</b> to open a focused
-        side thread. You can nest them as deep as you like.
-      </p>
-      <button
-        onClick={onNew}
-        className="mt-2 flex items-center gap-1.5 rounded-full bg-accent px-4 py-2 text-sm font-medium text-white"
-      >
-        <Plus size={15} /> Start a new session
-      </button>
     </div>
   );
 }

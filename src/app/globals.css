@@ -16,6 +16,7 @@
   --term-text: #e8e2d4;
   --hl: rgba(201, 100, 66, 0.16);
   --hl-active: rgba(201, 100, 66, 0.38);
+  --chart: #c96442; /* chart bars; checked for contrast on each surface */
   color-scheme: light;
 }
 
@@ -33,6 +34,7 @@
   --term-text: #e8e2d4;
   --hl: rgba(217, 119, 87, 0.2);
   --hl-active: rgba(217, 119, 87, 0.45);
+  --chart: #d3714f;
   color-scheme: dark;
 }
 
@@ -52,6 +54,7 @@
     --term-text: #e8e2d4;
     --hl: rgba(217, 119, 87, 0.2);
     --hl-active: rgba(217, 119, 87, 0.45);
+    --chart: #d3714f;
     color-scheme: dark;
   }
 }
@@ -67,6 +70,7 @@
   --color-ink: var(--text);
   --color-muted: var(--muted);
   --color-accent: var(--accent);
+  --color-chart: var(--chart);
   --color-accent-soft: var(--accent-soft);
   --color-user: var(--user-bubble);
   --color-term: var(--term-bg);
@@ -174,4 +178,67 @@ body {
   .lens-diagram * {
     animation: none !important;
   }
+}
+
+/* File panel: Shiki output, both themes at once, with line numbers. */
+.code-view .shiki {
+  background: transparent !important;
+  margin: 0;
+  padding: 10px 0 24px;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+.code-view .shiki span {
+  color: var(--shiki-light);
+}
+:root[data-theme="dark"] .code-view .shiki span {
+  color: var(--shiki-dark);
+}
+.code-view .line {
+  display: inline-block;
+  min-width: 100%;
+  padding-right: 20px;
+}
+.code-view .line::before {
+  content: attr(data-line);
+  display: inline-block;
+  width: 3.4em;
+  margin-right: 1.4em;
+  text-align: right;
+  color: var(--muted);
+  opacity: 0.55;
+  user-select: none;
+}
+.code-view .line.hl {
+  background: var(--hl);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Paths in replies that open in the file panel */
+.md .lens-file-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.md .lens-file-code {
+  cursor: pointer;
+}
+.md .lens-file-code code {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.md .lens-file-code:hover code {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* The small whiteboard in a reply is a picture to look at: hide Excalidraw's menu and footer. */
+.lens-wb-inline .main-menu-trigger,
+.lens-wb-inline .layer-ui__wrapper__footer,
+.lens-wb-inline .App-bottom-bar,
+.lens-wb-inline .disable-zen-mode,
+.lens-wb-inline .exit-view-mode {
+  display: none !important;
 }

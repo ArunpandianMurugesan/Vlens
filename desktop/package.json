@@ -1,0 +1,34 @@
+{
+  "name": "claude-lens-desktop",
+  "productName": "Claude Lens",
+  "version": "1.0.0",
+  "description": "Claude Lens as a Mac app.",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "app": "LENS_DEV_URL=http://localhost:3457 electron .",
+    "prepare-server": "node scripts/prepare-server.mjs",
+    "dist": "npm run prepare-server && electron-builder --mac"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.17.0"
+  },
+  "build": {
+    "appId": "com.arun-innovates.claude-lens",
+    "productName": "Claude Lens",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["main.cjs", "package.json"],
+    "afterPack": "scripts/after-pack.cjs",
+    "extraResources": [
+      { "from": "../lens-plugin", "to": "lens-plugin", "filter": ["**/*"] }
+    ],
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["arm64"] }, { "target": "dir", "arch": ["arm64"] }],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns",
+      "identity": null
+    },
+    "dmg": { "title": "Claude Lens" }
+  }
+}

@@ -11,6 +11,8 @@ export const DEFAULT_SETTINGS: Settings = {
   showDiagrams: true,
   animateDiagrams: false,
   diagramSkill: true,
+  showWhiteboards: true,
+  whiteboardSkill: true,
 };
 
 const store = jsonStore<Partial<Settings>>("settings.json", () => ({}));
@@ -26,7 +28,7 @@ export async function updateSettings(patch: Partial<Settings>): Promise<Settings
     if (isModel(patch.subAgentModel)) s.subAgentModel = patch.subAgentModel;
     if (typeof patch.autoRestore === "boolean") s.autoRestore = patch.autoRestore;
     if (patch.terminalApp === "Terminal" || patch.terminalApp === "iTerm") s.terminalApp = patch.terminalApp;
-    for (const k of ["showDiagrams", "animateDiagrams", "diagramSkill"] as const)
+    for (const k of ["showDiagrams", "animateDiagrams", "diagramSkill", "showWhiteboards", "whiteboardSkill"] as const)
       if (typeof patch[k] === "boolean") s[k] = patch[k];
   });
   return getSettings();

@@ -2,6 +2,10 @@
 
 import {
   AlertTriangle,
+  ChevronRight,
+  Folder,
+  FolderTree,
+  List,
   FolderOpen,
   MessagesSquare,
   MoreHorizontal,
@@ -12,6 +16,7 @@ import {
   Power,
   Search,
   Settings as SettingsIcon,
+  Store,
   Trash2,
   X,
 } from "lucide-react";
@@ -64,6 +69,9 @@ interface Props {
   onSelect: (id: string) => void;
   onNew: () => void;
   onSettings: () => void;
+  onMarketplace: () => void;
+  marketplaceOpen: boolean;
+  onHome: () => void;
   settingsOpen: boolean;
   tab: "sessions" | "review";
   onTab: (t: "sessions" | "review") => void;
@@ -80,6 +88,9 @@ export function Sidebar({
   onSelect,
   onNew,
   onSettings,
+  onMarketplace,
+  marketplaceOpen,
+  onHome,
   settingsOpen,
   tab,
   onTab,
@@ -119,10 +130,83 @@ export function Sidebar({
     }
   };
 
-  const item = (s: SessionSummary) => (
+  // Group sessions by the folder they run in (remembered in this browser).
+  const [grouped, setGrouped] = useState(true);
+  const [folded, setFolded] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    try {
+      setGrouped(localStorage.getItem(GROUP_KEY) !== "flat");
+      setFolded(new Set(JSON.parse(localStorage.getItem(FOLDED_KEY) || "[]")));
+    } catch {}
+  }, []);
+  const toggleGrouped = () =>
+    setGrouped((g) => {
+      try {
+        localStorage.setItem(GROUP_KEY, g ? "flat" : "grouped");
+      } catch {}
+      return !g;
+    });
+  const toggleFold = (key: string) =>
+    setFolded((f) => {
+      const next = new Set(f);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      try {
+        localStorage.setItem(FOLDED_KEY, JSON.stringify([...next]));
+      } catch {}
+      return next;
+    });
+
+  // A section's sessions, either as they are or under folder headers. Folders
+  // keep the order of their first session, so the most relevant stays on top.
+  const list = (section: string, items: SessionSummary[]) => {
+    if (!grouped) return <div className="space-y-0.5">{items.map((s) => item(s))}</div>;
+    const groups = new Map<string, SessionSummary[]>();
+    for (const s of items) {
+      const k = s.cwd ?? s.projectDir;
+      groups.set(k, [...(groups.get(k) ?? []), s]);
+    }
+    // Two folders with the same name (e.g. two "app" repos) show their parent too.
+    const names = new Map<string, number>();
+    for (const [, g] of groups) names.set(g[0].projectName, (names.get(g[0].projectName) ?? 0) + 1);
+    const label = (k: string, g: SessionSummary[]) => {
+      const n = g[0].projectName;
+      if ((names.get(n) ?? 0) < 2 || !g[0].cwd) return n;
+      return g[0].cwd.split("/").filter(Boolean).slice(-2).join("/");
+    };
+    return (
+      <div className="space-y-1">
+        {[...groups.entries()].map(([k, g]) => {
+          const key = `${section}:${k}`;
+          const open = !folded.has(key) || g.some((s) => s.id === activeId);
+          return (
+            <div key={k}>
+              <button
+                onClick={() => toggleFold(key)}
+                title={g[0].cwd ?? k}
+                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs text-muted hover:text-ink"
+              >
+                <ChevronRight size={12} className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
+                <Folder size={12} className="shrink-0" />
+                <span className="truncate font-medium">{label(k, g)}</span>
+                <span className="ml-auto shrink-0 rounded-full bg-panel px-1.5 text-[0.65rem]">{g.length}</span>
+                {!open && g.some((s) => s.active?.status === "busy") && (
+                  <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500" title="Something in here is working" />
+                )}
+              </button>
+              {open && <div className="space-y-0.5 pl-3">{g.map((s) => item(s, true))}</div>}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const item = (s: SessionSummary, inFolder = false) => (
     <SessionItem
       key={s.id}
       s={s}
+      inFolder={inFolder}
       selected={s.id === activeId}
       onSelect={() => {
         onSelect(s.id);
@@ -145,10 +229,19 @@ export function Sidebar({
         }`}
       >
         <div className="flex items-center gap-2 px-4 pb-3 pt-4">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-white">
-            <MessagesSquare size={15} />
-          </div>
-          <span className="font-semibold">Claude Lens</span>
+          <button
+            onClick={() => {
+              onHome();
+              onClose();
+            }}
+            className="flex items-center gap-2 rounded-lg"
+            title="Home"
+          >
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-white">
+              <MessagesSquare size={15} />
+            </span>
+            <span className="font-semibold">Claude Lens</span>
+          </button>
           <span className="ml-auto">
             <ThemeToggle />
           </span>
@@ -169,7 +262,7 @@ export function Sidebar({
               key={id}
               onClick={() => onTab(id)}
               className={`flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 transition ${
-                tab === id && !settingsOpen ? "bg-sunken font-medium text-ink" : "text-muted hover:text-ink"
+                tab === id && !settingsOpen && !marketplaceOpen ? "bg-sunken font-medium text-ink" : "text-muted hover:text-ink"
               }`}
             >
               {label}
@@ -218,11 +311,24 @@ export function Sidebar({
           {pinned.length > 0 && (
             <>
               <Heading>Pinned</Heading>
-              <div className="mb-3 space-y-0.5">{pinned.map(item)}</div>
+              <div className="mb-3">{list("pinned", pinned)}</div>
             </>
           )}
-          <Heading>Active</Heading>
-          <div className="space-y-0.5">{active.map(item)}</div>
+          <Heading
+            action={
+              <button
+                onClick={toggleGrouped}
+                className="rounded p-0.5 text-muted hover:bg-panel hover:text-ink"
+                title={grouped ? "Show as one list" : "Group by folder"}
+                aria-label={grouped ? "Show as one list" : "Group by folder"}
+              >
+                {grouped ? <List size={12} /> : <FolderTree size={12} />}
+              </button>
+            }
+          >
+            Active
+          </Heading>
+          {list("active", active)}
           {active.length === 0 && (
             <p className="px-3 py-4 text-center text-xs text-muted">
               {q ? "No matches" : "No running sessions. Start one in a terminal or with New session."}
@@ -232,13 +338,24 @@ export function Sidebar({
             <>
               <div className="mt-3" />
               <Heading>Recent</Heading>
-              <div className="space-y-0.5">{recent.map(item)}</div>
+              {list("recent", recent)}
             </>
           )}
         </nav>
           </>
         )}
 
+        <button
+          onClick={() => {
+            onMarketplace();
+            onClose();
+          }}
+          className={`mx-2 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm ${
+            marketplaceOpen ? "bg-panel text-ink shadow-sm" : "text-muted hover:bg-panel/60 hover:text-ink"
+          }`}
+        >
+          <Store size={14} /> Marketplace
+        </button>
         <button
           onClick={() => {
             onSettings();
@@ -317,20 +434,30 @@ function CrashedBanner({ actions, run }: { actions: Actions; run: (fn: () => Pro
   );
 }
 
-function Heading({ children }: { children: React.ReactNode }) {
-  return <div className="px-2.5 pb-1 text-[0.68rem] font-medium uppercase tracking-wide text-muted">{children}</div>;
+const GROUP_KEY = "lens.sidebarGrouping";
+const FOLDED_KEY = "lens.foldedFolders";
+
+function Heading({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <div className="flex items-center px-2.5 pb-1 text-[0.68rem] font-medium uppercase tracking-wide text-muted">
+      <span className="flex-1">{children}</span>
+      {action}
+    </div>
+  );
 }
 
 type Confirm = "end" | "delete" | null;
 
 function SessionItem({
   s,
+  inFolder,
   selected,
   onSelect,
   actions,
   run,
 }: {
   s: SessionSummary;
+  inFolder?: boolean; // under a folder header, so the folder name is already shown
   selected: boolean;
   onSelect: () => void;
   actions: Actions;
@@ -406,8 +533,12 @@ function SessionItem({
             </span>
           </div>
           <div className="mt-1 flex items-center gap-1.5 text-[0.7rem] text-muted">
-            <FolderOpen size={11} />
-            <span className="truncate">{s.projectName}</span>
+            {!inFolder && (
+              <>
+                <FolderOpen size={11} />
+                <span className="truncate">{s.projectName}</span>
+              </>
+            )}
             {!s.active && <span className="shrink-0 rounded bg-sunken px-1">stopped</span>}
             <span className="ml-auto flex shrink-0 items-center gap-2">
               <ContextBadge ctx={s.context} compact />
@@ -444,7 +575,7 @@ function SessionItem({
             />
           ) : confirm === "delete" ? (
             <ConfirmBox
-              text="Delete this session? Its files move to data/trash in this app, so you can get them back."
+              text="Delete this session? Its files move to Lens's trash folder, so you can get them back."
               action="Delete"
               busy={busy}
               onYes={() => act(() => actions.deleteSession(s.id))}

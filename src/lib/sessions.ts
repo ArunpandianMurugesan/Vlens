@@ -142,6 +142,12 @@ function parseJsonl(raw: string, withMessages: boolean, sessionId?: string): Par
         messages.push({ id: d.uuid, parentId: d.parentUuid ?? null, role: "assistant", blocks: [{ kind: "text", text }], timestamp: d.timestamp });
       continue;
     }
+    // After /compact (or auto-compact) the history continues from a summary.
+    if (withMessages && d.type === "user" && d.isCompactSummary && !d.isSidechain) {
+      const text = textOf(d.message?.content);
+      if (d.uuid) messages.push({ id: d.uuid, parentId: d.parentUuid ?? null, role: "user", blocks: [{ kind: "compact", text }], timestamp: d.timestamp });
+      continue;
+    }
     if ((d.type !== "user" && d.type !== "assistant") || d.isSidechain || d.isMeta) continue;
 
     const content = d.message?.content;

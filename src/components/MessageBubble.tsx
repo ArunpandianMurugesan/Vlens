@@ -1,10 +1,12 @@
 "use client";
 
-import { Bot, Brain, ChevronRight, CornerDownRight, Sparkles, Terminal, XCircle } from "lucide-react";
+import { Bot, Brain, ChevronRight, CornerDownRight, ExternalLink, Sparkles, Terminal, XCircle } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import type { LiveRun, ToolRun } from "@/hooks/useTreeChat";
 import { useSnippetHighlights } from "@/lib/highlight";
 import type { Block, ChatMessage, SubThread } from "@/lib/types";
+import { FILE_TOOLS, FileChip } from "./FileChip";
+import { useCwd, useFiles } from "./FileContext";
 import { Markdown } from "./Markdown";
 
 export function messageText(m: ChatMessage) {
@@ -36,12 +38,17 @@ export function toolSummary(name: string, input: unknown): string {
 
 function ToolRow({ run }: { run: ToolRun }) {
   const [open, setOpen] = useState(false);
+  const files = useFiles();
+  const cwd = useCwd();
   const pending = !run.result;
+  // Tools that read a file (Read, Glob…) get a small "open" button too.
+  const filePath = (run.input as { file_path?: string } | null)?.file_path;
   return (
     <div className="rounded-lg border border-line bg-sunken/60 text-[0.8rem]">
+      <div className="flex items-center">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-muted hover:text-ink"
+        className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1.5 text-left text-muted hover:text-ink"
       >
         <ChevronRight size={13} className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
         {run.result?.isError ? (
@@ -52,6 +59,17 @@ function ToolRow({ run }: { run: ToolRun }) {
         <span className="font-medium text-ink">{run.name}</span>
         <span className="truncate font-mono text-[0.75rem]">{toolSummary(run.name, run.input)}</span>
       </button>
+      {filePath && files && (
+        <button
+          onClick={() => files.open(filePath, { cwd })}
+          className="mr-1.5 shrink-0 rounded p-1 text-muted hover:bg-panel hover:text-accent"
+          title={`Open ${filePath}`}
+          aria-label={`Open ${filePath}`}
+        >
+          <ExternalLink size={12} />
+        </button>
+      )}
+      </div>
       {open && (
         <div className="space-y-2 border-t border-line px-3 py-2">
           <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[0.72rem] text-muted scroll-thin">
@@ -66,6 +84,28 @@ function ToolRow({ run }: { run: ToolRun }) {
               {run.result.text.slice(0, 8000) || "(no output)"}
             </pre>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Where a long conversation was squeezed into a summary to free up context.
+function CompactDivider({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="py-1" data-no-select>
+      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-3 text-xs text-muted hover:text-ink">
+        <span className="h-px flex-1 bg-line" />
+        <span className="flex items-center gap-1.5">
+          Conversation compacted · summary
+          <ChevronRight size={12} className={`transition-transform ${open ? "rotate-90" : ""}`} />
+        </span>
+        <span className="h-px flex-1 bg-line" />
+      </button>
+      {open && (
+        <div className="mt-2 rounded-xl border border-line bg-sunken px-4 py-3 text-muted">
+          <Markdown text={text} />
         </div>
       )}
     </div>
@@ -138,6 +178,9 @@ export function MessageBubble({
     message.id + message.blocks.length,
   );
 
+  const summary = message.blocks.find((b) => b.kind === "compact");
+  if (summary) return <CompactDivider text={summary.text} />;
+
   if (isUser) {
     return (
       <div className="flex justify-end">
@@ -183,9 +226,7 @@ export function MessageBubble({
               <Thinking key={i} text={p.text} />
             ) : (
               <div key={i} className="space-y-1.5" data-no-select>
-                {p.runs.map((r) => (
-                  <ToolRow key={r.id} run={r} />
-                ))}
+                {p.runs.map((r) => (FILE_TOOLS.has(r.name) ? <FileChip key={r.id} run={r} /> : <ToolRow key={r.id} run={r} />))}
               </div>
             ),
           )}

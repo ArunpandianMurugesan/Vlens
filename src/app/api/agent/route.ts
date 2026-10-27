@@ -85,7 +85,7 @@ export async function POST(req: Request) {
       "--permission-mode",
       "plan",
       ...modelArgs(settings.subAgentModel || settings.defaultModel),
-      ...lensPluginArgs(settings),
+      ...(await lensPluginArgs(settings)),
       ...(saved.claudeSessionId ? ["--resume", saved.claudeSessionId] : ["--append-system-prompt", SYSTEM_PROMPT]),
     ],
     cwd: saved.cwd,

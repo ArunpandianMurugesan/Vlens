@@ -10,6 +10,10 @@ import { ReviewView } from "@/components/ReviewView";
 import { SettingsView } from "@/components/SettingsView";
 import { SubAgentPanel } from "@/components/SubAgentPanel";
 import { UpdateBanner } from "@/components/UpdateBanner";
+import { FilesProvider, useFiles } from "@/components/FileContext";
+import { FileViewer } from "@/components/FileViewer";
+import { HomeView } from "@/components/HomeView";
+import { MarketplaceView } from "@/components/MarketplaceView";
 import { LensSettingsContext } from "@/components/LensSettings";
 import { useReview } from "@/hooks/useReview";
 import { useTreeChat } from "@/hooks/useTreeChat";
@@ -20,7 +24,7 @@ const PEEK = 28;
 export default function Home() {
   const chat = useTreeChat();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [view, setView] = useState<"chat" | "settings" | "review">("chat");
+  const [view, setView] = useState<"chat" | "settings" | "review" | "marketplace">("chat");
   const [tab, setTab] = useState<"sessions" | "review">("sessions");
   const review = useReview();
 
@@ -42,6 +46,7 @@ export default function Home() {
 
   return (
     <LensSettingsContext.Provider value={chat.settings}>
+      <FilesProvider>
       <div className="flex h-dvh overflow-hidden">
         <Sidebar
           sessions={chat.sessions}
@@ -55,6 +60,13 @@ export default function Home() {
             chat.newSession();
           }}
           onSettings={() => setView("settings")}
+        onMarketplace={() => setView("marketplace")}
+        marketplaceOpen={view === "marketplace"}
+        onHome={() => {
+          setTab("sessions");
+          setView("chat");
+          chat.goHome();
+        }}
           settingsOpen={view === "settings"}
           tab={tab}
           onTab={(t) => {
@@ -70,7 +82,9 @@ export default function Home() {
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
         />
-        {view === "settings" ? (
+        {view === "marketplace" ? (
+          <MarketplaceView chat={chat} onMenu={() => setSidebarOpen(true)} />
+        ) : view === "settings" ? (
           <SettingsView chat={chat} onBack={() => setView(tab === "review" ? "review" : "chat")} />
         ) : view === "review" ? (
           <ReviewView
@@ -84,8 +98,19 @@ export default function Home() {
               void chat.sendRoot(prompt, mode, undefined, [], cwd);
             }}
           />
+        ) : !chat.activeId && !chat.draft ? (
+          // Nothing open: the home dashboard (also what the app opens to).
+          <HomeView
+            chat={chat}
+            onMenu={() => setSidebarOpen(true)}
+            onNew={() => chat.newSession()}
+            onReview={() => {
+              setTab("review");
+              setView("review");
+            }}
+          />
         ) : (
-          <ChatWindow chat={chat} onMenu={() => setSidebarOpen(true)} />
+          <ChatWithFiles chat={chat} onMenu={() => setSidebarOpen(true)} />
         )}
 
         {/* Stacked sub-agent sheets. Deeper levels slide in on top; parents peek out on the left. */}
@@ -123,6 +148,30 @@ export default function Home() {
         <SelectionPopover onAsk={onAsk} />
         <UpdateBanner />
       </div>
+      </FilesProvider>
     </LensSettingsContext.Provider>
+  );
+}
+
+// The chat, with the file panel beside it when files are open (or filling the
+// space when maximized). On a phone-width window the panel covers the chat.
+function ChatWithFiles({ chat, onMenu }: { chat: ReturnType<typeof useTreeChat>; onMenu: () => void }) {
+  const files = useFiles()!;
+  const open = files.tabs.length > 0;
+  return (
+    <div className="flex min-w-0 flex-1">
+      <div className={`min-w-0 flex-1 ${open && files.maximized ? "hidden" : "flex"}`}>
+        <ChatWindow chat={chat} onMenu={onMenu} />
+      </div>
+      {open && (
+        <div
+          className={`fixed inset-0 z-40 border-l border-line md:static md:z-auto ${
+            files.maximized ? "md:flex-1" : "md:w-[46%] md:min-w-[380px] md:max-w-[900px] md:shrink-0"
+          }`}
+        >
+          <FileViewer />
+        </div>
+      )}
+    </div>
   );
 }

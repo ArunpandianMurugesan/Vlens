@@ -40,3 +40,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 data/
+
+# Mac app build output
+/.next-app/
+/next-app/
+/desktop/dist/
+/desktop/node_modules/
+/desktop/app-server/

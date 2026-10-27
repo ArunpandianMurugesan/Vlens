@@ -37,7 +37,7 @@ export async function POST(req: Request) {
   if (!MODES.has(body.mode)) return Response.json({ error: "bad mode" }, { status: 400 });
   if (body.model !== undefined && !isModel(body.model)) return Response.json({ error: "bad model" }, { status: 400 });
   const settings = await getSettings();
-  const model = [...modelArgs(body.model ?? settings.defaultModel), ...lensPluginArgs(settings)];
+  const model = [...modelArgs(body.model ?? settings.defaultModel), ...(await lensPluginArgs(settings))];
 
   if (!body.sessionId) {
     const cwd = await resolveDir(body.cwd ?? "");

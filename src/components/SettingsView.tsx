@@ -27,6 +27,7 @@ import type { TreeChat } from "@/hooks/useTreeChat";
 import { MODELS } from "@/lib/models";
 import type { Account, HookEntry, McpServer, Settings, Skill } from "@/lib/types";
 import { MermaidBlock } from "./Mermaid";
+import { WhiteboardBlock } from "./Whiteboard";
 import { ThemePicker } from "./ThemeToggle";
 
 async function post<T = unknown>(url: string, body: object): Promise<T> {
@@ -208,9 +209,17 @@ const SAMPLE = `flowchart LR
   e2@{ animate: true }
   e3@{ animate: true }`;
 
+const SAMPLE_BOARD = JSON.stringify([
+  { type: "text", x: 0, y: -60, text: "Sub-agents keep the main chat small", fontSize: 22 },
+  { type: "rectangle", id: "main", x: 0, y: 0, label: { text: "Main session" }, backgroundColor: "#a5d8ff" },
+  { type: "rectangle", id: "sub", x: 400, y: 0, label: { text: "Sub-agent" }, backgroundColor: "#ffec99" },
+  { type: "arrow", start: { id: "main" }, end: { id: "sub" }, label: { text: "a side question" } },
+  { type: "text", x: 400, y: 110, text: "its own context, so the main one doesn't grow", fontSize: 16, strokeColor: "#e03131" },
+]);
+
 function DiagramsSection({ settings, save }: { settings: Settings; save: (p: Partial<Settings>) => void }) {
   return (
-    <Section icon={Network} title="Flow diagrams" hint="Built into Lens. Mermaid diagrams in replies are drawn as real, animated diagrams.">
+    <Section icon={Network} title="Diagrams & whiteboard" hint="Built into Lens. Mermaid diagrams are drawn as animated diagrams; Excalidraw sketches as hand-drawn whiteboards you can open and draw on.">
       <Row label="Draw diagrams" hint="Show Mermaid code blocks as diagrams. Off: show them as code.">
         <Toggle label="Draw diagrams" on={settings.showDiagrams} onChange={(v) => save({ showDiagrams: v })} />
       </Row>
@@ -223,10 +232,20 @@ function DiagramsSection({ settings, save }: { settings: Settings; save: (p: Par
       >
         <Toggle label="Diagrams skill" on={settings.diagramSkill} onChange={(v) => save({ diagramSkill: v })} />
       </Row>
-      {settings.showDiagrams && (
-        <div className="border-t border-line pt-3">
-          <div className="mb-2 text-xs text-muted">Preview</div>
-          <MermaidBlock code={SAMPLE} />
+      <Row label="Draw whiteboards" hint="Show Excalidraw sketches as hand-drawn boards, and add “Open on whiteboard” to Mermaid diagrams. Off: show them as code.">
+        <Toggle label="Draw whiteboards" on={settings.showWhiteboards} onChange={(v) => save({ showWhiteboards: v })} />
+      </Row>
+      <Row
+        label="Whiteboard skill (lens:whiteboard)"
+        hint="Tells Claude to teach with a whiteboard sketch when boxes, arrows and notes explain it better. Loaded only into sessions Lens runs."
+      >
+        <Toggle label="Whiteboard skill" on={settings.whiteboardSkill} onChange={(v) => save({ whiteboardSkill: v })} />
+      </Row>
+      {(settings.showDiagrams || settings.showWhiteboards) && (
+        <div className="space-y-3 border-t border-line pt-3">
+          <div className="text-xs text-muted">Preview</div>
+          {settings.showDiagrams && <MermaidBlock code={SAMPLE} />}
+          {settings.showWhiteboards && <WhiteboardBlock code={SAMPLE_BOARD} />}
         </div>
       )}
     </Section>

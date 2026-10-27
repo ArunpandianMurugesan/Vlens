@@ -5,7 +5,9 @@ import { useEffect, useMemo, useRef } from "react";
 import type { ToolRun, TreeChat } from "@/hooks/useTreeChat";
 import type { ImageInput, SubThread } from "@/lib/types";
 import { Composer } from "./Composer";
+import { CwdContext } from "./FileContext";
 import { liveMessage, MessageBubble } from "./MessageBubble";
+import { PermissionCard } from "./PermissionCard";
 import { TerminalConsole } from "./TerminalConsole";
 
 const QUICK = ["Explain this simply", "Show me where this is in the code", "Why is it done this way?", "What could go wrong here?"];
@@ -52,6 +54,7 @@ export function SubAgentPanel({ thread, depth, chat }: Props) {
   };
 
   return (
+    <CwdContext.Provider value={thread.cwd}>
     <div className="flex h-full flex-col bg-panel">
       <header className="border-b border-line px-4 pb-3 pt-3">
         <div className="flex items-center gap-2 text-xs text-muted">
@@ -108,6 +111,7 @@ export function SubAgentPanel({ thread, depth, chat }: Props) {
             streaming={running}
           />
         )}
+        {live?.asks?.map((a) => <PermissionCard key={a.id} ask={a} />)}
         {running && !live.text && live.tools.length === 0 && (
           <div className="text-sm text-muted">Starting Claude…</div>
         )}
@@ -129,5 +133,6 @@ export function SubAgentPanel({ thread, depth, chat }: Props) {
 
       <TerminalConsole runs={runs} running={running} />
     </div>
+    </CwdContext.Provider>
   );
 }

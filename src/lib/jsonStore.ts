@@ -1,11 +1,12 @@
 import "server-only";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { DATA_DIR } from "./paths";
 
-// A small JSON file in the app's data/ folder (never in ~/.claude).
+// A small JSON file in Lens's data folder (never in ~/.claude).
 // Writes are queued so two requests don't clobber each other.
 export function jsonStore<T>(name: string, empty: () => T) {
-  const file = path.join(process.cwd(), "data", name);
+  const file = path.join(DATA_DIR, name);
   let queue: Promise<unknown> = Promise.resolve();
 
   async function load(): Promise<T> {

@@ -2,6 +2,7 @@ import "server-only";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { activeSessions } from "./active";
+import { DATA_DIR } from "./paths";
 import { setPinned } from "./pins";
 import { forgetRecent } from "./recent";
 import { findSessionFile } from "./sessions";
@@ -16,9 +17,9 @@ export async function renameSession(id: string, title: string) {
   return true;
 }
 
-const TRASH = path.join(process.cwd(), "data", "trash");
+const TRASH = path.join(DATA_DIR, "trash");
 
-// Moves a session's files out of ~/.claude into data/trash/<project>/, so a
+// Moves a session's files out of ~/.claude into Lens's trash/<project>/, so a
 // delete can be undone by moving them back.
 async function trashFiles(id: string) {
   const found = await findSessionFile(id);

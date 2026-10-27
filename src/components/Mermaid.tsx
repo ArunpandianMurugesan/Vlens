@@ -1,10 +1,11 @@
 "use client";
 
-import { Check, Code2, Copy, Maximize2, Network, X } from "lucide-react";
+import { Check, Code2, Copy, Loader2, Maximize2, Network, PenLine, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTheme } from "@/lib/theme";
 import { useLensSettings } from "./LensSettings";
+import { mermaidToElements, WhiteboardModal } from "./Whiteboard";
 
 type MermaidApi = typeof import("mermaid").default;
 
@@ -24,6 +25,18 @@ export function MermaidBlock({ code }: { code: string }) {
   const [showCode, setShowCode] = useState(false);
   const [full, setFull] = useState(false);
   const [copied, setCopied] = useState(false);
+  // "Open on whiteboard": the same diagram as editable hand-drawn shapes.
+  const [board, setBoard] = useState<readonly unknown[] | null>(null);
+  const [toBoard, setToBoard] = useState<"idle" | "busy" | "failed">("idle");
+  const openBoard = async () => {
+    setToBoard("busy");
+    try {
+      setBoard(await mermaidToElements(code));
+      setToBoard("idle");
+    } catch {
+      setToBoard("failed"); // not every Mermaid diagram type converts (flowcharts and sequences do)
+    }
+  };
   const seq = useRef(0);
 
   useEffect(() => {
@@ -88,6 +101,11 @@ export function MermaidBlock({ code }: { code: string }) {
         >
           {copied ? <Check size={13} /> : <Copy size={13} />}
         </button>
+        {settings?.showWhiteboards !== false && (
+          <button className={btn} onClick={openBoard} disabled={!svg || toBoard === "busy"} title={toBoard === "failed" ? "This kind of diagram can't open on the whiteboard" : "Open on whiteboard (edit and sketch on it)"} aria-label="Open on whiteboard">
+            {toBoard === "busy" ? <Loader2 size={13} className="animate-spin" /> : <PenLine size={13} className={toBoard === "failed" ? "opacity-40" : ""} />}
+          </button>
+        )}
         <button className={btn} onClick={() => setFull(true)} disabled={!svg} title="Full screen" aria-label="Full screen">
           <Maximize2 size={13} />
         </button>
@@ -119,6 +137,7 @@ export function MermaidBlock({ code }: { code: string }) {
           </div>,
           document.body,
         )}
+      {board && <WhiteboardModal elements={board} title="Diagram" onClose={() => setBoard(null)} />}
     </div>
   );
 }

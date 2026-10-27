@@ -5,7 +5,8 @@ export type Block =
   | { kind: "thinking"; text: string }
   | { kind: "tool_use"; id: string; name: string; input: unknown }
   | { kind: "tool_result"; toolUseId: string; text: string; isError: boolean }
-  | { kind: "image"; src?: string }; // src: a URL or data: URL to show it
+  | { kind: "image"; src?: string } // src: a URL or data: URL to show it
+  | { kind: "compact"; text: string }; // the summary the conversation was compacted into
 
 
 export interface ChatMessage {
@@ -89,6 +90,17 @@ export type AgentEvent =
   | { type: "delta"; text: string }
   | { type: "tool"; id: string; name: string; input: unknown }
   | { type: "tool_result"; toolUseId: string; text: string; isError: boolean }
+  | {
+      // Claude wants to run something that needs your OK.
+      type: "permission";
+      id: string;
+      tool: string;
+      input: unknown;
+      description: string | null;
+      reason: string | null;
+      canRemember: boolean; // the CLI offered an "always allow" rule
+    }
+  | { type: "permission_done"; id: string; decision: "allow" | "always" | "deny" }
   | { type: "done"; message: ChatMessage }
   | { type: "error"; error: string };
 
@@ -100,6 +112,8 @@ export interface Settings {
   showDiagrams: boolean; // draw ```mermaid blocks as diagrams
   animateDiagrams: boolean; // animate every arrow, not just the ones marked animate
   diagramSkill: boolean; // load the built-in lens:diagrams skill into Lens runs
+  showWhiteboards: boolean; // draw ```excalidraw blocks as whiteboards
+  whiteboardSkill: boolean; // load the built-in lens:whiteboard skill into Lens runs
 }
 
 // A CLI session whose process stopped without closing normally (crash, reboot).
@@ -208,4 +222,80 @@ export interface PrDetail {
   checks: { name: string; state: string; url: string | null }[];
   comments: number;
   mergeState: string | null;
+}
+
+// ── Home dashboard ──
+
+export interface DayStats {
+  prompts: number; // messages you sent
+  replies: number; // model calls
+  toolCalls: number;
+  tokensSent: number; // context sent with each reply, summed (what long sessions burn)
+  tokensWritten: number; // tokens Claude wrote
+}
+
+export interface HeavySession {
+  id: string;
+  title: string;
+  projectName: string;
+  cwd: string | null;
+  active: boolean;
+  activeWhere: "cli" | "desktop" | null;
+  used: number; // tokens sent with its latest reply
+  window: number;
+  estimated: boolean;
+  replies: number;
+  compactions: number;
+  updatedAt: string;
+}
+
+export interface DashboardData {
+  account: Account;
+  limits: Limits;
+  counts: { sessions: number; active: number; thisWeek: number; compactions: number };
+  days: { date: string; stats: DayStats }[]; // last 14 days, oldest first
+  heavy: HeavySession[];
+  autoCompact: boolean; // the CLI compacts on its own when the window fills
+}
+
+// ── Marketplace ──
+
+export interface Marketplace {
+  name: string;
+  source: string; // owner/repo, URL or path it was added from
+  location: string | null; // local copy of its catalog
+}
+
+export interface MarketplacePlugin {
+  id: string; // name@marketplace
+  name: string;
+  marketplace: string;
+  description: string;
+  version: string | null;
+  installCount: number | null;
+  installs: { scope: string; enabled: boolean; version: string | null; project: string | null }[];
+}
+
+export interface PluginDetail {
+  id: string;
+  inventory: string | null; // the CLI's `plugin details` text
+  alwaysOnTokens: number | null; // added to every session's context
+  skills: { name: string; description: string }[];
+  readme: string | null;
+}
+
+// ── File viewer ──
+
+export interface FileView {
+  path: string; // absolute
+  name: string;
+  home: string; // to show paths as ~/…
+  mtime: string | null;
+  kind: "text" | "image" | "dir" | "binary" | "too-big" | "missing";
+  size?: number;
+  lang?: string;
+  text?: string;
+  lines?: number;
+  html?: string; // highlighted, one .line per line with data-line="n"
+  entries?: { name: string; dir: boolean }[];
 }

@@ -21,10 +21,31 @@ export interface ToolRun {
   result?: { text: string; isError: boolean };
 }
 
+// Claude asking before it runs something that needs approval.
+export interface PermissionAsk {
+  id: string;
+  tool: string;
+  input: unknown;
+  description: string | null;
+  reason: string | null;
+  canRemember: boolean;
+}
+
 export interface LiveRun {
   text: string;
   tools: ToolRun[];
+  asks?: PermissionAsk[];
   error?: string;
+}
+
+// Your answer to a permission question; the run continues once it lands.
+export async function answerPermission(id: string, decision: "allow" | "always" | "deny") {
+  const res = await fetch("/api/permission", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, decision }),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? res.statusText);
 }
 
 // Where a new sub-thread is spawned from.
@@ -81,6 +102,14 @@ async function readRun(
         case "done":
           on.done(ev.message);
           break;
+        case "permission": {
+          const ask: PermissionAsk = { id: ev.id, tool: ev.tool, input: ev.input, description: ev.description, reason: ev.reason, canRemember: ev.canRemember };
+          patch((r) => ({ ...r, asks: [...(r.asks ?? []), ask] }));
+          break;
+        }
+        case "permission_done":
+          patch((r) => ({ ...r, asks: (r.asks ?? []).filter((a) => a.id !== ev.id) }));
+          break;
         case "error":
           patch((r) => ({ ...r, error: ev.error }));
           break;
@@ -103,6 +132,8 @@ function without<T>(rec: Record<string, T>, key: string) {
 export function useTreeChat() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const activeIdRef = useRef<string | null>(null);
+  activeIdRef.current = activeId;
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [loadingSession, setLoadingSession] = useState(false);
   const [threads, setThreads] = useState<Record<string, SubThread>>({});
@@ -273,7 +304,20 @@ export function useTreeChat() {
   }, [activeId]);
 
   const selectSession = useCallback((id: string) => {
+    // Clicking the session that's already open: keep it (clearing it here would
+    // leave the chat blank, since the loader only runs when the id changes).
+    if (id === activeIdRef.current) return;
     setActiveId(id);
+    setSession(null);
+    setStack([]);
+    setThreads({});
+    setRootPending(null);
+    setDraft(null);
+  }, []);
+
+  // Back to the home dashboard: nothing open.
+  const goHome = useCallback(() => {
+    setActiveId(null);
     setSession(null);
     setStack([]);
     setThreads({});
@@ -504,6 +548,7 @@ export function useTreeChat() {
     setDraft,
     ownWrite,
     newSession,
+    goHome,
     sendRoot,
     renameSession,
     limits,
