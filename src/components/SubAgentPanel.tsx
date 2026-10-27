@@ -1,23 +1,14 @@
 "use client";
 
-import { ArrowUp, CornerDownRight, Layers, Square, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { LiveRun, ToolRun, TreeChat } from "@/hooks/useTreeChat";
-import type { Block, ChatMessage, SubThread } from "@/lib/types";
-import { MessageBubble } from "./MessageBubble";
+import { CornerDownRight, Layers, X } from "lucide-react";
+import { useEffect, useMemo, useRef } from "react";
+import type { ToolRun, TreeChat } from "@/hooks/useTreeChat";
+import type { ImageInput, SubThread } from "@/lib/types";
+import { Composer } from "./Composer";
+import { liveMessage, MessageBubble } from "./MessageBubble";
 import { TerminalConsole } from "./TerminalConsole";
 
 const QUICK = ["Explain this simply", "Show me where this is in the code", "Why is it done this way?", "What could go wrong here?"];
-
-function liveMessage(run: LiveRun, parentId: string): ChatMessage {
-  const blocks: Block[] = [];
-  if (run.text) blocks.push({ kind: "text", text: run.text });
-  for (const t of run.tools) {
-    blocks.push({ kind: "tool_use", id: t.id, name: t.name, input: t.input });
-    if (t.result) blocks.push({ kind: "tool_result", toolUseId: t.id, ...t.result });
-  }
-  return { id: "live", parentId, role: "sub-agent", blocks, timestamp: new Date().toISOString() };
-}
 
 interface Props {
   thread: SubThread;
@@ -27,7 +18,6 @@ interface Props {
 
 export function SubAgentPanel({ thread, depth, chat }: Props) {
   const live = chat.live[thread.id];
-  const [input, setInput] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const active = new Set(chat.stack);
@@ -57,11 +47,8 @@ export function SubAgentPanel({ thread, depth, chat }: Props) {
     return live ? [...out, ...live.tools] : out;
   }, [thread.messages, live]);
 
-  const submit = (text: string) => {
-    const t = text.trim();
-    if (!t || running) return;
-    chat.send(thread.id, t);
-    setInput("");
+  const submit = (text: string, images: ImageInput[] = []) => {
+    if (!running) chat.send(thread.id, text, images);
   };
 
   return (
@@ -130,40 +117,14 @@ export function SubAgentPanel({ thread, depth, chat }: Props) {
       </div>
 
       <div className="px-3 pb-3 pt-1">
-        <div className="flex items-end gap-2 rounded-2xl border border-line bg-bg px-3 py-2 focus-within:border-accent">
-          <textarea
-            ref={inputRef}
-            value={input}
-            rows={1}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submit(input);
-              }
-            }}
-            placeholder={thread.messages.length ? "Follow up…" : "Ask about this snippet…"}
-            className="max-h-40 flex-1 resize-none bg-transparent py-1 text-sm outline-none placeholder:text-muted"
-          />
-          {running ? (
-            <button
-              onClick={() => chat.stop(thread.id)}
-              className="flex h-7 w-7 items-center justify-center rounded-full bg-ink text-bg"
-              aria-label="Stop"
-            >
-              <Square size={11} fill="currentColor" />
-            </button>
-          ) : (
-            <button
-              onClick={() => submit(input)}
-              disabled={!input.trim()}
-              className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-white disabled:opacity-40"
-              aria-label="Send"
-            >
-              <ArrowUp size={15} />
-            </button>
-          )}
-        </div>
+        <Composer
+          inputRef={inputRef}
+          placeholder={thread.messages.length ? "Follow up…" : "Ask about this snippet…"}
+          running={running}
+          onSend={submit}
+          onStop={() => chat.stop(thread.id)}
+          cwd={thread.cwd}
+        />
       </div>
 
       <TerminalConsole runs={runs} running={running} />

@@ -3,7 +3,10 @@ import "server-only";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { Block, ChatMessage, SessionDetail, SessionSummary } from "./types";
+import type { Block, ChatMessage, ContextUsage, SessionDetail, SessionSummary } from "./types";
+import { activeSessions } from "./active";
+import { contextWindowFor, getLimits } from "./limits";
+import { pinnedIds } from "./pins";
 import { subThreadSessionIds } from "./threads";
 
 export const PROJECTS_DIR = path.join(os.homedir(), ".claude", "projects");
@@ -38,6 +41,23 @@ function isNoise(text: string) {
   );
 }
 
+// A slash command you ran is stored as <command-name>/x</command-name> plus
+// <command-args>; show it as you typed it.
+function commandText(text: string): string | null {
+  const name = text.match(/<command-name>([^<]*)<\/command-name>/)?.[1]?.trim();
+  if (!name) return null;
+  const args = text.match(/<command-args>([\s\S]*?)<\/command-args>/)?.[1]?.trim();
+  return `${name.startsWith("/") ? name : `/${name}`}${args ? ` ${args}` : ""}`;
+}
+
+// What a slash command printed, from a `system/local_command` line.
+function commandOutput(content: unknown): string | null {
+  if (typeof content !== "string") return null;
+  const out = content.match(/<local-command-std(?:out|err)>([\s\S]*?)<\/local-command-std(?:out|err)>/g);
+  const text = (out ?? []).map((t) => t.replace(/<\/?local-command-std(?:out|err)>/g, "")).join("\n").trim();
+  return text || null;
+}
+
 // `!cmd` turns in the CLI are stored as <bash-input>/<bash-stdout> tags; show them as a shell block.
 function shellToMarkdown(text: string) {
   if (!text.includes("<bash-")) return text;
@@ -49,15 +69,21 @@ function shellToMarkdown(text: string) {
   return "```\n" + lines.join("\n") + "\n```";
 }
 
-function toBlocks(content: unknown): Block[] {
-  if (typeof content === "string")
+// imageSrc(n) gives the URL for the n-th image in this content, if we can serve it.
+function toBlocks(content: unknown, imageSrc?: (n: number) => string): Block[] {
+  let images = 0;
+  if (typeof content === "string") {
+    const cmd = commandText(content);
+    if (cmd) return [{ kind: "text", text: cmd }];
     return isNoise(content) ? [] : [{ kind: "text", text: shellToMarkdown(content) }];
+  }
   if (!Array.isArray(content)) return [];
   const out: Block[] = [];
   for (const c of content) {
     switch (c?.type) {
       case "text":
-        if (c.text && !isNoise(c.text)) out.push({ kind: "text", text: shellToMarkdown(c.text) });
+        if (c.text && commandText(c.text)) out.push({ kind: "text", text: commandText(c.text)! });
+        else if (c.text && !isNoise(c.text)) out.push({ kind: "text", text: shellToMarkdown(c.text) });
         break;
       case "thinking":
         if (c.thinking) out.push({ kind: "thinking", text: c.thinking });
@@ -74,7 +100,7 @@ function toBlocks(content: unknown): Block[] {
         });
         break;
       case "image":
-        out.push({ kind: "image" });
+        out.push({ kind: "image", src: imageSrc?.(images++) });
         break;
     }
   }
@@ -86,13 +112,15 @@ interface Parsed {
   cwd: string | null;
   firstPrompt: string | null;
   messages: ChatMessage[];
+  context: { used: number; model: string | null } | null; // at the last reply
 }
 
-function parseJsonl(raw: string, withMessages: boolean): Parsed {
+function parseJsonl(raw: string, withMessages: boolean, sessionId?: string): Parsed {
   let aiTitle: string | null = null;
   let customTitle: string | null = null;
   let cwd: string | null = null;
   let firstPrompt: string | null = null;
+  let context: Parsed["context"] = null;
   const messages: ChatMessage[] = [];
 
   for (const line of raw.split("\n")) {
@@ -106,17 +134,33 @@ function parseJsonl(raw: string, withMessages: boolean): Parsed {
     if (d.type === "ai-title") aiTitle = d.aiTitle;
     else if (d.type === "custom-title") customTitle = d.customTitle;
     if (!cwd && d.cwd) cwd = d.cwd;
+    // A slash command's printed output (e.g. /context) is its own line type.
+    if (withMessages && d.type === "system" && d.subtype === "local_command" && !d.isSidechain) {
+      const text = commandOutput(d.content);
+      if (text && d.uuid)
+        messages.push({ id: d.uuid, parentId: d.parentUuid ?? null, role: "assistant", blocks: [{ kind: "text", text }], timestamp: d.timestamp });
+      continue;
+    }
     if ((d.type !== "user" && d.type !== "assistant") || d.isSidechain || d.isMeta) continue;
 
     const content = d.message?.content;
+    // Tokens sent with the last reply = how much of the context window is in use.
+    const u = d.type === "assistant" ? d.message?.usage : null;
+    if (u) {
+      const used = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+      if (used > 0) context = { used, model: d.message.model ?? null };
+    }
     if (!firstPrompt && d.type === "user") {
       const isToolResult = Array.isArray(content) && content.some((c: any) => c?.type === "tool_result");
       const t = textOf(content);
-      if (t && !isNoise(t) && !isToolResult) firstPrompt = t;
+      if (t && !isToolResult) firstPrompt = commandText(t) ?? (isNoise(t) ? null : t);
     }
     if (!withMessages) continue;
 
-    const blocks = toBlocks(content);
+    const blocks = toBlocks(
+      content,
+      sessionId && d.uuid ? (n) => `/api/sessions/${sessionId}/image?m=${d.uuid}&i=${n}` : undefined,
+    );
     if (!blocks.length) continue;
     messages.push({
       id: d.uuid,
@@ -131,6 +175,7 @@ function parseJsonl(raw: string, withMessages: boolean): Parsed {
     title: customTitle ?? aiTitle,
     cwd,
     firstPrompt,
+    context,
     messages: withMessages ? mergeAssistantTurns(messages) : [],
   };
 }
@@ -152,9 +197,13 @@ function mergeAssistantTurns(messages: ChatMessage[]): ChatMessage[] {
   return out;
 }
 
+function withWindow(c: { used: number; model: string | null }, known: Record<string, number>): ContextUsage {
+  return { used: c.used, model: c.model, ...contextWindowFor(c.model, c.used, known) };
+}
+
 function summaryTitle(p: Parsed) {
   if (p.title) return p.title;
-  if (p.firstPrompt) return p.firstPrompt.replace(/\s+/g, " ").slice(0, 80);
+  if (p.firstPrompt) return p.firstPrompt.replace(/\s+/g, " ").trim().slice(0, 80);
   return "Untitled session";
 }
 
@@ -162,7 +211,12 @@ function summaryTitle(p: Parsed) {
 const summaryCache = new Map<string, { mtimeMs: number; summary: SessionSummary | null }>();
 
 export async function listSessions(): Promise<SessionSummary[]> {
-  const hidden = await subThreadSessionIds();
+  const [hidden, active, pins, limits] = await Promise.all([
+    subThreadSessionIds(),
+    activeSessions(),
+    pinnedIds(),
+    getLimits(),
+  ]);
   let dirs: string[] = [];
   try {
     dirs = await fs.readdir(PROJECTS_DIR);
@@ -206,6 +260,7 @@ export async function listSessions(): Promise<SessionSummary[]> {
                   title: summaryTitle(p),
                   updatedAt: stat.mtime.toISOString(),
                   messageCount,
+                  context: p.context ? { ...p.context, window: 0, estimated: true } : undefined, // window filled in below
                 };
           summaryCache.set(fp, { mtimeMs: stat.mtimeMs, summary });
           if (summary) results.push(summary);
@@ -214,10 +269,20 @@ export async function listSessions(): Promise<SessionSummary[]> {
     }),
   );
 
-  return results.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return results
+    .map((s) => {
+      const run = active.get(s.id);
+      return {
+        ...s,
+        active: run && { status: run.status, entrypoint: run.entrypoint, startedAt: run.startedAt },
+        pinOrder: pins.includes(s.id) ? pins.indexOf(s.id) : undefined,
+        context: s.context && withWindow(s.context, limits.contextWindows),
+      };
+    })
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-async function findSessionFile(id: string): Promise<{ dir: string; file: string } | null> {
+export async function findSessionFile(id: string): Promise<{ dir: string; file: string } | null> {
   if (!/^[0-9a-f-]{36}$/.test(id)) return null;
   const dirs = await fs.readdir(PROJECTS_DIR);
   for (const dir of dirs) {
@@ -234,7 +299,8 @@ export async function getSession(id: string): Promise<SessionDetail | null> {
   const found = await findSessionFile(id);
   if (!found) return null;
   const [raw, stat] = await Promise.all([fs.readFile(found.file, "utf8"), fs.stat(found.file)]);
-  const p = parseJsonl(raw, true);
+  const p = parseJsonl(raw, true, id);
+  const { contextWindows } = await getLimits();
   return {
     id,
     projectDir: found.dir,
@@ -244,5 +310,6 @@ export async function getSession(id: string): Promise<SessionDetail | null> {
     updatedAt: stat.mtime.toISOString(),
     messageCount: p.messages.length,
     messages: p.messages,
+    context: p.context ? withWindow(p.context, contextWindows) : undefined,
   };
 }

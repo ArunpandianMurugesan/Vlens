@@ -2,7 +2,7 @@
 
 import { Bot, Brain, ChevronRight, CornerDownRight, Sparkles, Terminal, XCircle } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import type { ToolRun } from "@/hooks/useTreeChat";
+import type { LiveRun, ToolRun } from "@/hooks/useTreeChat";
 import { useSnippetHighlights } from "@/lib/highlight";
 import type { Block, ChatMessage, SubThread } from "@/lib/types";
 import { Markdown } from "./Markdown";
@@ -12,6 +12,17 @@ export function messageText(m: ChatMessage) {
     .filter((b): b is Extract<Block, { kind: "text" }> => b.kind === "text")
     .map((b) => b.text)
     .join("\n\n");
+}
+
+// The in-progress reply, shaped like a message so it renders the same way.
+export function liveMessage(run: LiveRun, parentId: string, role: ChatMessage["role"] = "sub-agent"): ChatMessage {
+  const blocks: Block[] = [];
+  if (run.text) blocks.push({ kind: "text", text: run.text });
+  for (const t of run.tools) {
+    blocks.push({ kind: "tool_use", id: t.id, name: t.name, input: t.input });
+    if (t.result) blocks.push({ kind: "tool_result", toolUseId: t.id, ...t.result });
+  }
+  return { id: "live", parentId, role, blocks, timestamp: new Date().toISOString() };
 }
 
 // One-line preview of a tool call, like the CLI shows it.
@@ -135,9 +146,21 @@ export function MessageBubble({
           data-ctx={ctx}
           className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-user px-4 py-2.5 text-[0.95rem] leading-relaxed"
         >
-          {message.blocks.map((b, i) =>
-            b.kind === "text" ? <span key={i}>{b.text}</span> : b.kind === "image" ? <em key={i} className="text-muted">[image] </em> : null,
+          {message.blocks.some((b) => b.kind === "image") && (
+            <div className="mb-1.5 flex flex-wrap justify-end gap-1.5" data-no-select>
+              {message.blocks.map((b, i) =>
+                b.kind !== "image" ? null : b.src ? (
+                  <a key={i} href={b.src} target="_blank" rel="noreferrer">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- served from the session file */}
+                    <img src={b.src} alt="Attached image" className="max-h-40 max-w-56 rounded-lg object-cover" loading="lazy" />
+                  </a>
+                ) : (
+                  <em key={i} className="text-muted">[image]</em>
+                ),
+              )}
+            </div>
           )}
+          {message.blocks.map((b, i) => (b.kind === "text" ? <span key={i}>{b.text}</span> : null))}
         </div>
       </div>
     );
