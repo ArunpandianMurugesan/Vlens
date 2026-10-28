@@ -3,8 +3,9 @@ import "server-only";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
+import { trackRun } from "./lensRuns";
 import { recordEvent } from "./limits";
-import { type Decision, settle, waitForDecision } from "./permissions";
+import { settle, waitForDecision } from "./permissions";
 import type { AgentEvent, Block, ChatMessage, ImageInput } from "./types";
 
 interface Options {
@@ -22,6 +23,27 @@ interface Options {
 
 // Runs `claude -p` with streaming JSON output and relays it to the browser as
 // newline-delimited AgentEvents.
+
+// What "always allow" would save, worded like the terminal's option. The CLI only
+// offers this for some prompts; for safety checks (like `cd` before `git`) it
+// doesn't, and the terminal then shows just Yes / No too.
+function alwaysLabel(suggestions: unknown): string | null {
+  if (!Array.isArray(suggestions) || !suggestions.length) return null;
+  const where = (d?: string) =>
+    d === "session" ? " this session" : d === "userSettings" ? " in every project" : d === "projectSettings" ? " in this project (shared)" : " in this project";
+  const parts = suggestions.map((s: any) => {
+    if (s.type === "addRules" && Array.isArray(s.rules)) {
+      const rules = s.rules.map((r: any) => (r.ruleContent ? `${r.toolName}(${r.ruleContent})` : r.toolName)).join(", ");
+      return `don't ask again for ${rules}${where(s.destination)}`;
+    }
+    if (s.type === "setMode" && s.mode === "acceptEdits") return "allow all edits this session";
+    if (s.type === "addDirectories" && Array.isArray(s.directories)) return `always allow access to ${s.directories.join(", ")}${where(s.destination)}`;
+    return null;
+  });
+  const text = parts.filter(Boolean).join("; ");
+  return text ? text[0].toUpperCase() + text.slice(1) : "Always allow";
+}
+
 export function streamClaude(o: Options): Response {
   // stream-json input lets one message carry text and images; slash commands still work.
   const args = [
@@ -59,6 +81,7 @@ export function streamClaude(o: Options): Response {
       if (o.first) send(o.first);
 
       const child = spawn("claude", args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+      trackRun(child);
       // stdin stays open so we can answer permission questions; it's closed on "result".
       const write = (msg: unknown) => {
         if (!child.stdin.writableEnded) child.stdin.write(JSON.stringify(msg) + "\n");
@@ -94,6 +117,41 @@ export function streamClaude(o: Options): Response {
         const r = ev.request;
         const id: string = ev.request_id;
         asked.add(id);
+        // Claude asking you something (AskUserQuestion): Lens shows the choices, and your
+        // picks go back as the tool's `answers`, like choosing them in the terminal.
+        if (r.tool_name === "AskUserQuestion") {
+          send({ type: "permission", id, tool: r.tool_name, input: r.input, description: null, reason: null, always: null, questions: r.input?.questions ?? [] });
+          const reply = await waitForDecision(id);
+          asked.delete(id);
+          send({ type: "permission_done", id, decision: typeof reply === "object" && "answers" in reply ? "allow" : "deny" });
+          const response =
+            typeof reply === "object" && "answers" in reply
+              ? { behavior: "allow", updatedInput: { ...r.input, answers: reply.answers } }
+              : { behavior: "deny", message: "The user skipped the question in Claude Lens." };
+          write({ type: "control_response", response: { subtype: "success", request_id: id, response } });
+          return;
+        }
+        // Claude is done planning (ExitPlanMode): show the plan, like the terminal's
+        // "Would you like to proceed?" with the mode to carry on in.
+        if (r.tool_name === "ExitPlanMode") {
+          send({ type: "permission", id, tool: r.tool_name, input: r.input, description: null, reason: null, always: null, plan: String(r.input?.plan ?? "") });
+          const reply = await waitForDecision(id);
+          asked.delete(id);
+          const mode = typeof reply === "object" && "approve" in reply ? reply.approve : null;
+          const feedback = typeof reply === "object" && "deny" in reply ? reply.deny : null;
+          send({ type: "permission_done", id, decision: mode ? "allow" : "deny", ...(mode ? { mode } : {}) });
+          const response = mode
+            ? { behavior: "allow", updatedInput: r.input, updatedPermissions: [{ type: "setMode", mode, destination: "session" }] }
+            : {
+                behavior: "deny",
+                message: feedback
+                  ? `The user doesn't want to proceed with this plan yet. Keep planning. The user said: ${feedback}`
+                  : "The user doesn't want to proceed with this tool use. The tool use was rejected. STOP what you are doing and wait for the user to tell you how to proceed.",
+                ...(feedback ? {} : { interrupt: true }),
+              };
+          write({ type: "control_response", response: { subtype: "success", request_id: id, response } });
+          return;
+        }
         send({
           type: "permission",
           id,
@@ -101,14 +159,23 @@ export function streamClaude(o: Options): Response {
           input: r.input,
           description: r.description ?? null,
           reason: r.decision_reason ?? null,
-          canRemember: Array.isArray(r.permission_suggestions) && r.permission_suggestions.length > 0,
+          always: alwaysLabel(r.permission_suggestions),
         });
-        const d: Decision = await waitForDecision(id);
+        const reply = await waitForDecision(id);
+        const feedback = typeof reply === "object" && "deny" in reply ? reply.deny : null;
+        const d = typeof reply === "string" ? reply : feedback !== null ? "deny" : "allow";
         asked.delete(id);
         send({ type: "permission_done", id, decision: d });
         const response =
           d === "deny"
-            ? { behavior: "deny", message: "The user denied this in Claude Lens." }
+            ? {
+                behavior: "deny",
+                // Same wording the terminal gives Claude, so it changes course instead of retrying.
+                message: feedback
+                  ? `The user doesn't want to proceed with this tool use. The tool use was rejected. The user said: ${feedback}`
+                  : "The user doesn't want to proceed with this tool use. The tool use was rejected. STOP what you are doing and wait for the user to tell you how to proceed.",
+                ...(feedback ? {} : { interrupt: true }),
+              }
             : {
                 behavior: "allow",
                 updatedInput: r.input,
@@ -197,6 +264,7 @@ export function runClaudeOnce(o: { prompt: string; args: string[]; cwd: string |
   delete env.CLAUDECODE;
   return new Promise((resolve) => {
     const child = spawn("claude", ["-p", "--output-format", "stream-json", "--verbose", ...o.args], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    trackRun(child);
     child.stdin.end(o.prompt);
     let buf = "";
     let result: any = null;

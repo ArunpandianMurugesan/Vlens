@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { isLensRun } from "./lensRuns";
 import type { ActiveInfo } from "./types";
 
 // Each running Claude Code process writes ~/.claude/sessions/<pid>.json with its
@@ -36,6 +37,7 @@ export async function activeSessions(): Promise<Map<string, Running>> {
             status: d.status === "busy" ? "busy" : "idle",
             entrypoint: d.entrypoint === "claude-desktop" ? "desktop" : "cli",
             startedAt: typeof d.startedAt === "number" ? d.startedAt : 0,
+            byLens: isLensRun(d.pid) || undefined,
           });
         } catch {}
       }),

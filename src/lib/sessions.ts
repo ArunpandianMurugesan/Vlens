@@ -282,7 +282,7 @@ export async function listSessions(): Promise<SessionSummary[]> {
       const run = active.get(s.id);
       return {
         ...s,
-        active: run && { status: run.status, entrypoint: run.entrypoint, startedAt: run.startedAt },
+        active: run && { status: run.status, entrypoint: run.entrypoint, startedAt: run.startedAt, byLens: run.byLens },
         pinOrder: pins.includes(s.id) ? pins.indexOf(s.id) : undefined,
         recentAt: recent.get(s.id),
         context: s.context && withWindow(s.context, limits.contextWindows),

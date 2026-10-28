@@ -16,6 +16,7 @@ import {
   Power,
   Search,
   Settings as SettingsIcon,
+  SquareTerminal,
   Store,
   Trash2,
   X,
@@ -491,6 +492,11 @@ function SessionItem({
     setConfirm(null);
   };
 
+  const toTerminal = async () => {
+    const res = await fetch(`/api/sessions/${s.id}/terminal`, { method: "POST" });
+    if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "Couldn't open the terminal.");
+  };
+
   const saveName = async () => {
     setRenaming(false);
     const t = name.trim();
@@ -600,6 +606,16 @@ function SessionItem({
               {s.recentAt && !s.active && s.pinOrder === undefined && (
                 <button className={menuItem} onClick={() => act(() => actions.forgetRecent(s.id))}>
                   <X size={13} /> Remove from Recent
+                </button>
+              )}
+              {(!s.active || s.active.byLens) && (
+                <button
+                  className={menuItem}
+                  disabled={!!s.active}
+                  title={s.active ? "Wait for Lens's reply to finish (or stop it) first" : "Opens claude --resume in Terminal or iTerm"}
+                  onClick={() => act(toTerminal)}
+                >
+                  <SquareTerminal size={13} /> Continue in terminal
                 </button>
               )}
               {s.active && (

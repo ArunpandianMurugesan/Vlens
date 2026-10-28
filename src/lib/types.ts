@@ -1,3 +1,4 @@
+import type { PermissionMode } from "./modes";
 // Shared types between the API routes and the UI.
 
 export type Block =
@@ -62,6 +63,7 @@ export interface ActiveInfo {
   status: "busy" | "idle"; // busy = working on a reply
   entrypoint: "cli" | "desktop";
   startedAt: number; // when the process started; gives the sidebar a stable order
+  byLens?: boolean; // a `claude -p` run Lens itself started (not a terminal or the desktop app)
 }
 
 export interface SessionDetail extends SessionSummary {
@@ -98,9 +100,11 @@ export type AgentEvent =
       input: unknown;
       description: string | null;
       reason: string | null;
-      canRemember: boolean; // the CLI offered an "always allow" rule
+      always: string | null; // what "always allow" would save, when the CLI offers it
+      questions?: Question[]; // set when Claude is asking you something (AskUserQuestion)
+      plan?: string; // set when Claude wants to leave plan mode (ExitPlanMode)
     }
-  | { type: "permission_done"; id: string; decision: "allow" | "always" | "deny" }
+  | { type: "permission_done"; id: string; decision: "allow" | "always" | "deny"; mode?: PermissionMode } // mode: the plan was approved in this mode
   | { type: "done"; message: ChatMessage }
   | { type: "error"; error: string };
 
@@ -114,6 +118,8 @@ export interface Settings {
   diagramSkill: boolean; // load the built-in lens:diagrams skill into Lens runs
   showWhiteboards: boolean; // draw ```excalidraw blocks as whiteboards
   whiteboardSkill: boolean; // load the built-in lens:whiteboard skill into Lens runs
+  onboarded: boolean; // went through Get started once
+  cliMode?: PermissionMode; // read-only: the mode your terminal claude starts in (~/.claude/settings.json)
 }
 
 // A CLI session whose process stopped without closing normally (crash, reboot).
@@ -298,4 +304,20 @@ export interface FileView {
   lines?: number;
   html?: string; // highlighted, one .line per line with data-line="n"
   entries?: { name: string; dir: boolean }[];
+}
+
+// One question from Claude's AskUserQuestion tool.
+export interface Question {
+  question: string;
+  header?: string;
+  options: { label: string; description?: string }[];
+  multiSelect?: boolean;
+}
+
+// What Get started checks: the tools Lens runs, and who they're signed in as.
+export interface SetupStatus {
+  claude: { installed: boolean; version: string | null };
+  account: Account;
+  gh: { installed: boolean; user: string | null }; // optional: only Lens Review needs it
+  onboarded: boolean;
 }

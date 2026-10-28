@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChatWindow } from "@/components/ChatWindow";
 import { messageText } from "@/components/MessageBubble";
 import { type Picked, SelectionPopover } from "@/components/SelectionPopover";
@@ -17,6 +17,8 @@ import { MarketplaceView } from "@/components/MarketplaceView";
 import { LensSettingsContext } from "@/components/LensSettings";
 import { useReview } from "@/hooks/useReview";
 import { useTreeChat } from "@/hooks/useTreeChat";
+import { GetStarted, needsSetup } from "@/components/GetStarted";
+import type { SetupStatus } from "@/lib/types";
 
 // How far each panel underneath peeks out to the left of the one on top.
 const PEEK = 28;
@@ -27,6 +29,14 @@ export default function Home() {
   const [view, setView] = useState<"chat" | "settings" | "review" | "marketplace">("chat");
   const [tab, setTab] = useState<"sessions" | "review">("sessions");
   const review = useReview();
+  // First launch, or Claude Code missing / signed out: show Get started over the app.
+  const [setup, setSetup] = useState<SetupStatus | null>(null);
+  useEffect(() => {
+    fetch("/api/setup")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s: SetupStatus | null) => s && needsSetup(s) && setSetup(s))
+      .catch(() => {});
+  }, []);
 
   const onAsk = (p: Picked) => {
     if (p.ctx === "live") return; // still streaming; wait for the final message
@@ -46,6 +56,7 @@ export default function Home() {
 
   return (
     <LensSettingsContext.Provider value={chat.settings}>
+      {setup && <GetStarted initial={setup} onDone={() => setSetup(null)} />}
       <FilesProvider>
       <div className="flex h-dvh overflow-hidden">
         <Sidebar

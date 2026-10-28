@@ -11,7 +11,8 @@ export interface Picked {
 }
 
 // Watches text selection anywhere on the page. When it sits inside a single
-// message, shows an "Ask Sub-Agent" button next to it.
+// message of the main chat, shows an "Ask Sub-Agent" button next to it.
+// Sub-agents go one level deep: text in a sub-agent's reply doesn't spawn another.
 export function SelectionPopover({ onAsk }: { onAsk: (p: Picked) => void }) {
   const [state, setState] = useState<(Picked & { x: number; y: number }) | null>(null);
 
@@ -25,7 +26,7 @@ export function SelectionPopover({ onAsk }: { onAsk: (p: Picked) => void }) {
         (n instanceof Element ? n : n?.parentElement)?.closest<HTMLElement>("[data-msg]") ?? null;
       const a = host(range.startContainer);
       const b = host(range.endContainer);
-      if (!a || a !== b) return setState(null);
+      if (!a || a !== b || a.dataset.ctx !== "root") return setState(null);
       const rect = range.getBoundingClientRect();
       setState({
         ctx: a.dataset.ctx!,

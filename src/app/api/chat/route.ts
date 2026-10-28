@@ -1,20 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { streamClaude } from "@/lib/runClaude";
+import { activeSessions } from "@/lib/active";
 import { resolveDir } from "@/lib/folders";
 import { parseImages } from "@/lib/images";
 import { isModel, modelArgs } from "@/lib/models";
 import { markRecent } from "@/lib/recent";
 import { getSession } from "@/lib/sessions";
 import { lensPluginArgs } from "@/lib/lensPlugin";
+import { isPermissionMode } from "@/lib/modes";
 import { getSettings } from "@/lib/settings";
 import type { ChatMessage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// "plan" = read-only, "acceptEdits" = may edit files. Bash and other tools follow
-// the project's own permission settings, since there's no one to answer a prompt.
-const MODES = new Set(["plan", "acceptEdits"]);
 
 interface Body {
   sessionId?: string; // continue this session...
@@ -34,7 +33,7 @@ export async function POST(req: Request) {
   if ("error" in parsed) return Response.json({ error: parsed.error }, { status: 400 });
   const { images } = parsed;
   if (!body.prompt?.trim() && !images.length) return Response.json({ error: "prompt required" }, { status: 400 });
-  if (!MODES.has(body.mode)) return Response.json({ error: "bad mode" }, { status: 400 });
+  if (!isPermissionMode(body.mode)) return Response.json({ error: "bad mode" }, { status: 400 });
   if (body.model !== undefined && !isModel(body.model)) return Response.json({ error: "bad model" }, { status: 400 });
   const settings = await getSettings();
   const model = [...modelArgs(body.model ?? settings.defaultModel), ...(await lensPluginArgs(settings))];
@@ -63,6 +62,15 @@ export async function POST(req: Request) {
 
   const session = await getSession(body.sessionId);
   if (!session) return Response.json({ error: "session not found" }, { status: 404 });
+  // The claude running in a terminal (or the desktop app) holds this conversation
+  // in memory and never re-reads the file, so a reply from here wouldn't reach
+  // it and would fork the history. One place types at a time.
+  const run = (await activeSessions()).get(session.id);
+  if (run && !run.byLens)
+    return Response.json(
+      { error: `This session is open in ${run.entrypoint === "desktop" ? "the desktop app" : "a terminal"}. Type there, or take it over in Lens.` },
+      { status: 409 },
+    );
   await markRecent(session.id);
 
   return streamClaude({

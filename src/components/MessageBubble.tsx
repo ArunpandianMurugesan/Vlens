@@ -8,6 +8,8 @@ import type { Block, ChatMessage, SubThread } from "@/lib/types";
 import { FILE_TOOLS, FileChip } from "./FileChip";
 import { useCwd, useFiles } from "./FileContext";
 import { Markdown } from "./Markdown";
+import { PlanRecord } from "./PlanCard";
+import { QuestionRecord } from "./QuestionCard";
 
 export function messageText(m: ChatMessage) {
   return m.blocks
@@ -226,7 +228,17 @@ export function MessageBubble({
               <Thinking key={i} text={p.text} />
             ) : (
               <div key={i} className="space-y-1.5" data-no-select>
-                {p.runs.map((r) => (FILE_TOOLS.has(r.name) ? <FileChip key={r.id} run={r} /> : <ToolRow key={r.id} run={r} />))}
+                {p.runs.map((r) =>
+                  r.name === "ExitPlanMode" ? (
+                    <PlanRecord key={r.id} input={r.input} result={r.result} />
+                  ) : r.name === "AskUserQuestion" ? (
+                    <QuestionRecord key={r.id} input={r.input} result={r.result} />
+                  ) : FILE_TOOLS.has(r.name) ? (
+                    <FileChip key={r.id} run={r} />
+                  ) : (
+                    <ToolRow key={r.id} run={r} />
+                  ),
+                )}
               </div>
             ),
           )}

@@ -48,6 +48,9 @@ export async function POST(req: Request) {
   let thread: SubThread | null = body.threadId ? await getThread(body.threadId) : null;
   if (!thread && !body.create) return Response.json({ error: "thread not found" }, { status: 404 });
 
+  // One level of sub-agents is enough: they start from the main chat only.
+  if (!thread && body.create!.parentThreadId) return Response.json({ error: "Sub-agents start from the main chat only." }, { status: 400 });
+
   const isNew = !thread;
   if (!thread) {
     const c = body.create!;

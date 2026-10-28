@@ -14,6 +14,8 @@ interface Props {
   inputRef?: RefObject<HTMLTextAreaElement | null>;
   footer?: ReactNode; // shown under the text, left of the send button
   cwd?: string | null; // folder of the session; turns on the "/" command menu
+  onQueue?: (text: string, images: ImageInput[]) => void; // Enter while Claude works: send it once Claude is done
+  onShiftTab?: () => void; // Shift+Tab: next permission mode, like the terminal
 }
 
 // Slash commands for a folder. The server may need a moment to learn a new
@@ -42,7 +44,7 @@ function useCommands(cwd: string | null | undefined) {
   return cmds;
 }
 
-export function Composer({ placeholder, running, disabled, onSend, onStop, inputRef, footer, cwd }: Props) {
+export function Composer({ placeholder, running, disabled, onSend, onStop, inputRef, footer, cwd, onQueue, onShiftTab }: Props) {
   const [input, setInput] = useState("");
   const [images, setImages] = useState<Attachment[]>([]);
   const [err, setErr] = useState<string | null>(null);
@@ -85,8 +87,8 @@ export function Composer({ placeholder, running, disabled, onSend, onStop, input
 
   const submit = () => {
     const t = input.trim();
-    if ((!t && !images.length) || running || disabled) return;
-    onSend(t, images.map(({ mediaType, data }) => ({ mediaType, data })));
+    if ((!t && !images.length) || disabled || (running && !onQueue)) return;
+    (running ? onQueue! : onSend)(t, images.map(({ mediaType, data }) => ({ mediaType, data })));
     setInput("");
     setImages([]);
     setErr(null);
@@ -185,6 +187,11 @@ export function Composer({ placeholder, running, disabled, onSend, onStop, input
               setMenuClosed(true);
               return;
             }
+          }
+          if (e.key === "Tab" && e.shiftKey && onShiftTab) {
+            e.preventDefault();
+            onShiftTab();
+            return;
           }
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();

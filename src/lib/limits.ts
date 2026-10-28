@@ -3,6 +3,7 @@ import "server-only";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import { jsonStore } from "./jsonStore";
+import { trackRun } from "./lensRuns";
 import type { Limits, LimitWindow } from "./types";
 
 // Every `claude -p` run streams a rate_limit_event with the plan's 5-hour and
@@ -68,6 +69,7 @@ export function probe(model = "claude-haiku-5-5", cwd = os.tmpdir()): Promise<vo
       ],
       { cwd, env, stdio: ["pipe", "pipe", "ignore"] },
     );
+    trackRun(child);
     child.stdin.end("ok");
     let buf = "";
     child.stdout.on("data", (c: Buffer) => {

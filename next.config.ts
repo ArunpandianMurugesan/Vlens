@@ -9,6 +9,8 @@ const nextConfig: NextConfig = {
   // Mac app runs with Electron's built-in Node.
   output: "standalone",
   outputFileTracingRoot: path.join(__dirname),
+  // Hide the Next.js dev badge (the "N" circle) in the corner; it only shows in dev anyway.
+  devIndicators: false,
 };
 
 export default nextConfig;

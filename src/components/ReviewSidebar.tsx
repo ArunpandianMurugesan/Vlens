@@ -37,7 +37,7 @@ export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url
   const { board, prs, loading, refresh, selected } = review;
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
-  const [closed, setClosed] = useState<Set<string>>(new Set());
+  const [opened, setOpened] = useState<Set<string>>(new Set()); // repos start collapsed
 
   const shown = prs.filter(
     (p) =>
@@ -102,11 +102,11 @@ export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url
           <p className="px-3 py-4 text-center text-xs text-muted">{q || filter !== "all" ? "No PRs match." : "No open PRs need you. Nice."}</p>
         )}
         {repos.map(({ repo, list }) => {
-          const open = !closed.has(repo);
+          const open = opened.has(repo) || !!q; // a search shows its matches
           return (
             <div key={repo} className="mb-1">
               <button
-                onClick={() => setClosed((c) => (c.has(repo) ? new Set([...c].filter((r) => r !== repo)) : new Set(c).add(repo)))}
+                onClick={() => setOpened((c) => (c.has(repo) ? new Set([...c].filter((r) => r !== repo)) : new Set(c).add(repo)))}
                 className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs text-muted hover:text-ink"
                 title={repo}
               >

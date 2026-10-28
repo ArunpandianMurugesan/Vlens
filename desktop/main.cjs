@@ -38,15 +38,6 @@ function loadShellPath() {
   process.env.PATH = [...new Set([...(process.env.PATH || "").split(":"), ...extra])].filter(Boolean).join(":");
 }
 
-function hasCommand(cmd) {
-  try {
-    execFileSync("/bin/sh", ["-c", `command -v ${cmd}`], { stdio: "ignore", env: process.env });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function freePort(preferred) {
   return new Promise((resolve) => {
     const s = net.createServer();
@@ -186,13 +177,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     loadShellPath();
     buildMenu();
-    if (!hasCommand("claude")) {
-      dialog.showMessageBoxSync({
-        type: "warning",
-        message: "Claude Code isn't installed",
-        detail: "Lens runs the `claude` command, but it wasn't found on your PATH. Install Claude Code, then open Lens again.",
-      });
-    }
+    // A missing `claude` (or a signed-out one) is handled by the Get started page.
     try {
       url = DEV_URL || (await startServer());
     } catch (e) {

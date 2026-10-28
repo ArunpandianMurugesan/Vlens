@@ -136,7 +136,7 @@ body {
 }
 .md pre code { background: none; border: 0; padding: 0; font-size: inherit; color: inherit; }
 .md table { border-collapse: collapse; display: block; overflow-x: auto; font-size: 0.88em; }
-.md th, .md td { border: 1px solid var(--border); padding: 0.4em 0.7em; text-align: left; }
+.md th, .md td { border: 1px solid var(--border); padding: 0.4em 0.7em; text-align: left; overflow-wrap: normal; min-width: 4.5em; } /* no "Opt|ion" splits; wide tables scroll */
 .md th { background: var(--sunken); font-weight: 600; }
 .md hr { border-color: var(--border); }
 

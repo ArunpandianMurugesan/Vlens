@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { imageBlocks } from "@/lib/images";
+import type { PermissionMode } from "@/lib/modes";
 import type {
   AgentEvent,
   ChatMessage,
   CrashedSession,
   ImageInput,
+  Question,
   Limits,
   SessionDetail,
   SessionSummary,
@@ -28,7 +30,9 @@ export interface PermissionAsk {
   input: unknown;
   description: string | null;
   reason: string | null;
-  canRemember: boolean;
+  always: string | null;
+  questions?: Question[];
+  plan?: string;
 }
 
 export interface LiveRun {
@@ -39,11 +43,31 @@ export interface LiveRun {
 }
 
 // Your answer to a permission question; the run continues once it lands.
-export async function answerPermission(id: string, decision: "allow" | "always" | "deny") {
+export async function answerPermission(id: string, decision: "allow" | "always" | "deny", message?: string) {
   const res = await fetch("/api/permission", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, decision }),
+    body: JSON.stringify({ id, decision, message }),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? res.statusText);
+}
+
+// Approve Claude's plan and carry on in `mode`.
+export async function approvePlan(id: string, mode: PermissionMode) {
+  const res = await fetch("/api/permission", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, approve: mode }),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? res.statusText);
+}
+
+// Your picks for Claude's questions (question text → label, or labels joined by ", ").
+export async function answerQuestions(id: string, answers: Record<string, string>) {
+  const res = await fetch("/api/permission", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, answers }),
   });
   if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? res.statusText);
 }
@@ -103,7 +127,7 @@ async function readRun(
           on.done(ev.message);
           break;
         case "permission": {
-          const ask: PermissionAsk = { id: ev.id, tool: ev.tool, input: ev.input, description: ev.description, reason: ev.reason, canRemember: ev.canRemember };
+          const ask: PermissionAsk = { id: ev.id, tool: ev.tool, input: ev.input, description: ev.description, reason: ev.reason, always: ev.always, questions: ev.questions, plan: ev.plan };
           patch((r) => ({ ...r, asks: [...(r.asks ?? []), ask] }));
           break;
         }
@@ -118,7 +142,7 @@ async function readRun(
   }
 }
 
-export type RootMode = "plan" | "acceptEdits";
+export type RootMode = PermissionMode;
 
 // Key for the main session's run in the `live` map (thread ids are UUIDs, so no clash).
 export const ROOT = "root";
