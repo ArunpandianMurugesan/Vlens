@@ -70,11 +70,20 @@ function waitForServer(target, ms = 30000) {
   });
 }
 
+function nodeBinary() {
+  if (process.platform !== "darwin") return process.execPath;
+  const name = app.getName();
+  const helper = path.join(path.dirname(process.execPath), "..", "Frameworks", `${name} Helper.app`, "Contents", "MacOS", `${name} Helper`);
+  return fs.existsSync(helper) ? helper : process.execPath;
+}
+
 async function startServer() {
   const port = await freePort(PREFERRED_PORT);
   const dir = path.join(process.resourcesPath, "server");
-  // Electron's own Node runs the server, so you don't need Node installed.
-  server = spawn(process.execPath, [path.join(dir, "server.js")], {
+  // Electron's own Node runs the server, so you don't need Node installed. On a Mac
+  // it runs as the Helper binary: the main one would put a second, blank icon in the
+  // Dock, while the Helper is marked to stay out of it.
+  server = spawn(nodeBinary(), [path.join(dir, "server.js")], {
     cwd: dir,
     env: {
       ...process.env,
