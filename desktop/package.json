@@ -1,7 +1,7 @@
 {
   "name": "claude-lens-desktop",
   "productName": "Claude Lens",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Claude Lens as a Mac app.",
   "private": true,
   "main": "main.cjs",

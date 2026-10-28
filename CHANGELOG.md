@@ -4,6 +4,12 @@ Every Claude Lens release, newest first. The version lives in [`VERSION`](VERSIO
 
 Versions follow [semantic versioning](https://semver.org): **major** for big changes in how Lens works, **minor** for new features, **patch** for fixes.
 
+## 1.0.1 — 2026-10-28
+
+**Fixes**
+- The app no longer shows as "damaged" on another Mac after downloading. The build now gives it an ad-hoc signature, so macOS can check the app's files.
+- Install notes updated for newer macOS: the first time, open it from System Settings → Privacy & Security → **Open Anyway**.
+
 ## 1.0.0 — 2026-10-28
 
 The first release of the Mac app.

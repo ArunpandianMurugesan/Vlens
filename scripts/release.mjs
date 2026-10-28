@@ -67,7 +67,7 @@ const body = `${notes}
 
 **Install:** download \`Claude-Lens-${version}-arm64.dmg\` below, open it and drag Claude Lens into Applications. Apple Silicon Macs (M1 and later).
 
-The app isn't signed by Apple yet, so the first time, right-click Claude Lens in Applications and choose **Open**. On first launch, the Get started page helps you install Claude Code and sign in.`;
+The app isn't notarized by Apple yet, so the first time, open Claude Lens, click **Done** on the warning, then go to System Settings → Privacy & Security and click **Open Anyway**. On first launch, the Get started page helps you install Claude Code and sign in.`;
 
 run("git", ["tag", "-a", tag, "-m", `Claude Lens ${version}`]);
 run("git", ["push", "origin", tag]);

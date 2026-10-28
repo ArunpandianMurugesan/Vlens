@@ -2,7 +2,7 @@
 
 A web UI for your Claude Code CLI sessions, with nested sub-agent threads.
 
-**Download the Mac app:** [latest release](https://github.com/arun-innovates/claude-lens/releases/latest) (Apple Silicon). Open the dmg and drag Claude Lens into Applications; the first time, right-click it and choose **Open**, since the app isn't signed by Apple yet. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
+**Download the Mac app:** [latest release](https://github.com/arun-innovates/claude-lens/releases/latest) (Apple Silicon). Open the dmg and drag Claude Lens into Applications; the first time, open Claude Lens, click **Done** on the warning, then go to System Settings → Privacy & Security and click **Open Anyway**. The app isn't notarized by Apple yet, so macOS asks once. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
 
 - **Home dashboard**: what Lens opens to (click the logo to come back). Who you're signed in as, your 5-hour and weekly limits, sessions running and used this week, messages and tokens today, and a 14-day activity chart (tokens read or messages; hover for numbers, or switch to a table).
 - **Coach** (Home): "Fix this now" cards from this week's sessions (tool-error streaks, corrections, huge pastes, files Claude keeps re-reading, sessions used for days on end), each with Open session / Retro / Add as lesson. **Retro** has a small model review a digest of a session (your messages, corrections, errors; not the whole history) and suggest what went well, what cost time, and one-line lessons. **Apply** writes a lesson into a block Lens owns at the end of the project's `CLAUDE.md` or `~/.claude/CLAUDE.md`, so the terminal and desktop app learn too; your own lines are never touched, and Take out / Delete rewrite only that block. Settings → Coach turns each part on or off.
@@ -92,7 +92,9 @@ Lens can run as a normal Mac app (`Claude Lens.app`) that starts its own server,
 cd desktop && npm install && npm run dist
 ```
 
-That builds `desktop/dist/Claude Lens-<version>-arm64.dmg`. Open it and drag **Claude Lens** into Applications. The app isn't signed with an Apple developer ID, so the first time, right-click it → **Open** → **Open**.
+That builds `desktop/dist/Claude Lens-<version>-arm64.dmg`. Open it and drag **Claude Lens** into Applications. The app is only ad-hoc signed (no Apple developer ID), so the first time, open it, click **Done** on the warning, then System Settings → Privacy & Security → **Open Anyway**.
+
+If macOS says the app is **damaged** (a dmg from 1.0.0 or older), run `xattr -dr com.apple.quarantine "/Applications/Claude Lens.app"` once, then open it.
 
 - It runs the bundled server on `127.0.0.1:3459` with Electron's own Node, so you don't need Node installed, only Claude Code (and `gh` for Lens Review).
 - It reads your login shell's `PATH` at startup, so it finds `claude`, `gh` and `git` like your terminal does.
