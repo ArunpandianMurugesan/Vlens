@@ -8,7 +8,7 @@
   "scripts": {
     "app": "LENS_DEV_URL=http://localhost:3457 electron .",
     "prepare-server": "node scripts/prepare-server.mjs",
-    "dist": "npm run prepare-server && electron-builder --mac"
+    "dist": "npm run prepare-server && electron-builder --mac && rm -rf dist/mac-arm64"
   },
   "devDependencies": {
     "electron": "44.7.0",
