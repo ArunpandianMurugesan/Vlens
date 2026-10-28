@@ -2,6 +2,8 @@
 
 A web UI for your Claude Code CLI sessions, with nested sub-agent threads.
 
+**Download the Mac app:** [latest release](https://github.com/arun-innovates/claude-lens/releases/latest) (Apple Silicon). Open the dmg and drag Claude Lens into Applications; the first time, right-click it and choose **Open**, since the app isn't signed by Apple yet. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
+
 - **Home dashboard**: what Lens opens to (click the logo to come back). Who you're signed in as, your 5-hour and weekly limits, sessions running and used this week, messages and tokens today, and a 14-day activity chart (tokens read or messages; hover for numbers, or switch to a table).
 - **Coach** (Home): "Fix this now" cards from this week's sessions (tool-error streaks, corrections, huge pastes, files Claude keeps re-reading, sessions used for days on end), each with Open session / Retro / Add as lesson. **Retro** has a small model review a digest of a session (your messages, corrections, errors; not the whole history) and suggest what went well, what cost time, and one-line lessons. **Apply** writes a lesson into a block Lens owns at the end of the project's `CLAUDE.md` or `~/.claude/CLAUDE.md`, so the terminal and desktop app learn too; your own lines are never touched, and Take out / Delete rewrite only that block. Settings → Coach turns each part on or off.
 - **Context health**: every reply re-sends the whole session, so long sessions burn your limits fastest. The dashboard shows how many tokens Claude read vs. wrote today and lists your heaviest sessions with two fixes: **Compact** (runs `/compact`) and **Fresh start** (Claude writes a handoff note, then a new session in the same folder starts from it). Both are disabled for sessions that are open in a terminal or the desktop app. Compactions show in a session as a "Conversation compacted" divider you can expand.
@@ -72,6 +74,13 @@ Open **Settings** at the bottom of the sidebar.
 - **MCP servers & connectors**: lists everything from `claude mcp list` with its status. You can add a server (HTTP, SSE or a local command, for all projects or one project folder), remove one, and sign in or out. claude.ai connectors are added and removed on claude.ai; here you can sign in to them. Connectors are grouped (connected, needs sign-in) with a search box.
 
 The first time Lens opens a terminal window, macOS asks whether it may control Terminal (or iTerm). Click OK. If you said no, allow it in System Settings → Privacy & Security → Automation.
+
+## Releasing a new version
+
+1. Bump [`VERSION`](VERSION) (`1.0.0` → `1.0.1` for fixes, `1.1.0` for features, `2.0.0` for big changes).
+2. Add a `## <version> — <date>` section at the top of [CHANGELOG.md](CHANGELOG.md) with what changed.
+3. Run `npm run release -- --dry`: it syncs the version into both `package.json` files and shows the notes. Commit and push.
+4. Run `npm run release`: it builds the dmg, tags `v<version>`, and publishes a GitHub release with the dmg attached. `gh` has to be signed in to an account that can publish to this repo (or set `GH_TOKEN`).
 
 ## Mac app
 

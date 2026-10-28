@@ -6,7 +6,8 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "release": "node scripts/release.mjs"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "^0.18.1",
