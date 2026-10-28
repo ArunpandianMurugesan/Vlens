@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
+    "app": "node scripts/dev-app.mjs",
+    "setup": "npm install && npm install --prefix desktop",
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
