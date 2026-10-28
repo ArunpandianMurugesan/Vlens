@@ -125,32 +125,63 @@ The first time Vlens opens a terminal window, macOS asks whether it may control 
 
 ## Mac app
 
-Vlens can run as a normal Mac app (`Vlens.app`) that starts its own server, so you don't need a terminal.
+Vlens is a Mac app (`Vlens.app`) that starts its own server, so you don't need a terminal.
 
-**Get started**: the first time Vlens opens (or whenever Claude Code is missing or signed out) it shows a setup page with three steps: install Claude Code, sign in to Claude, and optionally connect GitHub for Vlens Review. Each button runs the step in a Terminal window, and the page ticks it off once it's done. So you can hand the dmg to another dev and they're set up in a couple of minutes.
+**Get started**: the first time Vlens opens (or whenever Claude Code is missing or signed out) it shows a setup page with three steps: install Claude Code, sign in to Claude, and optionally connect GitHub for Vlens Review. Each button runs the step in a Terminal window, and the page ticks it off once it's done.
 
-```bash
-cd desktop && npm install && npm run dist
-```
+The app is only ad-hoc signed (no Apple developer ID), so the first time, open it, click **Done** on the warning, then System Settings → Privacy & Security → **Open Anyway**.
 
-That builds `desktop/dist/Vlens-<version>-arm64.dmg`. Open it and drag **Vlens** into Applications. The app is only ad-hoc signed (no Apple developer ID), so the first time, open it, click **Done** on the warning, then System Settings → Privacy & Security → **Open Anyway**.
-
-If macOS says the app is **damaged** (a Claude Lens 1.0.0 dmg), run `xattr -dr com.apple.quarantine "/Applications/Claude Lens.app"` once, then open it.
-
-- It runs the bundled server on `127.0.0.1:3459` with Electron's own Node, so you don't need Node installed, only Claude Code (and `gh` for Vlens Review).
+- It runs the bundled server on `127.0.0.1:3459` (or the next free port) with Electron's own Node, so you don't need Node installed, only Claude Code (and `gh` for Vlens Review).
 - It reads your login shell's `PATH` at startup, so it finds `claude`, `gh` and `git` like your terminal does.
 - **Vlens → Open at Login** starts it when you log in. **Show Server Log** opens `~/Library/Logs/Vlens/server.log`.
-- Vlens's data (pins, settings, threads, trash) lives in `~/Library/Application Support/Vlens/`, shared with the dev server. If you used Claude Lens before, its folder is moved here the first time Vlens starts.
-- `npm run app` in `desktop/` opens the app window on a running dev server (`http://localhost:3457`) instead, for working on Vlens itself.
+- Vlens's data (pins, settings, threads, trash) lives in `~/Library/Application Support/Vlens/`, shared with the dev server. If you used Claude Lens before, its folder is copied here the first time Vlens starts (Claude Lens keeps its own).
 
-## Run
+## Develop Vlens
+
+The Mac app is a Next.js app (`src/`: the UI and its API routes) inside an Electron window (`desktop/`). The dmg bundles the Next.js server, so you work on `src/` like a web app and package it at the end.
+
+**You need:** an Apple Silicon Mac, [Node.js](https://nodejs.org) 20 or newer, the [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) signed in (`claude` on your `PATH`), and optionally the [GitHub CLI](https://cli.github.com) for Vlens Review.
+
+**1. Install**
 
 ```bash
+git clone https://github.com/ArunpandianMurugesan/Vlens.git
+cd Vlens
 npm install
-npm run dev -- -p 3457
+npm install --prefix desktop
 ```
 
-Open http://localhost:3457. You need the `claude` CLI on your `PATH`.
+**2. Run the UI with hot reload**
+
+```bash
+npm run dev -- -p 3467
+```
+
+Open http://localhost:3467 in a browser. Edits in `src/` show up right away. It uses your real `~/.claude` sessions, so what you see is your own work.
+
+**3. Open it in the app window** (optional, with step 2 still running)
+
+```bash
+npm run app --prefix desktop
+```
+
+This is the Electron window on top of the dev server: the Dock icon, menus and notifications behave like the real app. It keeps its own window data, so it can run next to an installed Vlens.
+
+**4. Build the dmg**
+
+```bash
+npm run dist --prefix desktop
+```
+
+That builds `desktop/dist/Vlens-<version>-arm64.dmg`: it runs `next build`, stages the server in `desktop/app-server`, packs and ad-hoc signs the app. Open the dmg and drag **Vlens** into Applications to try it.
+
+**Before you open a PR:** `npx tsc --noEmit` and `npx eslint src` should both be clean.
+
+**Good to know**
+
+- To try Vlens without touching your own pins and settings, start the dev server with a scratch data folder: `LENS_DATA_DIR=/tmp/vlens-data npm run dev -- -p 3467`.
+- `lens-plugin/` holds the built-in skills (diagrams, whiteboard) that Vlens loads only into the runs it starts. Your terminal `claude` doesn't get them.
+- Releases: see [Releasing a new version](#releasing-a-new-version).
 
 ## How it works
 

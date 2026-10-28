@@ -7,12 +7,14 @@ import fs from "node:fs";
 // the dev server and the Mac app, so both see the same state.
 export const DATA_DIR = process.env.LENS_DATA_DIR || path.join(os.homedir(), "Library", "Application Support", "Vlens");
 
-// Vlens used to be called Claude Lens. Move its old folder over once, so pins,
-// settings, trash and lessons carry on.
+// Vlens started as Claude Lens. On the first start, copy its old folder (not
+// move: Claude Lens may still be installed next to Vlens), so pins, settings,
+// trash and lessons carry on. Chromium's Singleton* lock files stay behind,
+// or Vlens would think Claude Lens's window owns its profile.
 const OLD_DATA_DIR = path.join(os.homedir(), "Library", "Application Support", "Claude Lens");
 if (!process.env.LENS_DATA_DIR && !fs.existsSync(DATA_DIR) && fs.existsSync(OLD_DATA_DIR)) {
   try {
-    fs.renameSync(OLD_DATA_DIR, DATA_DIR);
+    fs.cpSync(OLD_DATA_DIR, DATA_DIR, { recursive: true, filter: (src) => !path.basename(src).startsWith("Singleton") });
   } catch {}
 }
 

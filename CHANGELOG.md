@@ -8,8 +8,7 @@ Versions follow [semantic versioning](https://semver.org): **major** for big cha
 
 **Claude Lens is now Vlens**
 - New name in the app, the Dock, the dmg and the menus. New home: [ArunpandianMurugesan/Vlens](https://github.com/ArunpandianMurugesan/Vlens).
-- Your pins, settings, trash and lessons carry over: the first time Vlens starts, it moves `~/Library/Application Support/Claude Lens` to `~/Library/Application Support/Vlens`. Logs are now in `~/Library/Logs/Vlens`.
-- After installing Vlens, you can delete the old Claude Lens app from Applications.
+- Your pins, settings, trash and lessons carry over: the first time Vlens starts, it copies `~/Library/Application Support/Claude Lens` to `~/Library/Application Support/Vlens`. Claude Lens keeps its own copy, so both apps can stay installed. Logs are now in `~/Library/Logs/Vlens`.
 
 ## 1.0.1 — 2026-10-28
 

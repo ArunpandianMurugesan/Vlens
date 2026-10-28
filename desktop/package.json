@@ -6,7 +6,7 @@
   "private": true,
   "main": "main.cjs",
   "scripts": {
-    "app": "LENS_DEV_URL=http://localhost:3457 electron .",
+    "app": "LENS_DEV_URL=http://localhost:3467 electron .",
     "prepare-server": "node scripts/prepare-server.mjs",
     "dist": "npm run prepare-server && electron-builder --mac --publish never && rm -rf dist/mac-arm64"
   },

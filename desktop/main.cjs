@@ -15,12 +15,13 @@ const DEV_URL = process.env.LENS_DEV_URL;
 // Electron's own browser data (cache, storage) goes in a subfolder, so it stays
 // out of the files Vlens keeps in ~/Library/Application Support/Vlens.
 // The dev window gets its own, so it can run next to the installed app.
-// Vlens used to be called Claude Lens: move its old folder over once.
+// Vlens started as Claude Lens: copy its old folder over once (the same as
+// src/lib/paths.ts, which runs too late for Electron's own data).
 const dataDir = path.join(app.getPath("appData"), "Vlens");
 const oldDataDir = path.join(app.getPath("appData"), "Claude Lens");
 if (!fs.existsSync(dataDir) && fs.existsSync(oldDataDir)) {
   try {
-    fs.renameSync(oldDataDir, dataDir);
+    fs.cpSync(oldDataDir, dataDir, { recursive: true, filter: (src) => !path.basename(src).startsWith("Singleton") });
   } catch {}
 }
 app.setPath("userData", path.join(dataDir, DEV_URL ? "electron-dev" : "electron"));
