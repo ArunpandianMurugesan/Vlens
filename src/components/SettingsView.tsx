@@ -5,9 +5,11 @@ import {
   Bell,
   ChevronRight,
   Cpu,
+  Download,
   ExternalLink,
   FileText,
   GraduationCap,
+  Info,
   Network,
   Palette,
   Webhook,
@@ -28,10 +30,10 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { TreeChat } from "@/hooks/useTreeChat";
 import { MODELS } from "@/lib/models";
 import { askNotificationPermission, notificationsSupported, notify } from "@/lib/notify";
-import type { Account, HookEntry, McpServer, Settings, Skill } from "@/lib/types";
+import type { Account, HookEntry, McpServer, Settings, Skill, UpdateInfo } from "@/lib/types";
 import { MermaidBlock } from "./Mermaid";
 import { WhiteboardBlock } from "./Whiteboard";
-import { ThemePicker } from "./ThemeToggle";
+import { AccentPicker, ThemePicker } from "./ThemeToggle";
 
 async function post<T = unknown>(url: string, body: object): Promise<T> {
   const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -1151,41 +1153,163 @@ function HooksSection({ chat }: { chat: TreeChat }) {
   );
 }
 
+// ── About & updates ────────────────────────────────────────────────────────
+
+function AboutSection() {
+  const [info, setInfo] = useState<UpdateInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async (force = false) => {
+    setBusy(true);
+    await fetch(`/api/update${force ? "?force=1" : ""}`)
+      .then((r) => r.json())
+      .then(setInfo)
+      .catch(() => {});
+    setBusy(false);
+  }, []);
+  useEffect(() => void load(), [load]);
+
+  const status = !info
+    ? "Checking…"
+    : info.available
+      ? `Vlens ${info.latest} is out.`
+      : info.latest
+        ? "You have the latest version."
+        : (info.error ?? "Not checked yet.");
+  return (
+    <Section
+      icon={Info}
+      title="About & updates"
+      hint="Vlens checks GitHub for a new release a few times a day and tells you when one is out."
+      action={
+        <button className={btn} onClick={() => load(true)} disabled={busy}>
+          {busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Check now
+        </button>
+      }
+    >
+      <Row label={`Vlens ${info?.current ?? process.env.VLENS_VERSION ?? ""}`} hint={info?.checkedAt ? `${status} Checked ${new Date(info.checkedAt).toLocaleString()}.` : status}>
+        {info?.available && info.dmg && (
+          <a href={info.dmg} target="_blank" rel="noreferrer" className={`${btn} border-accent text-accent`}>
+            <Download size={12} /> Download {info.latest}
+          </a>
+        )}
+        {info?.page && (
+          <a href={info.page} target="_blank" rel="noreferrer" className={btn}>
+            <ExternalLink size={12} /> {info.available ? "What's new" : "Release notes"}
+          </a>
+        )}
+      </Row>
+    </Section>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────
+
+type CardId = "appearance" | "account" | "model" | "diagrams" | "restore" | "notify" | "coach" | "skills" | "hooks" | "mcp" | "about";
+
+// One card per settings page. The page opens on its own, so nothing is a long scroll.
+const CARDS: { id: CardId; icon: typeof User; title: string; hint: string }[] = [
+  { id: "appearance", icon: Palette, title: "Appearance", hint: "Light or dark, and the accent colour." },
+  { id: "account", icon: User, title: "Account", hint: "Who Claude is signed in as. Switch or sign out." },
+  { id: "model", icon: Cpu, title: "Model", hint: "The default model for replies and new sessions." },
+  { id: "diagrams", icon: Network, title: "Diagrams & whiteboard", hint: "Mermaid diagrams, Excalidraw sketches, their skills." },
+  { id: "notify", icon: Bell, title: "Notifications", hint: "When Claude needs you or finishes." },
+  { id: "coach", icon: GraduationCap, title: "Coach", hint: "Retros, lessons and where they're written." },
+  { id: "restore", icon: RotateCcw, title: "Auto-restore", hint: "Bring back sessions that stopped unexpectedly." },
+  { id: "skills", icon: Wand2, title: "Skills", hint: "Your skills and each project's. Create, edit, switch off." },
+  { id: "hooks", icon: Webhook, title: "Hooks", hint: "Commands Claude runs on events. Add, edit, pause." },
+  { id: "mcp", icon: Plug, title: "MCP servers & connectors", hint: "Add servers, sign in, see their status." },
+  { id: "about", icon: Info, title: "About & updates", hint: "Your version, and new releases." },
+];
 
 export function SettingsView({ chat, onBack }: { chat: TreeChat; onBack: () => void }) {
   const { settings, saveSettings } = chat;
+  const [open, setOpen] = useState<CardId | null>(null);
+  const card = CARDS.find((c) => c.id === open);
+  const needs = (el: (s: Settings) => ReactNode) => (settings ? el(settings) : <Loader2 size={16} className="animate-spin text-muted" />);
+
+  const page = (id: CardId): ReactNode => {
+    switch (id) {
+      case "appearance":
+        return (
+          <Section icon={Palette} title="Appearance" hint="Saved in this browser.">
+            <Row label="Theme" hint="System follows your Mac's light or dark setting.">
+              <ThemePicker />
+            </Row>
+            <Row label="Accent colour" hint="Buttons, links, highlights and charts.">
+              <AccentPicker />
+            </Row>
+          </Section>
+        );
+      case "account":
+        return <AccountSection />;
+      case "model":
+        return needs((s) => <ModelSection settings={s} save={saveSettings} />);
+      case "diagrams":
+        return needs((s) => <DiagramsSection settings={s} save={saveSettings} />);
+      case "restore":
+        return needs((s) => <RestoreSection chat={chat} settings={s} save={saveSettings} />);
+      case "notify":
+        return needs((s) => <NotifySection settings={s} save={saveSettings} />);
+      case "coach":
+        return needs((s) => <CoachSection settings={s} save={saveSettings} />);
+      case "skills":
+        return <SkillsSection chat={chat} />;
+      case "hooks":
+        return <HooksSection chat={chat} />;
+      case "mcp":
+        return <McpSection />;
+      case "about":
+        return <AboutSection />;
+    }
+  };
+
   return (
     <main className="flex min-w-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b border-line px-4 py-3">
-        <button onClick={onBack} className="rounded-md p-1 text-muted hover:bg-sunken hover:text-ink" aria-label="Back to chat">
+        <button
+          onClick={() => (open ? setOpen(null) : onBack())}
+          className="rounded-md p-1 text-muted hover:bg-sunken hover:text-ink"
+          aria-label={open ? "Back to all settings" : "Back to chat"}
+        >
           <ArrowLeft size={18} />
         </button>
-        <h1 className="font-medium">Settings</h1>
-      </header>
-      <div className="flex-1 overflow-y-auto scroll-thin">
-        <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
-          <Section icon={Palette} title="Appearance">
-            <Row label="Theme" hint="System follows your Mac's light or dark setting. Saved in this browser.">
-              <ThemePicker />
-            </Row>
-          </Section>
-          <AccountSection />
-          {settings ? (
+        <h1 className="font-medium">
+          {card ? (
             <>
-              <ModelSection settings={settings} save={saveSettings} />
-              <DiagramsSection settings={settings} save={saveSettings} />
-              <RestoreSection chat={chat} settings={settings} save={saveSettings} />
-              <NotifySection settings={settings} save={saveSettings} />
-              <CoachSection settings={settings} save={saveSettings} />
+              <button onClick={() => setOpen(null)} className="text-muted hover:text-ink">
+                Settings
+              </button>
+              <ChevronRight size={14} className="mx-1 inline text-muted" />
+              {card.title}
             </>
           ) : (
-            <Loader2 size={16} className="animate-spin text-muted" />
+            "Settings"
           )}
-          <SkillsSection chat={chat} />
-          <HooksSection chat={chat} />
-          <McpSection />
-        </div>
+        </h1>
+      </header>
+      <div className="flex-1 overflow-y-auto scroll-thin">
+        {card ? (
+          <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">{page(card.id)}</div>
+        ) : (
+          <div className="mx-auto grid max-w-4xl grid-cols-1 gap-3 px-4 py-6 sm:grid-cols-2 lg:grid-cols-3">
+            {CARDS.map(({ id, icon: Icon, title, hint }) => (
+              <button
+                key={id}
+                onClick={() => setOpen(id)}
+                className="group flex items-start gap-3 rounded-2xl border border-line bg-panel p-4 text-left transition hover:border-accent hover:shadow-sm"
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
+                  <Icon size={17} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium group-hover:text-accent">{title}</div>
+                  <div className="text-xs text-muted">{hint}</div>
+                </div>
+                <ChevronRight size={15} className="mt-1 shrink-0 text-muted group-hover:text-accent" />
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </main>
   );

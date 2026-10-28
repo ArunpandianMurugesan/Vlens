@@ -59,6 +59,79 @@
   }
 }
 
+/* Accent colours (Settings → Appearance). Orange is the default above; the
+   others swap only the accent tokens, set as data-accent on <html>. */
+:root[data-accent="blue"] {
+  --accent: #2f6fd1;
+  --accent-soft: #dde8fa;
+  --hl: color-mix(in srgb, #2f6fd1 16%, transparent);
+  --hl-active: color-mix(in srgb, #2f6fd1 38%, transparent);
+  --chart: #2f6fd1;
+}
+:root[data-theme="dark"][data-accent="blue"] {
+  --accent: #5b93e6;
+  --accent-soft: #1f2d44;
+  --hl: color-mix(in srgb, #5b93e6 20%, transparent);
+  --hl-active: color-mix(in srgb, #5b93e6 45%, transparent);
+  --chart: #5b93e6;
+}
+:root[data-accent="green"] {
+  --accent: #2b7d4f;
+  --accent-soft: #dcefe3;
+  --hl: color-mix(in srgb, #2b7d4f 16%, transparent);
+  --hl-active: color-mix(in srgb, #2b7d4f 38%, transparent);
+  --chart: #2b7d4f;
+}
+:root[data-theme="dark"][data-accent="green"] {
+  --accent: #3f9a66;
+  --accent-soft: #1d3328;
+  --hl: color-mix(in srgb, #3f9a66 20%, transparent);
+  --hl-active: color-mix(in srgb, #3f9a66 45%, transparent);
+  --chart: #3f9a66;
+}
+:root[data-accent="purple"] {
+  --accent: #7c4dcc;
+  --accent-soft: #ebe2f8;
+  --hl: color-mix(in srgb, #7c4dcc 16%, transparent);
+  --hl-active: color-mix(in srgb, #7c4dcc 38%, transparent);
+  --chart: #7c4dcc;
+}
+:root[data-theme="dark"][data-accent="purple"] {
+  --accent: #a07ae6;
+  --accent-soft: #2f2642;
+  --hl: color-mix(in srgb, #a07ae6 20%, transparent);
+  --hl-active: color-mix(in srgb, #a07ae6 45%, transparent);
+  --chart: #a07ae6;
+}
+:root[data-accent="pink"] {
+  --accent: #c2407e;
+  --accent-soft: #f7dfea;
+  --hl: color-mix(in srgb, #c2407e 16%, transparent);
+  --hl-active: color-mix(in srgb, #c2407e 38%, transparent);
+  --chart: #c2407e;
+}
+:root[data-theme="dark"][data-accent="pink"] {
+  --accent: #e0679f;
+  --accent-soft: #3d2232;
+  --hl: color-mix(in srgb, #e0679f 20%, transparent);
+  --hl-active: color-mix(in srgb, #e0679f 45%, transparent);
+  --chart: #e0679f;
+}
+:root[data-accent="teal"] {
+  --accent: #12808a;
+  --accent-soft: #d7eef0;
+  --hl: color-mix(in srgb, #12808a 16%, transparent);
+  --hl-active: color-mix(in srgb, #12808a 38%, transparent);
+  --chart: #12808a;
+}
+:root[data-theme="dark"][data-accent="teal"] {
+  --accent: #2a959d;
+  --accent-soft: #19393b;
+  --hl: color-mix(in srgb, #2a959d 20%, transparent);
+  --hl-active: color-mix(in srgb, #2a959d 45%, transparent);
+  --chart: #2a959d;
+}
+
 /* Tailwind's dark: variants follow the chosen theme, not just the OS. */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 

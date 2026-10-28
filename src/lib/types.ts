@@ -368,3 +368,13 @@ export interface CoachData {
   retros: Retro[];
   lessons: Lesson[];
 }
+
+export interface UpdateInfo {
+  current: string;
+  latest: string | null; // null until a check succeeds
+  available: boolean; // latest is newer than current
+  page: string | null; // the release page (notes)
+  dmg: string | null; // direct download of the dmg
+  checkedAt: string | null;
+  error: string | null;
+}

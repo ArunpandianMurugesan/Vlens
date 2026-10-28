@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { THEME_KEY } from "./themeScript";
+import { ACCENT_KEY, THEME_KEY } from "./themeScript";
 
 // Theme choice, saved in this browser. "system" follows the Mac's setting live.
 export type ThemePref = "system" | "light" | "dark";
@@ -57,4 +57,38 @@ export function useTheme(): Theme {
     () => (document.documentElement.dataset.theme === "dark" ? "dark" : "light"),
     () => "light",
   );
+}
+
+// Accent colour, also saved in this browser. "orange" is the default and needs no attribute.
+export const ACCENTS = [
+  { id: "orange", label: "Orange", swatch: "#c96442" },
+  { id: "blue", label: "Blue", swatch: "#2f6fd1" },
+  { id: "green", label: "Green", swatch: "#2b7d4f" },
+  { id: "purple", label: "Purple", swatch: "#7c4dcc" },
+  { id: "pink", label: "Pink", swatch: "#c2407e" },
+  { id: "teal", label: "Teal", swatch: "#12808a" },
+] as const;
+export type Accent = (typeof ACCENTS)[number]["id"];
+
+function readAccent(): Accent {
+  try {
+    const a = localStorage.getItem(ACCENT_KEY);
+    return ACCENTS.some((x) => x.id === a) ? (a as Accent) : "orange";
+  } catch {
+    return "orange";
+  }
+}
+
+export function setAccent(a: Accent) {
+  try {
+    if (a === "orange") localStorage.removeItem(ACCENT_KEY);
+    else localStorage.setItem(ACCENT_KEY, a);
+  } catch {}
+  if (a === "orange") delete document.documentElement.dataset.accent;
+  else document.documentElement.dataset.accent = a;
+  emit();
+}
+
+export function useAccent(): Accent {
+  return useSyncExternalStore(subscribe, readAccent, () => "orange");
 }

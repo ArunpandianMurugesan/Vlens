@@ -1,5 +1,10 @@
+import fs from "node:fs";
 import path from "node:path";
 import type { NextConfig } from "next";
+
+// The app's version, baked in at build time for the update check. VLENS_VERSION
+// overrides it, e.g. to try the "new version" banner in dev.
+const version = process.env.VLENS_VERSION || JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8")).version;
 
 const nextConfig: NextConfig = {
   // The Mac app builds into its own folder (see desktop/), so building it never
@@ -11,6 +16,7 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(__dirname),
   // Hide the Next.js dev badge (the "N" circle) in the corner; it only shows in dev anyway.
   devIndicators: false,
+  env: { VLENS_VERSION: version },
 };
 
 export default nextConfig;

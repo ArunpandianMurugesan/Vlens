@@ -1,7 +1,7 @@
 "use client";
 
 import { Monitor, Moon, Sun } from "lucide-react";
-import { setThemePref, type ThemePref, useThemePref } from "@/lib/theme";
+import { ACCENTS, setAccent, setThemePref, type ThemePref, useAccent, useThemePref } from "@/lib/theme";
 
 export const THEMES: { id: ThemePref; label: string; icon: typeof Sun }[] = [
   { id: "system", label: "System", icon: Monitor },
@@ -41,6 +41,27 @@ export function ThemePicker() {
           className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 transition ${pref === id ? "bg-panel text-ink shadow-sm" : "text-muted hover:text-ink"}`}
         >
           <Icon size={12} /> {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Accent colour swatches, for Settings.
+export function AccentPicker() {
+  const accent = useAccent();
+  return (
+    <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Accent colour">
+      {ACCENTS.map(({ id, label, swatch }) => (
+        <button
+          key={id}
+          role="radio"
+          aria-checked={accent === id}
+          title={label}
+          onClick={() => setAccent(id)}
+          className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition ${accent === id ? "border-ink text-ink" : "border-line text-muted hover:text-ink"}`}
+        >
+          <span className="h-3 w-3 rounded-full" style={{ background: swatch }} /> {label}
         </button>
       ))}
     </div>

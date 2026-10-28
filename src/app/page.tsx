@@ -9,6 +9,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { ReviewView } from "@/components/ReviewView";
 import { SettingsView } from "@/components/SettingsView";
 import { SubAgentPanel } from "@/components/SubAgentPanel";
+import { NewVersion } from "@/components/NewVersion";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { FilesProvider, useFiles } from "@/components/FileContext";
 import { FileViewer } from "@/components/FileViewer";
@@ -176,6 +177,7 @@ export default function Home() {
 
         <SelectionPopover onAsk={onAsk} />
         <UpdateBanner />
+        <NewVersion />
       </div>
       </FilesProvider>
     </LensSettingsContext.Provider>
