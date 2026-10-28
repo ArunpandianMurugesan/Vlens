@@ -54,7 +54,11 @@ const dmg = path.join(root, "desktop", "dist", `Claude Lens-${version}-arm64.dmg
 console.log(`\nReleasing ${tag}${dry ? " (dry run)" : ""}\n\n${notes}\n`);
 if (dry) process.exit(0);
 
-run("npm", ["run", "dist"], { cwd: path.join(root, "desktop") });
+// The build never sees the GitHub token: electron-builder would try to publish by itself.
+const buildEnv = { ...process.env };
+delete buildEnv.GH_TOKEN;
+delete buildEnv.GITHUB_TOKEN;
+run("npm", ["run", "dist"], { cwd: path.join(root, "desktop"), env: buildEnv });
 if (!fs.existsSync(dmg)) fail(`The build didn't produce ${dmg}.`);
 
 const body = `${notes}
