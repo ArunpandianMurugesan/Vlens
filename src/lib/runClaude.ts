@@ -52,7 +52,7 @@ export function streamClaude(o: Options): Response {
     "--output-format", "stream-json",
     "--verbose",
     "--include-partial-messages",
-    // Ask Lens (over stdin/stdout) before running anything that needs approval,
+    // Ask Vlens (over stdin/stdout) before running anything that needs approval,
     // instead of denying it because nobody is at a terminal.
     "--permission-prompt-tool", "stdio",
     ...o.args,
@@ -112,12 +112,12 @@ export function streamClaude(o: Options): Response {
         }
       });
 
-      // The CLI asks before running a tool that needs approval. Show it in Lens and wait.
+      // The CLI asks before running a tool that needs approval. Show it in Vlens and wait.
       async function askPermission(ev: any) {
         const r = ev.request;
         const id: string = ev.request_id;
         asked.add(id);
-        // Claude asking you something (AskUserQuestion): Lens shows the choices, and your
+        // Claude asking you something (AskUserQuestion): Vlens shows the choices, and your
         // picks go back as the tool's `answers`, like choosing them in the terminal.
         if (r.tool_name === "AskUserQuestion") {
           send({ type: "permission", id, tool: r.tool_name, input: r.input, description: null, reason: null, always: null, questions: r.input?.questions ?? [] });
@@ -127,7 +127,7 @@ export function streamClaude(o: Options): Response {
           const response =
             typeof reply === "object" && "answers" in reply
               ? { behavior: "allow", updatedInput: { ...r.input, answers: reply.answers } }
-              : { behavior: "deny", message: "The user skipped the question in Claude Lens." };
+              : { behavior: "deny", message: "The user skipped the question in Vlens." };
           write({ type: "control_response", response: { subtype: "success", request_id: id, response } });
           return;
         }
@@ -189,7 +189,7 @@ export function streamClaude(o: Options): Response {
         if (ev.type === "control_request") {
           if (ev.request?.subtype === "can_use_tool") void askPermission(ev);
           // Anything else we don't support: say so, rather than leave the CLI waiting.
-          else write({ type: "control_response", response: { subtype: "error", request_id: ev.request_id, error: "Not supported by Claude Lens" } });
+          else write({ type: "control_response", response: { subtype: "error", request_id: ev.request_id, error: "Not supported by Vlens" } });
           return;
         }
         if (ev.type === "result") child.stdin.end(); // the turn is over; let the CLI exit

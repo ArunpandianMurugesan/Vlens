@@ -1,7 +1,7 @@
 "use client";
 
 // Desktop notifications for when Claude needs you or finishes, sent only while
-// Lens isn't the window you're looking at. Turned on and off in Settings.
+// Vlens isn't the window you're looking at. Turned on and off in Settings.
 let enabled = true;
 export const setNotifications = (on: boolean) => {
   enabled = on;

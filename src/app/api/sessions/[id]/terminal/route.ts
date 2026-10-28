@@ -12,7 +12,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   if (!session) return Response.json({ error: "not found" }, { status: 404 });
   const run = (await activeSessions()).get(id);
   if (run && !run.byLens) return Response.json({ error: "It's already open somewhere else." }, { status: 409 });
-  if (run?.byLens) return Response.json({ error: "Wait for Lens's reply to finish first." }, { status: 409 });
+  if (run?.byLens) return Response.json({ error: "Wait for Vlens's reply to finish first." }, { status: 409 });
   try {
     await openInTerminal(session.cwd ?? process.env.HOME ?? "/", ["claude", "--resume", id], (await getSettings()).terminalApp);
     return Response.json({ ok: true });

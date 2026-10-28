@@ -19,7 +19,7 @@ export async function renameSession(id: string, title: string) {
 
 const TRASH = path.join(DATA_DIR, "trash");
 
-// Moves a session's files out of ~/.claude into Lens's trash/<project>/, so a
+// Moves a session's files out of ~/.claude into Vlens's trash/<project>/, so a
 // delete can be undone by moving them back.
 async function trashFiles(id: string) {
   const found = await findSessionFile(id);

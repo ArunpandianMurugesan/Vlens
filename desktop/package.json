@@ -1,8 +1,8 @@
 {
-  "name": "claude-lens-desktop",
-  "productName": "Claude Lens",
-  "version": "1.0.1",
-  "description": "Claude Lens as a Mac app.",
+  "name": "vlens-desktop",
+  "productName": "Vlens",
+  "version": "1.1.0",
+  "description": "Vlens as a Mac app.",
   "private": true,
   "main": "main.cjs",
   "scripts": {
@@ -15,8 +15,8 @@
     "electron-builder": "26.17.0"
   },
   "build": {
-    "appId": "com.arun-innovates.claude-lens",
-    "productName": "Claude Lens",
+    "appId": "io.github.arunpandianmurugesan.vlens",
+    "productName": "Vlens",
     "directories": { "output": "dist", "buildResources": "build" },
     "files": ["main.cjs", "package.json"],
     "afterPack": "scripts/after-pack.cjs",
@@ -29,6 +29,6 @@
       "icon": "build/icon.icns",
       "identity": null
     },
-    "dmg": { "title": "Claude Lens" }
+    "dmg": { "title": "Vlens" }
   }
 }

@@ -114,7 +114,7 @@ function AccountSection() {
   };
 
   return (
-    <Section icon={User} title="Account" hint="The Claude account the CLI (and Lens) uses." action={<button className={btn} onClick={() => load()}><RefreshCw size={12} /></button>}>
+    <Section icon={User} title="Account" hint="The Claude account the CLI (and Vlens) uses." action={<button className={btn} onClick={() => load()}><RefreshCw size={12} /></button>}>
       {!acct ? (
         <Loader2 size={16} className="animate-spin text-muted" />
       ) : (
@@ -181,7 +181,7 @@ function AccountSection() {
 
 function ModelSection({ settings, save }: { settings: Settings; save: (p: Partial<Settings>) => void }) {
   return (
-    <Section icon={Cpu} title="Model" hint="Used for replies, new sessions and sub-agents started from Lens. Your terminal claude is not changed.">
+    <Section icon={Cpu} title="Model" hint="Used for replies, new sessions and sub-agents started from Vlens. Your terminal claude is not changed.">
       <Row label="Default model" hint="You can still switch per message, next to the message box.">
         <select className={select} value={settings.defaultModel} onChange={(e) => save({ defaultModel: e.target.value })}>
           {MODELS.map((m) => (
@@ -204,7 +204,7 @@ function ModelSection({ settings, save }: { settings: Settings; save: (p: Partia
 // ── Flow diagrams ──────────────────────────────────────────────────────────
 
 const SAMPLE = `flowchart LR
-  U["You"] e1@--> L["Claude Lens"]
+  U["You"] e1@--> L["Vlens"]
   L e2@--> C["claude -p"]
   C --> T["Tools"]
   C e3@--> R["Reply"]
@@ -222,7 +222,7 @@ const SAMPLE_BOARD = JSON.stringify([
 
 function DiagramsSection({ settings, save }: { settings: Settings; save: (p: Partial<Settings>) => void }) {
   return (
-    <Section icon={Network} title="Diagrams & whiteboard" hint="Built into Lens. Mermaid diagrams are drawn as animated diagrams; Excalidraw sketches as hand-drawn whiteboards you can open and draw on.">
+    <Section icon={Network} title="Diagrams & whiteboard" hint="Built into Vlens. Mermaid diagrams are drawn as animated diagrams; Excalidraw sketches as hand-drawn whiteboards you can open and draw on.">
       <Row label="Draw diagrams" hint="Show Mermaid code blocks as diagrams. Off: show them as code.">
         <Toggle label="Draw diagrams" on={settings.showDiagrams} onChange={(v) => save({ showDiagrams: v })} />
       </Row>
@@ -231,7 +231,7 @@ function DiagramsSection({ settings, save }: { settings: Settings; save: (p: Par
       </Row>
       <Row
         label="Diagrams skill (lens:diagrams)"
-        hint="Tells Claude to draw a diagram when a flow, architecture or sequence explains things better. Loaded only into sessions Lens runs; your terminal claude doesn't get it."
+        hint="Tells Claude to draw a diagram when a flow, architecture or sequence explains things better. Loaded only into sessions Vlens runs; your terminal claude doesn't get it."
       >
         <Toggle label="Diagrams skill" on={settings.diagramSkill} onChange={(v) => save({ diagramSkill: v })} />
       </Row>
@@ -240,7 +240,7 @@ function DiagramsSection({ settings, save }: { settings: Settings; save: (p: Par
       </Row>
       <Row
         label="Whiteboard skill (lens:whiteboard)"
-        hint="Tells Claude to teach with a whiteboard sketch when boxes, arrows and notes explain it better. Loaded only into sessions Lens runs."
+        hint="Tells Claude to teach with a whiteboard sketch when boxes, arrows and notes explain it better. Loaded only into sessions Vlens runs."
       >
         <Toggle label="Whiteboard skill" on={settings.whiteboardSkill} onChange={(v) => save({ whiteboardSkill: v })} />
       </Row>
@@ -275,7 +275,7 @@ function CoachSection({ settings, save }: { settings: Settings; save: (p: Partia
           ))}
         </select>
       </Row>
-      <Row label="Write lessons to CLAUDE.md" hint="On: Apply adds a lesson to a block Lens owns at the end of CLAUDE.md, so the terminal and desktop app learn too. Your own lines are never touched. Off: lessons stay in Lens only (blocks already written stay until you take them out).">
+      <Row label="Write lessons to CLAUDE.md" hint="On: Apply adds a lesson to a block Vlens owns at the end of CLAUDE.md, so the terminal and desktop app learn too. Your own lines are never touched. Off: lessons stay in Vlens only (blocks already written stay until you take them out).">
         <Toggle label="Write lessons to CLAUDE.md" on={settings.lessonsToClaudeMd} onChange={(v) => save({ lessonsToClaudeMd: v })} />
       </Row>
       <Row label="Default place" hint="Which button is highlighted. This project = the repo's CLAUDE.md (your team sees it if it's committed). All projects = ~/.claude/CLAUDE.md, only you.">
@@ -297,7 +297,7 @@ function NotifySection({ settings, save }: { settings: Settings; save: (p: Parti
   const btn = "rounded-lg border border-line px-2.5 py-1 text-xs hover:border-accent hover:text-accent";
 
   return (
-    <Section icon={Bell} title="Notifications" hint="A desktop notification when Claude needs you or finishes, while you're in another window. Covers Lens's own sessions and the ones in your terminal or the desktop app.">
+    <Section icon={Bell} title="Notifications" hint="A desktop notification when Claude needs you or finishes, while you're in another window. Covers Vlens's own sessions and the ones in your terminal or the desktop app.">
       <Row label="Desktop notifications" hint="Permission prompts, Claude's questions, plans to approve, and finished replies.">
         <Toggle
           label="Desktop notifications"
@@ -312,16 +312,16 @@ function NotifySection({ settings, save }: { settings: Settings; save: (p: Parti
         label="This Mac"
         hint={
           perm === "granted"
-            ? "Allowed. If nothing shows up, check System Settings → Notifications for Claude Lens (or your browser)."
+            ? "Allowed. If nothing shows up, check System Settings → Notifications for Vlens (or your browser)."
             : perm === "denied"
-              ? "Blocked. Allow Claude Lens (or your browser) in System Settings → Notifications, then reload."
+              ? "Blocked. Allow Vlens (or your browser) in System Settings → Notifications, then reload."
               : perm === "unsupported"
                 ? "This browser can't show notifications."
                 : "Not allowed yet."
         }
       >
         {perm === "granted" ? (
-          <button className={btn} onClick={() => notify("Claude Lens", "Notifications work. You'll hear from Claude here.", { force: true })}>
+          <button className={btn} onClick={() => notify("Vlens", "Notifications work. You'll hear from Claude here.", { force: true })}>
             Send a test
           </button>
         ) : perm === "default" ? (
@@ -343,7 +343,7 @@ function RestoreSection({ chat, settings, save }: { chat: TreeChat; settings: Se
 
   return (
     <Section icon={RotateCcw} title="Auto-restore" hint="Brings back terminal sessions that stopped unexpectedly: a crash, a closed window, or a reboot.">
-      <Row label="Reopen automatically" hint="Off: Lens shows them in the sidebar and you choose. On: Lens reopens them as soon as it notices (while Lens is running).">
+      <Row label="Reopen automatically" hint="Off: Vlens shows them in the sidebar and you choose. On: Vlens reopens them as soon as it notices (while Vlens is running).">
         <Toggle label="Reopen automatically" on={settings.autoRestore} onChange={(v) => save({ autoRestore: v })} />
       </Row>
       <Row label="Open in" hint="Restored sessions and sign-in flows open a new window here.">

@@ -19,9 +19,9 @@ export function resolvePath(input: string, cwd?: string | null): string {
   else if (!path.isAbsolute(p)) p = path.join(cwd && path.isAbsolute(cwd) ? cwd : HOME, p);
   const abs = path.resolve(p);
   const rel = path.relative(HOME, abs);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) throw new Error("Lens only opens files inside your home folder.");
+  if (rel.startsWith("..") || path.isAbsolute(rel)) throw new Error("Vlens only opens files inside your home folder.");
   if (PRIVATE.some((d) => rel === d || rel.startsWith(d + path.sep)) || PRIVATE_FILE.test(path.basename(abs)))
-    throw new Error("That file is in a private folder (keys or credentials), so Lens won't open it.");
+    throw new Error("That file is in a private folder (keys or credentials), so Vlens won't open it.");
   return abs;
 }
 
@@ -45,7 +45,7 @@ async function highlight(code: string, lang: string): Promise<string> {
   const use = lang in s.bundledLanguages ? lang : "text";
   return s.codeToHtml(code, {
     lang: use,
-    // Both themes at once; CSS picks one to match Lens's light or dark mode.
+    // Both themes at once; CSS picks one to match Vlens's light or dark mode.
     themes: { light: "github-light", dark: "github-dark" },
     defaultColor: false,
     transformers: [{ line: (node, line) => void (node.properties["data-line"] = line) }],

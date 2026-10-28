@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTheme } from "@/lib/theme";
 
-// Excalidraw loads its fonts from here (shipped with Lens, so it works offline).
+// Excalidraw loads its fonts from here (shipped with Vlens, so it works offline).
 if (typeof window !== "undefined") (window as unknown as { EXCALIDRAW_ASSET_PATH: string }).EXCALIDRAW_ASSET_PATH = "/excalidraw-assets/";
 
 // The canvas touches `window`, so it only loads in the browser, and only when a board appears.
@@ -20,7 +20,7 @@ const Excalidraw = dynamic(() => import("@excalidraw/excalidraw").then((m) => m.
   ),
 });
 
-// Excalidraw's element type is internal; Lens only passes elements through to it.
+// Excalidraw's element type is internal; Vlens only passes elements through to it.
 type Elements = readonly unknown[];
 type Skeleton = Record<string, unknown> & { type?: string; id?: string; x?: number; y?: number; width?: number; height?: number; start?: { id?: string }; end?: { id?: string } };
 

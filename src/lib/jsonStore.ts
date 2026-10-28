@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { DATA_DIR } from "./paths";
 
-// A small JSON file in Lens's data folder (never in ~/.claude).
+// A small JSON file in Vlens's data folder (never in ~/.claude).
 // Writes are queued so two requests don't clobber each other.
 export function jsonStore<T>(name: string, empty: () => T) {
   const file = path.join(DATA_DIR, name);

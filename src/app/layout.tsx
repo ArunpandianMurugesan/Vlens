@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Claude Lens",
+  title: "Vlens",
   description: "Browse Claude Code sessions and dig into any answer with nested sub-agents",
 };
 

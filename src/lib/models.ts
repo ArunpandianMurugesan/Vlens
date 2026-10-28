@@ -1,4 +1,4 @@
-// Models you can pick in Lens. "" means "whatever the CLI would use".
+// Models you can pick in Vlens. "" means "whatever the CLI would use".
 // Aliases always point at the latest model of that family.
 export const MODELS = [
   { id: "", label: "CLI default" },

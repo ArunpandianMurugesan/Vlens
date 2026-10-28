@@ -1,8 +1,15 @@
 # Changelog
 
-Every Claude Lens release, newest first. The version lives in [`VERSION`](VERSION); `npm run release` builds the dmg for it and publishes it on the [Releases page](https://github.com/arun-innovates/claude-lens/releases).
+Every Vlens release (called Claude Lens up to 1.0.1), newest first. The version lives in [`VERSION`](VERSION); `npm run release` builds the dmg for it and publishes it on the [Releases page](https://github.com/ArunpandianMurugesan/Vlens/releases).
 
-Versions follow [semantic versioning](https://semver.org): **major** for big changes in how Lens works, **minor** for new features, **patch** for fixes.
+Versions follow [semantic versioning](https://semver.org): **major** for big changes in how Vlens works, **minor** for new features, **patch** for fixes.
+
+## 1.1.0 — 2026-10-28
+
+**Claude Lens is now Vlens**
+- New name in the app, the Dock, the dmg and the menus. New home: [ArunpandianMurugesan/Vlens](https://github.com/ArunpandianMurugesan/Vlens).
+- Your pins, settings, trash and lessons carry over: the first time Vlens starts, it moves `~/Library/Application Support/Claude Lens` to `~/Library/Application Support/Vlens`. Logs are now in `~/Library/Logs/Vlens`.
+- After installing Vlens, you can delete the old Claude Lens app from Applications.
 
 ## 1.0.1 — 2026-10-28
 

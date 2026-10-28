@@ -101,7 +101,7 @@ export function ContextBadge({ ctx, compact }: { ctx?: ContextUsage; compact?: b
   if (!ctx) return null;
   const pct = ctx.used / ctx.window;
   const label = `${ctx.estimated ? "~" : ""}${Math.round(pct * 100)}%`;
-  const title = `Context: ${tokens(ctx.used)} of ${tokens(ctx.window)} tokens${ctx.estimated ? " (window size is a guess until Lens sees this model)" : ""}`;
+  const title = `Context: ${tokens(ctx.used)} of ${tokens(ctx.window)} tokens${ctx.estimated ? " (window size is a guess until Vlens sees this model)" : ""}`;
   return compact ? (
     <span title={title} className="flex shrink-0 items-center gap-1">
       <Ring pct={pct} size={11} stroke={2} />

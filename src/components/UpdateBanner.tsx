@@ -3,7 +3,7 @@
 import { RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-// Shows "Lens was updated" when the server restarted with newer code than this
+// Shows "Vlens was updated" when the server restarted with newer code than this
 // tab loaded (a tab left open doesn't always pick it up by itself).
 export function UpdateBanner() {
   const first = useRef<string | null>(null);
@@ -31,7 +31,7 @@ export function UpdateBanner() {
   if (!stale) return null;
   return (
     <div className="fixed left-1/2 top-3 z-[150] flex -translate-x-1/2 items-center gap-3 rounded-full border border-line bg-panel px-4 py-2 text-sm shadow-xl">
-      Lens was updated.
+      Vlens was updated.
       <button
         onClick={() => location.reload()}
         className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-xs font-medium text-white"

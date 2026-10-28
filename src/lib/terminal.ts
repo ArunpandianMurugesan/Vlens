@@ -27,7 +27,7 @@ end tell`;
       e.killed
         ? `Timed out waiting for ${app}. If macOS asked to allow controlling ${app}, click OK and try again.`
         : /not allowed|-1743/i.test(String(e.stderr ?? e.message))
-          ? `macOS blocked Lens from controlling ${app}. Allow it in System Settings → Privacy & Security → Automation.`
+          ? `macOS blocked Vlens from controlling ${app}. Allow it in System Settings → Privacy & Security → Automation.`
           : String(e.stderr || e.message),
     );
   });

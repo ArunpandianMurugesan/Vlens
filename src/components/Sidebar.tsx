@@ -121,7 +121,7 @@ export function Sidebar({
   const active = sessions
     .filter((s) => s.pinOrder === undefined && (s.active || s.id === activeId) && matches(s))
     .sort((a, b) => (b.active?.startedAt ?? Infinity) - (a.active?.startedAt ?? Infinity));
-  // Sessions Lens started or replied in lately. Their `claude -p` process exits
+  // Sessions Vlens started or replied in lately. Their `claude -p` process exits
   // after each reply, so without this they'd vanish when you switch away.
   const recent = sessions
     .filter((s) => s.pinOrder === undefined && !s.active && s.id !== activeId && s.recentAt && matches(s))
@@ -248,7 +248,7 @@ export function Sidebar({
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-white">
               <MessagesSquare size={15} />
             </span>
-            <span className="font-semibold">Claude Lens</span>
+            <span className="font-semibold">Vlens</span>
           </button>
           <span className="ml-auto">
             <ThemeToggle />
@@ -258,12 +258,12 @@ export function Sidebar({
           </button>
         </div>
 
-        {/* Sessions | Lens Review */}
+        {/* Sessions | Vlens Review */}
         <div className="mx-3 mb-2 flex rounded-lg bg-panel p-0.5 text-xs">
           {(
             [
               ["sessions", "Sessions"],
-              ["review", "Lens Review"],
+              ["review", "Vlens Review"],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -599,7 +599,7 @@ function SessionItem({
             />
           ) : confirm === "delete" ? (
             <ConfirmBox
-              text="Delete this session? Its files move to Lens's trash folder, so you can get them back."
+              text="Delete this session? Its files move to Vlens's trash folder, so you can get them back."
               action="Delete"
               busy={busy}
               onYes={() => act(() => actions.deleteSession(s.id))}
@@ -630,7 +630,7 @@ function SessionItem({
                 <button
                   className={menuItem}
                   disabled={!!s.active}
-                  title={s.active ? "Wait for Lens's reply to finish (or stop it) first" : "Opens claude --resume in Terminal or iTerm"}
+                  title={s.active ? "Wait for Vlens's reply to finish (or stop it) first" : "Opens claude --resume in Terminal or iTerm"}
                   onClick={() => act(toTerminal)}
                 >
                   <SquareTerminal size={13} /> Continue in terminal

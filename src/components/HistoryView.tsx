@@ -25,7 +25,7 @@ function dayLabel(key: string) {
 const time = (d: Date) => d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 
 // What you worked on in the last 15 days, by day: a session shows on every day
-// it had messages (long sessions span weeks). Pick one up again here in Lens
+// it had messages (long sessions span weeks). Pick one up again here in Vlens
 // (just type), or in a terminal with `claude --resume`.
 export function HistoryView({ chat, onMenu, onOpen }: { chat: TreeChat; onMenu: () => void; onOpen: (id: string) => void }) {
   const [q, setQ] = useState("");
@@ -74,7 +74,7 @@ export function HistoryView({ chat, onMenu, onOpen }: { chat: TreeChat; onMenu: 
         <div className="mx-auto max-w-4xl space-y-5 px-4 py-6">
           <div>
             <p className="text-sm text-muted">
-              What you worked on, day by day. A long session shows on each day you used it. <b className="text-ink">Resume here</b> opens it in Lens (type to carry on), or continue it in a terminal.
+              What you worked on, day by day. A long session shows on each day you used it. <b className="text-ink">Resume here</b> opens it in Vlens (type to carry on), or continue it in a terminal.
             </p>
             <label className="mt-3 flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2 text-sm">
               <Search size={14} className="text-muted" />

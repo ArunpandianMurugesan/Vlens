@@ -68,7 +68,7 @@ export async function POST(req: Request) {
   const run = (await activeSessions()).get(session.id);
   if (run && !run.byLens)
     return Response.json(
-      { error: `This session is open in ${run.entrypoint === "desktop" ? "the desktop app" : "a terminal"}. Type there, or take it over in Lens.` },
+      { error: `This session is open in ${run.entrypoint === "desktop" ? "the desktop app" : "a terminal"}. Type there, or take it over in Vlens.` },
       { status: 409 },
     );
   await markRecent(session.id);

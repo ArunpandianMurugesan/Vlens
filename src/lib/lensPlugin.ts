@@ -5,10 +5,10 @@ import path from "node:path";
 import { DATA_DIR, PLUGIN_DIR } from "./paths";
 import type { Settings } from "./types";
 
-// Lens ships its own Claude Code plugin (lens-plugin/) with built-in skills.
-// It's passed with --plugin-dir to the runs Lens starts, so your terminal
+// Vlens ships its own Claude Code plugin (lens-plugin/) with built-in skills.
+// It's passed with --plugin-dir to the runs Vlens starts, so your terminal
 // `claude` never sees it. --plugin-dir loads a whole plugin, so to let each
-// skill be switched off on its own, Lens assembles a small "lens" plugin with
+// skill be switched off on its own, Vlens assembles a small "lens" plugin with
 // links to just the skills that are on.
 const SKILLS: { name: string; on: (s: Settings) => boolean }[] = [
   { name: "diagrams", on: (s) => s.diagramSkill },

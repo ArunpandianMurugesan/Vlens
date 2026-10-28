@@ -9,7 +9,7 @@ import type { HookEntry, HookScope } from "./types";
 
 // Hooks live in the CLI's settings files under "hooks":
 //   { "PreToolUse": [ { "matcher": "Bash", "hooks": [ { "type": "command", "command": "…" } ] } ] }
-// Lens edits only that key, backs the file up first, and keeps its formatting.
+// Vlens edits only that key, backs the file up first, and keeps its formatting.
 // The CLI has no per-hook off switch, so "off" moves a hook out of the file
 // into data/hooks-off.json, and "on" puts it back.
 

@@ -51,7 +51,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
   const ours = !!session && own?.id === session.id && updated <= own.at + 2000;
   const live = session && !rootPending && !ours && Date.now() - updated < 60_000;
   const resumeCmd = session ? `claude --resume ${session.id}` : "";
-  // Open in a terminal or the desktop app (not one of Lens's own runs)? That claude
+  // Open in a terminal or the desktop app (not one of Vlens's own runs)? That claude
   // holds the conversation in memory, so only one place can type at a time.
   const proc = chat.sessions.find((s) => s.id === session?.id)?.active;
   const elsewhere = proc && !proc.byLens ? proc.entrypoint : null;
@@ -139,7 +139,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
             )}
           </div>
         ) : (
-          <div className="flex-1 text-muted">{loadingSession ? "Loading…" : "Claude Lens"}</div>
+          <div className="flex-1 text-muted">{loadingSession ? "Loading…" : "Vlens"}</div>
         )}
         {session && <ContextBadge ctx={session.context} />}
         {session && !elsewhere && (
@@ -233,8 +233,8 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
                 <div className="min-w-0 flex-1">
                   <div className="font-medium">Open in {elsewhere === "desktop" ? "the Claude desktop app" : "a terminal"}</div>
                   <div className="text-xs text-muted">
-                    Type there (and answer Claude&apos;s questions there); Lens shows it here as it happens.
-                    {elsewhere === "cli" && " To continue in Lens instead, take it over: that ends the claude in the terminal, and its conversation is kept."}
+                    Type there (and answer Claude&apos;s questions there); Vlens shows it here as it happens.
+                    {elsewhere === "cli" && " To continue in Vlens instead, take it over: that ends the claude in the terminal, and its conversation is kept."}
                   </div>
                 </div>
                 {elsewhere === "cli" &&

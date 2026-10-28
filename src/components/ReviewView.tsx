@@ -112,7 +112,7 @@ export function ReviewView({ review, onMenu, onStart, home }: Props) {
           <button onClick={onMenu} className="text-muted md:hidden" aria-label="Open sidebar">
             <Menu size={20} />
           </button>
-          <h1 className="flex-1 font-medium">Lens Review</h1>
+          <h1 className="flex-1 font-medium">Vlens Review</h1>
           {refreshBtn}
         </header>
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
@@ -204,7 +204,7 @@ export function ReviewView({ review, onMenu, onStart, home }: Props) {
             </a>
             {confirmHide ? (
               <span className="flex items-center gap-1.5 text-xs text-muted">
-                Hide this PR from Lens Review?
+                Hide this PR from Vlens Review?
                 <button onClick={() => dismiss(pr.url)} className="rounded-md border border-line px-2 py-1 hover:text-ink">Hide</button>
                 <button onClick={() => setConfirmHide(false)} className="rounded-md px-1 py-1" aria-label="Cancel">
                   <X size={12} />

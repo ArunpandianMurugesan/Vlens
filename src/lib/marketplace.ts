@@ -7,7 +7,7 @@ import { claudeCmd } from "./cli";
 import { frontmatter } from "./skills";
 import type { Marketplace, MarketplacePlugin, PluginDetail } from "./types";
 
-// Everything here goes through the CLI's own `claude plugin` commands, so Lens
+// Everything here goes through the CLI's own `claude plugin` commands, so Vlens
 // and the terminal always agree on what's installed.
 
 const json = async <T>(args: string[], cwd?: string): Promise<T> => {
@@ -103,7 +103,7 @@ export async function install(id: string, scope: Scope, project?: string) {
   const cwd = scope === "user" ? undefined : project;
   const out = await run(["plugin", "install", id, "--scope", scope], cwd);
   // Some plugins install switched off ("disabled by default"). Installing from
-  // Lens means you want to use it, so turn it on.
+  // Vlens means you want to use it, so turn it on.
   if (/disabled by default/i.test(out)) await run(["plugin", "enable", id, "--scope", scope], cwd);
 }
 

@@ -1,4 +1,4 @@
-// Claude Lens for Mac: starts the Lens server that ships inside the app, then
+// Vlens for Mac: starts the Vlens server that ships inside the app, then
 // shows it in a window. Quitting the app stops the server.
 const { app, BrowserWindow, Menu, dialog, nativeTheme, shell } = require("electron");
 const { execFileSync, spawn } = require("node:child_process");
@@ -13,15 +13,23 @@ const PREFERRED_PORT = 3459; // a fixed port keeps the browser storage (theme, h
 const DEV_URL = process.env.LENS_DEV_URL;
 
 // Electron's own browser data (cache, storage) goes in a subfolder, so it stays
-// out of the files Lens keeps in ~/Library/Application Support/Claude Lens.
+// out of the files Vlens keeps in ~/Library/Application Support/Vlens.
 // The dev window gets its own, so it can run next to the installed app.
-app.setPath("userData", path.join(app.getPath("appData"), "Claude Lens", DEV_URL ? "electron-dev" : "electron"));
+// Vlens used to be called Claude Lens: move its old folder over once.
+const dataDir = path.join(app.getPath("appData"), "Vlens");
+const oldDataDir = path.join(app.getPath("appData"), "Claude Lens");
+if (!fs.existsSync(dataDir) && fs.existsSync(oldDataDir)) {
+  try {
+    fs.renameSync(oldDataDir, dataDir);
+  } catch {}
+}
+app.setPath("userData", path.join(dataDir, DEV_URL ? "electron-dev" : "electron"));
 
 let server = null;
 let win = null;
 let url = null;
 
-const logDir = path.join(os.homedir(), "Library", "Logs", "Claude Lens");
+const logDir = path.join(os.homedir(), "Library", "Logs", "Vlens");
 fs.mkdirSync(logDir, { recursive: true });
 const log = fs.createWriteStream(path.join(logDir, "server.log"), { flags: "a" });
 
@@ -62,7 +70,7 @@ function waitForServer(target, ms = 30000) {
           resolve();
         })
         .on("error", () => {
-          if (Date.now() - started > ms) reject(new Error("The Lens server didn't start in time."));
+          if (Date.now() - started > ms) reject(new Error("The Vlens server didn't start in time."));
           else setTimeout(tryOnce, 200);
         });
     };
@@ -100,7 +108,7 @@ async function startServer() {
   server.on("exit", (code) => {
     log.write(`\n[lens] server exited with code ${code}\n`);
     if (!app.isQuitting) {
-      dialog.showErrorBox("Claude Lens stopped", `The Lens server stopped (code ${code}). See ~/Library/Logs/Claude Lens/server.log.`);
+      dialog.showErrorBox("Vlens stopped", `The Vlens server stopped (code ${code}). See ~/Library/Logs/Vlens/server.log.`);
       app.quit();
     }
   });
@@ -115,13 +123,13 @@ function createWindow() {
     height: 920,
     minWidth: 900,
     minHeight: 600,
-    title: "Claude Lens",
+    title: "Vlens",
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#1f1e1b" : "#faf9f5",
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   win.loadURL(url);
 
-  // Links (GitHub, Jira, docs) open in your normal browser, not inside Lens.
+  // Links (GitHub, Jira, docs) open in your normal browser, not inside Vlens.
   const isLens = (u) => u.startsWith(url);
   win.webContents.setWindowOpenHandler(({ url: u }) => {
     if (/^https?:/.test(u) && !isLens(u)) shell.openExternal(u);
@@ -190,7 +198,7 @@ if (!app.requestSingleInstanceLock()) {
     try {
       url = DEV_URL || (await startServer());
     } catch (e) {
-      dialog.showErrorBox("Claude Lens couldn't start", `${e.message}\nSee ~/Library/Logs/Claude Lens/server.log.`);
+      dialog.showErrorBox("Vlens couldn't start", `${e.message}\nSee ~/Library/Logs/Vlens/server.log.`);
       app.quit();
       return;
     }

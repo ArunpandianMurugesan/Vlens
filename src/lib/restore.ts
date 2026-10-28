@@ -17,7 +17,7 @@ const REGISTRY = path.join(os.homedir(), ".claude", "sessions");
 interface Seen {
   sessionId: string;
   cwd: string;
-  stoppedAt: string; // when Lens first noticed
+  stoppedAt: string; // when Vlens first noticed
   handled?: "restored" | "dismissed";
 }
 

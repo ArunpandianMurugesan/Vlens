@@ -342,7 +342,7 @@ export function HomeView({ chat, onMenu, onNew, onReview }: { chat: TreeChat; on
               <Plus size={15} /> New session
             </button>
             <button onClick={onReview} className="inline-flex items-center gap-1.5 rounded-full border border-line px-4 py-2 text-sm hover:border-accent hover:text-accent">
-              <GitBranch size={15} /> Lens Review <ArrowRight size={13} />
+              <GitBranch size={15} /> Vlens Review <ArrowRight size={13} />
             </button>
           </div>
 
@@ -413,7 +413,7 @@ export function HomeView({ chat, onMenu, onNew, onReview }: { chat: TreeChat; on
                       )}
                     </div>
                   ) : (
-                    <p className="text-sm text-muted">No usage data yet. It shows up after the first Claude run in Lens.</p>
+                    <p className="text-sm text-muted">No usage data yet. It shows up after the first Claude run in Vlens.</p>
                   )}
                 </Card>
               </div>

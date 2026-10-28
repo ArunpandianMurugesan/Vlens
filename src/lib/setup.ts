@@ -11,8 +11,8 @@ function run(cmd: string, args: string[]): Promise<{ ok: boolean; out: string }>
   );
 }
 
-// Checks what a new Mac needs for Lens: Claude Code, a signed-in account, and
-// (for Lens Review only) the GitHub CLI.
+// Checks what a new Mac needs for Vlens: Claude Code, a signed-in account, and
+// (for Vlens Review only) the GitHub CLI.
 export async function getSetup(): Promise<SetupStatus> {
   const [version, gh, settings] = await Promise.all([claudeCmd(["--version"]), run("gh", ["api", "user", "--jq", ".login"]), getSettings()]);
   const installed = version.ok;

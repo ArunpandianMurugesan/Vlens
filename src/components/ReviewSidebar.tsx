@@ -32,7 +32,7 @@ export function ago(iso: string) {
 
 type Filter = "all" | "needsYou" | "mine";
 
-// The Lens Review side tab: your open PRs, grouped by repo.
+// The Vlens Review side tab: your open PRs, grouped by repo.
 export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url: string) => void }) {
   const { board, prs, loading, refresh, selected } = review;
   const [filter, setFilter] = useState<Filter>("all");

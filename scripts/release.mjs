@@ -50,7 +50,7 @@ if (dirty && !dry) {
   process.exit(1);
 }
 
-const dmg = path.join(root, "desktop", "dist", `Claude Lens-${version}-arm64.dmg`);
+const dmg = path.join(root, "desktop", "dist", `Vlens-${version}-arm64.dmg`);
 console.log(`\nReleasing ${tag}${dry ? " (dry run)" : ""}\n\n${notes}\n`);
 if (dry) process.exit(0);
 
@@ -65,14 +65,14 @@ const body = `${notes}
 
 ---
 
-**Install:** download \`Claude-Lens-${version}-arm64.dmg\` below, open it and drag Claude Lens into Applications. Apple Silicon Macs (M1 and later).
+**Install:** download \`Vlens-${version}-arm64.dmg\` below, open it and drag Vlens into Applications. Apple Silicon Macs (M1 and later).
 
-The app isn't notarized by Apple yet, so the first time, open Claude Lens, click **Done** on the warning, then go to System Settings → Privacy & Security and click **Open Anyway**. On first launch, the Get started page helps you install Claude Code and sign in.`;
+The app isn't notarized by Apple yet, so the first time, open Vlens, click **Done** on the warning, then go to System Settings → Privacy & Security and click **Open Anyway**. On first launch, the Get started page helps you install Claude Code and sign in.`;
 
-run("git", ["tag", "-a", tag, "-m", `Claude Lens ${version}`]);
+run("git", ["tag", "-a", tag, "-m", `Vlens ${version}`]);
 run("git", ["push", "origin", tag]);
 // GitHub would turn the spaces into dots; upload a copy with a clean name.
-const asset = path.join(root, "desktop", "dist", `Claude-Lens-${version}-arm64.dmg`);
+const asset = path.join(root, "desktop", "dist", `Vlens-${version}-arm64.dmg`);
 fs.copyFileSync(dmg, asset);
-run("gh", ["release", "create", tag, asset, "--title", `Claude Lens ${version}`, "--notes", body, "--latest"]);
+run("gh", ["release", "create", tag, asset, "--title", `Vlens ${version}`, "--notes", body, "--latest"]);
 console.log(`\n✓ Published ${tag}`);

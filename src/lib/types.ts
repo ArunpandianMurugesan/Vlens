@@ -28,7 +28,7 @@ export interface SessionSummary {
   messageCount: number;
   active?: ActiveInfo; // set while a Claude Code process has this session open
   pinOrder?: number; // set when pinned: position in pin order
-  recentAt?: string; // when Lens last started or replied in it (within the Recent window)
+  recentAt?: string; // when Vlens last started or replied in it (within the Recent window)
   days?: Record<string, number>; // local date (YYYY-MM-DD) → messages that day, for the last few weeks (History)
   context?: ContextUsage;
 }
@@ -64,7 +64,7 @@ export interface ActiveInfo {
   status: "busy" | "idle"; // busy = working on a reply
   entrypoint: "cli" | "desktop";
   startedAt: number; // when the process started; gives the sidebar a stable order
-  byLens?: boolean; // a `claude -p` run Lens itself started (not a terminal or the desktop app)
+  byLens?: boolean; // a `claude -p` run Vlens itself started (not a terminal or the desktop app)
 }
 
 export interface SessionDetail extends SessionSummary {
@@ -110,20 +110,20 @@ export type AgentEvent =
   | { type: "error"; error: string };
 
 export interface Settings {
-  defaultModel: string; // "" = CLI default; used for replies and new sessions from Lens
+  defaultModel: string; // "" = CLI default; used for replies and new sessions from Vlens
   subAgentModel: string; // "" = same as defaultModel
   autoRestore: boolean; // reopen crashed sessions without asking
   terminalApp: "Terminal" | "iTerm"; // where restored sessions open
   showDiagrams: boolean; // draw ```mermaid blocks as diagrams
   animateDiagrams: boolean; // animate every arrow, not just the ones marked animate
-  diagramSkill: boolean; // load the built-in lens:diagrams skill into Lens runs
+  diagramSkill: boolean; // load the built-in lens:diagrams skill into Vlens runs
   showWhiteboards: boolean; // draw ```excalidraw blocks as whiteboards
-  whiteboardSkill: boolean; // load the built-in lens:whiteboard skill into Lens runs
+  whiteboardSkill: boolean; // load the built-in lens:whiteboard skill into Vlens runs
   onboarded: boolean; // went through Get started once
   notifications: boolean; // desktop notifications when Claude needs you or finishes
   coach: boolean; // the Coach card on Home: "Fix this now" signals from your sessions
   retro: boolean; // Retro buttons: Claude reviews a session and suggests lessons
-  lessonsToClaudeMd: boolean; // Apply writes lessons into a Lens block in CLAUDE.md
+  lessonsToClaudeMd: boolean; // Apply writes lessons into a Vlens block in CLAUDE.md
   lessonsTarget: "project" | "user"; // default for Apply: the repo's CLAUDE.md or ~/.claude/CLAUDE.md
   retroModel: string; // model for retros (a cheap one is plenty)
   cliMode?: PermissionMode; // read-only: the mode your terminal claude starts in (~/.claude/settings.json)
@@ -188,7 +188,7 @@ export interface HookEntry {
   plugin?: string;
 }
 
-// ── Lens Review ──
+// ── Vlens Review ──
 
 // Whose move it is on a PR.
 export type PrLane = "needsYou" | "mine" | "team" | "waiting" | "done" | "fyi";
@@ -321,11 +321,11 @@ export interface Question {
   multiSelect?: boolean;
 }
 
-// What Get started checks: the tools Lens runs, and who they're signed in as.
+// What Get started checks: the tools Vlens runs, and who they're signed in as.
 export interface SetupStatus {
   claude: { installed: boolean; version: string | null };
   account: Account;
-  gh: { installed: boolean; user: string | null }; // optional: only Lens Review needs it
+  gh: { installed: boolean; user: string | null }; // optional: only Vlens Review needs it
   onboarded: boolean;
 }
 
@@ -353,7 +353,7 @@ export interface Retro {
   mistakes: string[];
 }
 
-// A one-line lesson. Applied ones live in a Lens block in that CLAUDE.md.
+// A one-line lesson. Applied ones live in a Vlens block in that CLAUDE.md.
 export interface Lesson {
   id: string;
   text: string;

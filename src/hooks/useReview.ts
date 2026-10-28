@@ -15,7 +15,7 @@ function readDismissed(): Set<string> {
   }
 }
 
-// State for the Lens Review tab: the PR board, which PR is open, and its details.
+// State for the Vlens Review tab: the PR board, which PR is open, and its details.
 export function useReview() {
   const [board, setBoard] = useState<ReviewBoard | null>(null);
   const [loading, setLoading] = useState(false);
@@ -30,7 +30,7 @@ export function useReview() {
     try {
       setBoard(await fetch(`/api/review${fresh ? "?fresh=1" : ""}`).then((r) => r.json()));
     } catch {
-      setBoard((b) => ({ ...(b ?? { login: null, prs: [], fetchedAt: null, clones: {} }), error: "Couldn't reach Lens." }));
+      setBoard((b) => ({ ...(b ?? { login: null, prs: [], fetchedAt: null, clones: {} }), error: "Couldn't reach Vlens." }));
     }
     setLoading(false);
   }, []);

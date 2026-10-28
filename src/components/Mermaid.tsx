@@ -17,7 +17,7 @@ const loadMermaid = () => (loading ??= import("mermaid").then((m) => m.default))
 // often incomplete; then we keep showing the code until it parses.
 export function MermaidBlock({ code }: { code: string }) {
   const settings = useLensSettings();
-  const dark = useTheme() === "dark"; // follows the theme chosen in Lens
+  const dark = useTheme() === "dark"; // follows the theme chosen in Vlens
   const rawId = useId();
   const id = `mmd-${rawId.replace(/[^a-zA-Z0-9]/g, "")}`;
   const [svg, setSvg] = useState<string | null>(null);

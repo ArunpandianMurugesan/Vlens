@@ -14,7 +14,7 @@ import type { CoachData, CoachSignal, Lesson, Retro, SessionSummary } from "./ty
 
 // The coach reads your recent sessions for habits that cost time or tokens,
 // runs retros on request, and keeps the lessons. Lessons you apply go into a
-// block in CLAUDE.md that Lens owns; nothing outside that block is touched.
+// block in CLAUDE.md that Vlens owns; nothing outside that block is touched.
 
 const WEEK = 7 * 86_400_000;
 const store = jsonStore<{ retros: Record<string, Retro>; lessons: Lesson[] }>("coach.json", () => ({ retros: {}, lessons: [] }));
@@ -236,7 +236,7 @@ export async function runRetro(sessionId: string): Promise<{ retro: Retro; lesso
 
 // ── Lessons and the CLAUDE.md block ──
 
-const START = "<!-- lens:lessons start (managed by Claude Lens; edit these in Lens) -->";
+const START = "<!-- lens:lessons start (managed by Vlens; edit these in Vlens) -->";
 const END = "<!-- lens:lessons end -->";
 const BLOCK = /\n*<!-- lens:lessons start[^\n]*-->[\s\S]*?<!-- lens:lessons end -->\n?/;
 const MAX_LINES = 15;
@@ -244,7 +244,7 @@ const MAX_LINES = 15;
 const fileFor = (target: "project" | "user", cwd: string | null) =>
   target === "user" ? path.join(os.homedir(), ".claude", "CLAUDE.md") : cwd ? path.join(cwd, "CLAUDE.md") : null;
 
-// Rewrites only Lens's block in one CLAUDE.md, from the lessons applied to it.
+// Rewrites only Vlens's block in one CLAUDE.md, from the lessons applied to it.
 async function writeBlock(file: string, lines: string[]) {
   let text = "";
   try {

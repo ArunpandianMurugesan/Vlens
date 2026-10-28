@@ -121,7 +121,7 @@ export default function Home() {
             home={review.board?.home ?? ""}
             onMenu={() => setSidebarOpen(true)}
             onStart={(prompt, mode, cwd) => {
-              // A review becomes a normal Lens session: switch to it and send the first message.
+              // A review becomes a normal Vlens session: switch to it and send the first message.
               setTab("sessions");
               setView("chat");
               void chat.sendRoot(prompt, mode, undefined, [], cwd);

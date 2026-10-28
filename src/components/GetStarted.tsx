@@ -4,7 +4,7 @@ import { ArrowRight, Check, Copy, GitBranch, Loader2, LogIn, MessagesSquare, Ref
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { SetupStatus } from "@/lib/types";
 
-// Lens needs these on the Mac it runs on; Get started shows what's missing.
+// Vlens needs these on the Mac it runs on; Get started shows what's missing.
 export const needsSetup = (s: SetupStatus) => !s.onboarded || !s.claude.installed || !s.account.loggedIn;
 
 const INSTALL_CLAUDE = "curl -fsSL https://claude.ai/install.sh | bash";
@@ -49,7 +49,7 @@ function Step({ n, done, title, optional, children }: { n: number; done: boolean
 }
 
 // First launch (or signed out): install Claude Code, sign in, and optionally set up
-// the GitHub CLI for Lens Review. Steps run in a terminal window; this page checks
+// the GitHub CLI for Vlens Review. Steps run in a terminal window; this page checks
 // again every few seconds, so it ticks off as you go.
 export function GetStarted({ initial, onDone }: { initial: SetupStatus; onDone: () => void }) {
   const [s, setS] = useState(initial);
@@ -95,7 +95,7 @@ export function GetStarted({ initial, onDone }: { initial: SetupStatus; onDone: 
             <MessagesSquare size={20} />
           </span>
           <div>
-            <h1 className="text-xl font-semibold">Welcome to Claude Lens</h1>
+            <h1 className="text-xl font-semibold">Welcome to Vlens</h1>
             <p className="text-sm text-muted">A window onto your Claude Code sessions. A few things to set up first.</p>
           </div>
         </div>
@@ -106,7 +106,7 @@ export function GetStarted({ initial, onDone }: { initial: SetupStatus; onDone: 
               <>Installed (version {s.claude.version}).</>
             ) : (
               <>
-                Lens runs the <code>claude</code> command, and it isn&apos;t on this Mac yet. Install it in Terminal:
+                Vlens runs the <code>claude</code> command, and it isn&apos;t on this Mac yet. Install it in Terminal:
                 <CopyCmd cmd={INSTALL_CLAUDE} />
                 <button className={primary} disabled={!!busy} onClick={() => step("install-claude")}>
                   <SquareTerminal size={12} /> Install in Terminal {spin("install-claude")}
@@ -124,7 +124,7 @@ export function GetStarted({ initial, onDone }: { initial: SetupStatus; onDone: 
               </>
             ) : (
               <>
-                Signs in with your Claude account in the browser, the same as <code>claude auth login</code>. Lens uses the same account as your terminal.
+                Signs in with your Claude account in the browser, the same as <code>claude auth login</code>. Vlens uses the same account as your terminal.
                 <div>
                   <button className={primary} disabled={!!busy || !s.claude.installed} onClick={() => step("login-claude")}>
                     <LogIn size={12} /> Sign in {spin("login-claude")}
@@ -138,11 +138,11 @@ export function GetStarted({ initial, onDone }: { initial: SetupStatus; onDone: 
           <Step n={3} done={!!s.gh.user} title="Connect GitHub" optional>
             {s.gh.user ? (
               <>
-                Signed in to GitHub as <span className="text-ink">{s.gh.user}</span>. Lens Review shows your PRs.
+                Signed in to GitHub as <span className="text-ink">{s.gh.user}</span>. Vlens Review shows your PRs.
               </>
             ) : !s.gh.installed ? (
               <>
-                Lens Review reads your pull requests with the GitHub CLI. Install it with Homebrew (from{" "}
+                Vlens Review reads your pull requests with the GitHub CLI. Install it with Homebrew (from{" "}
                 <a href="https://brew.sh" target="_blank" rel="noreferrer" className="text-accent hover:underline">brew.sh</a>):
                 <CopyCmd cmd="brew install gh" />
                 <button className={secondary} disabled={!!busy} onClick={() => step("install-gh")}>
@@ -164,7 +164,7 @@ export function GetStarted({ initial, onDone }: { initial: SetupStatus; onDone: 
 
         {err && <p className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600">{err}</p>}
         <p className="mt-3 text-xs text-muted">
-          The first time Lens opens Terminal, macOS asks whether it may control it. Click OK.
+          The first time Vlens opens Terminal, macOS asks whether it may control it. Click OK.
         </p>
 
         <div className="mt-6 flex items-center gap-3">

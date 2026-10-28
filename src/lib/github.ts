@@ -7,7 +7,7 @@ import path from "node:path";
 import { listSessions } from "./sessions";
 import type { PrDetail, PrLane, PrSummary, ReviewBoard } from "./types";
 
-// Lens Review reads GitHub through the `gh` CLI, so it uses whatever account
+// Vlens Review reads GitHub through the `gh` CLI, so it uses whatever account
 // you're signed in with there. One GraphQL request runs every search at once
 // (review requested from you or your teams, your PRs, mentions), which keeps
 // us far below GitHub's rate limits even when polling.

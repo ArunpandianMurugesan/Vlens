@@ -78,7 +78,7 @@ function LessonRow({ l, settings, onChanged, onError }: { l: Lesson; settings: S
           </button>
         </>
       ) : (
-        <span className="text-[0.68rem] text-muted">kept in Lens</span>
+        <span className="text-[0.68rem] text-muted">kept in Vlens</span>
       )}
       <button className="ml-auto rounded p-1 text-muted hover:text-red-600" disabled={!!busy} onClick={() => act("remove", { remove: true })} aria-label="Delete lesson" title="Delete (also removes it from CLAUDE.md)">
         {spin("remove") || <Trash2 size={12} />}
@@ -148,7 +148,7 @@ function SignalRow({ s, chat, settings, onChanged, onError }: { s: CoachSignal; 
 }
 
 // The coach on Home: habits worth fixing from your week, retros, and the lessons
-// they produced (which can go into CLAUDE.md, inside a block Lens owns).
+// they produced (which can go into CLAUDE.md, inside a block Vlens owns).
 export function CoachCard({ chat }: { chat: TreeChat }) {
   const settings = chat.settings;
   const [data, setData] = useState<CoachData | null>(null);

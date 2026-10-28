@@ -133,9 +133,9 @@ async function readRun(
         case "permission": {
           const ask: PermissionAsk = { id: ev.id, tool: ev.tool, input: ev.input, description: ev.description, reason: ev.reason, always: ev.always, questions: ev.questions, plan: ev.plan };
           // Claude is waiting on you: say so if you're looking at another window.
-          if (ev.plan !== undefined) notify("Claude's plan is ready", "Open Lens to approve it or keep planning.", { tag: `ask-${ev.id}` });
-          else if (ev.questions) notify("Claude has a question", ev.questions[0]?.question ?? "Open Lens to answer.", { tag: `ask-${ev.id}` });
-          else notify(`Claude wants to use ${ev.tool}`, ev.description ?? "Open Lens to allow or deny it.", { tag: `ask-${ev.id}` });
+          if (ev.plan !== undefined) notify("Claude's plan is ready", "Open Vlens to approve it or keep planning.", { tag: `ask-${ev.id}` });
+          else if (ev.questions) notify("Claude has a question", ev.questions[0]?.question ?? "Open Vlens to answer.", { tag: `ask-${ev.id}` });
+          else notify(`Claude wants to use ${ev.tool}`, ev.description ?? "Open Vlens to allow or deny it.", { tag: `ask-${ev.id}` });
           patch((r) => ({ ...r, asks: [...(r.asks ?? []), ask] }));
           break;
         }
@@ -184,7 +184,7 @@ export function useTreeChat() {
 
   // Sidebar: poll so new CLI sessions show up on their own.
   // A terminal or desktop-app session that goes from working to waiting gets a
-  // notification, like the terminal's bell. (Lens's own runs notify as they finish.)
+  // notification, like the terminal's bell. (Vlens's own runs notify as they finish.)
   const lastStatus = useRef<Map<string, string> | null>(null);
   const openRef = useRef<(id: string) => void>(() => {});
   const loadSessions = useCallback(
@@ -209,7 +209,7 @@ export function useTreeChat() {
     return () => clearInterval(t);
   }, [loadSessions]);
 
-  // Plan usage (5h / weekly). Reading is free; any Lens run updates it on the
+  // Plan usage (5h / weekly). Reading is free; any Vlens run updates it on the
   // server. Refreshing sends one tiny request, so do it on load only when stale.
   const [limits, setLimits] = useState<Limits | null>(null);
   const [refreshingLimits, setRefreshingLimits] = useState(false);
@@ -238,7 +238,7 @@ export function useTreeChat() {
     return () => clearInterval(t);
   }, [refreshLimits]);
 
-  // Lens settings (default model, auto-restore, terminal app).
+  // Vlens settings (default model, auto-restore, terminal app).
   const [settings, setSettings] = useState<Settings | null>(null);
   useEffect(() => {
     fetch("/api/settings")
@@ -506,7 +506,7 @@ export function useTreeChat() {
   );
 
   const sendRoot = useCallback(
-    // newIn: start a brand-new session in this folder instead (e.g. from Lens Review).
+    // newIn: start a brand-new session in this folder instead (e.g. from Vlens Review).
     async (prompt: string, mode: RootMode, model?: string, images: ImageInput[] = [], newIn?: string) => {
       const cur = newIn ? null : session;
       const cwd = newIn ?? draft?.cwd;
