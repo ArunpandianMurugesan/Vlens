@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { imageBlocks } from "@/lib/images";
 import type { PermissionMode } from "@/lib/modes";
+import { notify, setNotifications } from "@/lib/notify";
 import type {
   AgentEvent,
   ChatMessage,
@@ -123,11 +124,18 @@ async function readRun(
         case "session":
           on.session?.(ev.claudeSessionId);
           break;
-        case "done":
+        case "done": {
           on.done(ev.message);
+          const said = ev.message.blocks.map((b) => (b.kind === "text" ? b.text : "")).join(" ").trim();
+          notify("Claude finished", said || "The reply is ready.", { tag: "lens-done" });
           break;
+        }
         case "permission": {
           const ask: PermissionAsk = { id: ev.id, tool: ev.tool, input: ev.input, description: ev.description, reason: ev.reason, always: ev.always, questions: ev.questions, plan: ev.plan };
+          // Claude is waiting on you: say so if you're looking at another window.
+          if (ev.plan !== undefined) notify("Claude's plan is ready", "Open Lens to approve it or keep planning.", { tag: `ask-${ev.id}` });
+          else if (ev.questions) notify("Claude has a question", ev.questions[0]?.question ?? "Open Lens to answer.", { tag: `ask-${ev.id}` });
+          else notify(`Claude wants to use ${ev.tool}`, ev.description ?? "Open Lens to allow or deny it.", { tag: `ask-${ev.id}` });
           patch((r) => ({ ...r, asks: [...(r.asks ?? []), ask] }));
           break;
         }
@@ -175,11 +183,23 @@ export function useTreeChat() {
   const [ownWrite, setOwnWrite] = useState<{ id: string; at: number } | null>(null);
 
   // Sidebar: poll so new CLI sessions show up on their own.
+  // A terminal or desktop-app session that goes from working to waiting gets a
+  // notification, like the terminal's bell. (Lens's own runs notify as they finish.)
+  const lastStatus = useRef<Map<string, string> | null>(null);
+  const openRef = useRef<(id: string) => void>(() => {});
   const loadSessions = useCallback(
     () =>
       fetch("/api/sessions")
         .then((r) => r.json())
-        .then(setSessions)
+        .then((list: SessionSummary[]) => {
+          const before = lastStatus.current;
+          if (before)
+            for (const s of list)
+              if (before.get(s.id) === "busy" && s.active?.status !== "busy" && !s.active?.byLens)
+                notify(s.title, `Claude finished in ${s.projectName} and is waiting for you.`, { tag: `s-${s.id}`, onClick: () => openRef.current(s.id) });
+          lastStatus.current = new Map(list.map((s) => [s.id, s.active && !s.active.byLens ? s.active.status : "off"]));
+          setSessions(list);
+        })
         .catch(() => {}),
     [],
   );
@@ -226,6 +246,7 @@ export function useTreeChat() {
       .then(setSettings)
       .catch(() => {});
   }, []);
+  useEffect(() => setNotifications(settings?.notifications !== false), [settings?.notifications]);
   const saveSettings = useCallback(async (patch: Partial<Settings>) => {
     setSettings((s) => (s ? { ...s, ...patch } : s));
     setSettings(
@@ -338,6 +359,7 @@ export function useTreeChat() {
     setRootPending(null);
     setDraft(null);
   }, []);
+  openRef.current = selectSession; // a notification click opens its session
 
   // Back to the home dashboard: nothing open.
   const goHome = useCallback(() => {

@@ -20,7 +20,7 @@ export function isAlive(pid: number) {
   }
 }
 
-type Running = ActiveInfo & { pid: number };
+type Running = ActiveInfo & { pid: number; cwd: string | null };
 
 export async function activeSessions(): Promise<Map<string, Running>> {
   const out = new Map<string, Running>();
@@ -38,6 +38,7 @@ export async function activeSessions(): Promise<Map<string, Running>> {
             entrypoint: d.entrypoint === "claude-desktop" ? "desktop" : "cli",
             startedAt: typeof d.startedAt === "number" ? d.startedAt : 0,
             byLens: isLensRun(d.pid) || undefined,
+            cwd: typeof d.cwd === "string" ? d.cwd : null,
           });
         } catch {}
       }),

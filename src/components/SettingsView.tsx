@@ -2,10 +2,12 @@
 
 import {
   ArrowLeft,
+  Bell,
   ChevronRight,
   Cpu,
   ExternalLink,
   FileText,
+  GraduationCap,
   Network,
   Palette,
   Webhook,
@@ -25,6 +27,7 @@ import {
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { TreeChat } from "@/hooks/useTreeChat";
 import { MODELS } from "@/lib/models";
+import { askNotificationPermission, notificationsSupported, notify } from "@/lib/notify";
 import type { Account, HookEntry, McpServer, Settings, Skill } from "@/lib/types";
 import { MermaidBlock } from "./Mermaid";
 import { WhiteboardBlock } from "./Whiteboard";
@@ -248,6 +251,85 @@ function DiagramsSection({ settings, save }: { settings: Settings; save: (p: Par
           {settings.showWhiteboards && <WhiteboardBlock code={SAMPLE_BOARD} />}
         </div>
       )}
+    </Section>
+  );
+}
+
+// ── Coach ──────────────────────────────────────────────────────────────────
+
+function CoachSection({ settings, save }: { settings: Settings; save: (p: Partial<Settings>) => void }) {
+  return (
+    <Section icon={GraduationCap} title="Coach" hint="Learns from your sessions: spots habits that cost time or tokens, reviews sessions on request, and keeps the lessons. Everything stays on this Mac.">
+      <Row label="Coach on Home" hint="The “Fix this now” card: error streaks, corrections, huge pastes, files Claude keeps re-reading, sessions that never end.">
+        <Toggle label="Coach on Home" on={settings.coach} onChange={(v) => save({ coach: v })} />
+      </Row>
+      <Row label="Session retros" hint="A Retro button on sessions. Claude reads a short digest (your messages, corrections, errors), not the whole history, and suggests lessons.">
+        <Toggle label="Session retros" on={settings.retro} onChange={(v) => save({ retro: v })} />
+      </Row>
+      <Row label="Retro model" hint="A small model is plenty and keeps it cheap.">
+        <select className={select} value={settings.retroModel} onChange={(e) => save({ retroModel: e.target.value })} disabled={!settings.retro}>
+          {MODELS.filter((m) => m.id).map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      </Row>
+      <Row label="Write lessons to CLAUDE.md" hint="On: Apply adds a lesson to a block Lens owns at the end of CLAUDE.md, so the terminal and desktop app learn too. Your own lines are never touched. Off: lessons stay in Lens only (blocks already written stay until you take them out).">
+        <Toggle label="Write lessons to CLAUDE.md" on={settings.lessonsToClaudeMd} onChange={(v) => save({ lessonsToClaudeMd: v })} />
+      </Row>
+      <Row label="Default place" hint="Which button is highlighted. This project = the repo's CLAUDE.md (your team sees it if it's committed). All projects = ~/.claude/CLAUDE.md, only you.">
+        <select className={select} value={settings.lessonsTarget} onChange={(e) => save({ lessonsTarget: e.target.value as Settings["lessonsTarget"] })} disabled={!settings.lessonsToClaudeMd}>
+          <option value="project">This project</option>
+          <option value="user">All projects</option>
+        </select>
+      </Row>
+    </Section>
+  );
+}
+
+// ── Notifications ──────────────────────────────────────────────────────────
+
+function NotifySection({ settings, save }: { settings: Settings; save: (p: Partial<Settings>) => void }) {
+  const [perm, setPerm] = useState<NotificationPermission | "unsupported">("default");
+  useEffect(() => setPerm(notificationsSupported() ? Notification.permission : "unsupported"), []);
+  const allow = async () => setPerm(await askNotificationPermission());
+  const btn = "rounded-lg border border-line px-2.5 py-1 text-xs hover:border-accent hover:text-accent";
+
+  return (
+    <Section icon={Bell} title="Notifications" hint="A desktop notification when Claude needs you or finishes, while you're in another window. Covers Lens's own sessions and the ones in your terminal or the desktop app.">
+      <Row label="Desktop notifications" hint="Permission prompts, Claude's questions, plans to approve, and finished replies.">
+        <Toggle
+          label="Desktop notifications"
+          on={settings.notifications}
+          onChange={(v) => {
+            save({ notifications: v });
+            if (v) void allow();
+          }}
+        />
+      </Row>
+      <Row
+        label="This Mac"
+        hint={
+          perm === "granted"
+            ? "Allowed. If nothing shows up, check System Settings → Notifications for Claude Lens (or your browser)."
+            : perm === "denied"
+              ? "Blocked. Allow Claude Lens (or your browser) in System Settings → Notifications, then reload."
+              : perm === "unsupported"
+                ? "This browser can't show notifications."
+                : "Not allowed yet."
+        }
+      >
+        {perm === "granted" ? (
+          <button className={btn} onClick={() => notify("Claude Lens", "Notifications work. You'll hear from Claude here.", { force: true })}>
+            Send a test
+          </button>
+        ) : perm === "default" ? (
+          <button className={btn} onClick={allow}>
+            Allow notifications
+          </button>
+        ) : null}
+      </Row>
     </Section>
   );
 }
@@ -1094,6 +1176,8 @@ export function SettingsView({ chat, onBack }: { chat: TreeChat; onBack: () => v
               <ModelSection settings={settings} save={saveSettings} />
               <DiagramsSection settings={settings} save={saveSettings} />
               <RestoreSection chat={chat} settings={settings} save={saveSettings} />
+              <NotifySection settings={settings} save={saveSettings} />
+              <CoachSection settings={settings} save={saveSettings} />
             </>
           ) : (
             <Loader2 size={16} className="animate-spin text-muted" />

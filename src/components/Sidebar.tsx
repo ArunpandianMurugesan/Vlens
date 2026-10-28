@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Folder,
   FolderTree,
+  History,
   List,
   FolderOpen,
   MessagesSquare,
@@ -72,6 +73,8 @@ interface Props {
   onSettings: () => void;
   onMarketplace: () => void;
   marketplaceOpen: boolean;
+  onHistory: () => void;
+  historyOpen: boolean;
   onHome: () => void;
   settingsOpen: boolean;
   tab: "sessions" | "review";
@@ -91,6 +94,8 @@ export function Sidebar({
   onSettings,
   onMarketplace,
   marketplaceOpen,
+  onHistory,
+  historyOpen,
   onHome,
   settingsOpen,
   tab,
@@ -133,11 +138,11 @@ export function Sidebar({
 
   // Group sessions by the folder they run in (remembered in this browser).
   const [grouped, setGrouped] = useState(true);
-  const [folded, setFolded] = useState<Set<string>>(new Set());
+  const [flipped, setFlipped] = useState<Set<string>>(new Set());
   useEffect(() => {
     try {
       setGrouped(localStorage.getItem(GROUP_KEY) !== "flat");
-      setFolded(new Set(JSON.parse(localStorage.getItem(FOLDED_KEY) || "[]")));
+      setFlipped(new Set(JSON.parse(localStorage.getItem(FLIPPED_KEY) || "[]")));
     } catch {}
   }, []);
   const toggleGrouped = () =>
@@ -148,12 +153,12 @@ export function Sidebar({
       return !g;
     });
   const toggleFold = (key: string) =>
-    setFolded((f) => {
+    setFlipped((f) => {
       const next = new Set(f);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       try {
-        localStorage.setItem(FOLDED_KEY, JSON.stringify([...next]));
+        localStorage.setItem(FLIPPED_KEY, JSON.stringify([...next]));
       } catch {}
       return next;
     });
@@ -179,7 +184,9 @@ export function Sidebar({
       <div className="space-y-1">
         {[...groups.entries()].map(([k, g]) => {
           const key = `${section}:${k}`;
-          const open = !folded.has(key) || g.some((s) => s.id === activeId);
+          // Active folders start open, Pinned and Recent ones closed; a click flips that
+          // (remembered). The folder of the session you have open always shows it.
+          const open = (section === "active") !== flipped.has(key) || g.some((s) => s.id === activeId) || !!q;
           return (
             <div key={k}>
               <button
@@ -263,7 +270,7 @@ export function Sidebar({
               key={id}
               onClick={() => onTab(id)}
               className={`flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 transition ${
-                tab === id && !settingsOpen && !marketplaceOpen ? "bg-sunken font-medium text-ink" : "text-muted hover:text-ink"
+                tab === id && !settingsOpen && !marketplaceOpen && !historyOpen ? "bg-sunken font-medium text-ink" : "text-muted hover:text-ink"
               }`}
             >
               {label}
@@ -346,6 +353,17 @@ export function Sidebar({
           </>
         )}
 
+        <button
+          onClick={() => {
+            onHistory();
+            onClose();
+          }}
+          className={`mx-2 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm ${
+            historyOpen ? "bg-panel text-ink shadow-sm" : "text-muted hover:bg-panel/60 hover:text-ink"
+          }`}
+        >
+          <History size={14} /> History
+        </button>
         <button
           onClick={() => {
             onMarketplace();
@@ -436,7 +454,7 @@ function CrashedBanner({ actions, run }: { actions: Actions; run: (fn: () => Pro
 }
 
 const GROUP_KEY = "lens.sidebarGrouping";
-const FOLDED_KEY = "lens.foldedFolders";
+const FLIPPED_KEY = "lens.flippedFolders"; // folders flipped from their default (Active open, others closed)
 
 function Heading({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
   return (

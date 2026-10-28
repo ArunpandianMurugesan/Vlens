@@ -14,6 +14,7 @@ import { FilesProvider, useFiles } from "@/components/FileContext";
 import { FileViewer } from "@/components/FileViewer";
 import { HomeView } from "@/components/HomeView";
 import { MarketplaceView } from "@/components/MarketplaceView";
+import { HistoryView } from "@/components/HistoryView";
 import { LensSettingsContext } from "@/components/LensSettings";
 import { useReview } from "@/hooks/useReview";
 import { useTreeChat } from "@/hooks/useTreeChat";
@@ -26,7 +27,7 @@ const PEEK = 28;
 export default function Home() {
   const chat = useTreeChat();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [view, setView] = useState<"chat" | "settings" | "review" | "marketplace">("chat");
+  const [view, setView] = useState<"chat" | "settings" | "review" | "marketplace" | "history">("chat");
   const [tab, setTab] = useState<"sessions" | "review">("sessions");
   const review = useReview();
   // First launch, or Claude Code missing / signed out: show Get started over the app.
@@ -52,6 +53,11 @@ export default function Home() {
     });
   };
 
+  // Opening a session from elsewhere (a notification click) shows the chat.
+  useEffect(() => {
+    if (chat.activeId) setView((v) => (v === "review" ? v : "chat"));
+  }, [chat.activeId]);
+
   const n = chat.stack.length;
 
   return (
@@ -73,6 +79,8 @@ export default function Home() {
           onSettings={() => setView("settings")}
         onMarketplace={() => setView("marketplace")}
         marketplaceOpen={view === "marketplace"}
+        onHistory={() => setView("history")}
+        historyOpen={view === "history"}
         onHome={() => {
           setTab("sessions");
           setView("chat");
@@ -93,7 +101,17 @@ export default function Home() {
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
         />
-        {view === "marketplace" ? (
+        {view === "history" ? (
+          <HistoryView
+            chat={chat}
+            onMenu={() => setSidebarOpen(true)}
+            onOpen={(id) => {
+              setTab("sessions");
+              setView("chat");
+              chat.selectSession(id);
+            }}
+          />
+        ) : view === "marketplace" ? (
           <MarketplaceView chat={chat} onMenu={() => setSidebarOpen(true)} />
         ) : view === "settings" ? (
           <SettingsView chat={chat} onBack={() => setView(tab === "review" ? "review" : "chat")} />

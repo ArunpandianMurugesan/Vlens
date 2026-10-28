@@ -44,7 +44,7 @@ export function PlanCard({ ask, onMode }: { ask: PermissionAsk; onMode?: (m: Per
   actions.current = { proceed, keepPlanning };
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
+      const t = e.target instanceof Element ? e.target : null;
       if (t?.closest("input, textarea, [contenteditable]") || e.metaKey || e.ctrlKey || e.altKey) return;
       if (document.querySelector("[data-perm-card]") !== cardRef.current) return; // only the oldest open prompt listens
       const n = Number(e.key);

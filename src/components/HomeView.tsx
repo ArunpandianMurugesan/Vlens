@@ -6,6 +6,7 @@ import {
   BadgeCheck,
   Gauge,
   GitBranch,
+  GraduationCap,
   Layers,
   Lightbulb,
   Loader2,
@@ -20,6 +21,7 @@ import {
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { TreeChat } from "@/hooks/useTreeChat";
 import type { DashboardData, DayStats, HeavySession } from "@/lib/types";
+import { CoachCard, runRetro } from "./CoachCard";
 import { Ring } from "./Usage";
 
 const fmt = (n: number) =>
@@ -176,7 +178,7 @@ function ActivityChart({ days }: { days: { date: string; stats: DayStats }[] }) 
 // ── Context health ──
 
 function HeavyRow({ h, chat, onDone }: { h: HeavySession; chat: TreeChat; onDone: () => void }) {
-  const [busy, setBusy] = useState<"compact" | "fresh" | null>(null);
+  const [busy, setBusy] = useState<"compact" | "fresh" | "retro" | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const pct = h.used / h.window;
   const blocked = h.active ? `Open in ${h.activeWhere === "desktop" ? "the desktop app" : "a terminal"}. Use /compact there, or close it first.` : null;
@@ -217,6 +219,21 @@ function HeavyRow({ h, chat, onDone }: { h: HeavySession; chat: TreeChat; onDone
           </div>
         </div>
         <div className="flex shrink-0 gap-1.5">
+          {chat.settings?.retro && chat.settings.coach && (
+            <button
+              className={btn}
+              disabled={!!busy}
+              title="Claude reviews this session: what went well, what cost time, and lessons for next time"
+              onClick={async () => {
+                setBusy("retro");
+                setErr(null);
+                await runRetro(h.id).catch((e: Error) => setErr(e.message));
+                setBusy(null);
+              }}
+            >
+              {busy === "retro" ? <Loader2 size={12} className="animate-spin" /> : <GraduationCap size={12} />} Retro
+            </button>
+          )}
           <button className={btn} disabled={!!busy || !!blocked} title={blocked ?? "Summarize this conversation in place (/compact)"} onClick={() => run("compact")}>
             {busy === "compact" ? <Loader2 size={12} className="animate-spin" /> : <Minimize2 size={12} />} Compact
           </button>
@@ -225,7 +242,11 @@ function HeavyRow({ h, chat, onDone }: { h: HeavySession; chat: TreeChat; onDone
           </button>
         </div>
       </div>
-      {busy && <p className="mt-1.5 pl-[46px] text-xs text-muted">{busy === "compact" ? "Compacting… this can take a minute on a long session." : "Writing a handoff note… then a new session opens."}</p>}
+      {busy && (
+        <p className="mt-1.5 pl-[46px] text-xs text-muted">
+          {busy === "compact" ? "Compacting… this can take a minute on a long session." : busy === "retro" ? "Reviewing this session… the lessons show up in Coach above." : "Writing a handoff note… then a new session opens."}
+        </p>
+      )}
       {err && <p className="mt-1.5 pl-[46px] text-xs text-red-600">{err}</p>}
     </li>
   );
@@ -400,6 +421,7 @@ export function HomeView({ chat, onMenu, onNew, onReview }: { chat: TreeChat; on
               <ActivityChart days={data.days} />
 
               <div className="grid gap-4 lg:grid-cols-3">
+                <CoachCard chat={chat} />
                 <ContextHealth data={data} chat={chat} reload={load} />
                 <Card title="Keep sessions light" icon={Lightbulb}>
                   <ul className="space-y-3">

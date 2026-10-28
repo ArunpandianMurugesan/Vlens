@@ -14,6 +14,12 @@ export const DEFAULT_SETTINGS: Settings = {
   showWhiteboards: true,
   whiteboardSkill: true,
   onboarded: false,
+  notifications: true,
+  coach: true,
+  retro: true,
+  lessonsToClaudeMd: true,
+  lessonsTarget: "project",
+  retroModel: "haiku",
 };
 
 const store = jsonStore<Partial<Settings>>("settings.json", () => ({}));
@@ -29,7 +35,9 @@ export async function updateSettings(patch: Partial<Settings>): Promise<Settings
     if (isModel(patch.subAgentModel)) s.subAgentModel = patch.subAgentModel;
     if (typeof patch.autoRestore === "boolean") s.autoRestore = patch.autoRestore;
     if (patch.terminalApp === "Terminal" || patch.terminalApp === "iTerm") s.terminalApp = patch.terminalApp;
-    for (const k of ["showDiagrams", "animateDiagrams", "diagramSkill", "showWhiteboards", "whiteboardSkill", "onboarded"] as const)
+    if (patch.lessonsTarget === "project" || patch.lessonsTarget === "user") s.lessonsTarget = patch.lessonsTarget;
+    if (isModel(patch.retroModel)) s.retroModel = patch.retroModel;
+    for (const k of ["showDiagrams", "animateDiagrams", "diagramSkill", "showWhiteboards", "whiteboardSkill", "onboarded", "notifications", "coach", "retro", "lessonsToClaudeMd"] as const)
       if (typeof patch[k] === "boolean") s[k] = patch[k];
   });
   return getSettings();

@@ -41,7 +41,7 @@ function ToolPermission({ ask }: { ask: PermissionAsk }) {
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
+      const t = e.target instanceof Element ? e.target : null;
       if (t?.closest("input, textarea, [contenteditable]") || e.metaKey || e.ctrlKey || e.altKey) return;
       if (document.querySelector("[data-perm-card]") !== cardRef.current) return; // only the oldest open prompt listens
       if (e.key === "1") answerRef.current("allow");

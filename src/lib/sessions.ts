@@ -217,6 +217,27 @@ function summaryTitle(p: Parsed) {
 // Small cache so the sidebar doesn't re-parse hundreds of files every poll.
 const summaryCache = new Map<string, { mtimeMs: number; summary: SessionSummary | null }>();
 
+// Messages per local day, and the time of the last one. A file's mtime isn't
+// enough: long sessions span weeks, and the CLI sometimes touches old files.
+const DAYS_KEPT = 31;
+function activity(raw: string): { days: Record<string, number>; last: string | null } {
+  const since = Date.now() - DAYS_KEPT * 86_400_000;
+  const days: Record<string, number> = {};
+  let last: string | null = null;
+  for (const line of raw.split("\n")) {
+    if (!line.includes('"type":"user"') && !line.includes('"type":"assistant"')) continue;
+    const ts = line.match(/"timestamp":"([^"]+)"/)?.[1];
+    const t = ts ? Date.parse(ts) : NaN;
+    if (Number.isNaN(t)) continue;
+    if (!last || ts! > last) last = ts!;
+    if (t < since) continue;
+    const d = new Date(t);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    days[key] = (days[key] ?? 0) + 1;
+  }
+  return { days, last };
+}
+
 export async function listSessions(): Promise<SessionSummary[]> {
   const [hidden, active, pins, recent, limits] = await Promise.all([
     subThreadSessionIds(),
@@ -256,6 +277,7 @@ export async function listSessions(): Promise<SessionSummary[]> {
           const raw = await fs.readFile(fp, "utf8");
           const p = parseJsonl(raw, false);
           const messageCount = (raw.match(/"type":"(user|assistant)"/g) ?? []).length;
+          const act = activity(raw);
           // Skip empty shells (sessions opened but never used).
           const summary: SessionSummary | null =
             messageCount === 0 && !p.firstPrompt
@@ -266,8 +288,9 @@ export async function listSessions(): Promise<SessionSummary[]> {
                   projectName: projectNameFromDir(dir, p.cwd),
                   cwd: p.cwd,
                   title: summaryTitle(p),
-                  updatedAt: stat.mtime.toISOString(),
+                  updatedAt: act.last ?? stat.mtime.toISOString(),
                   messageCount,
+                  days: act.days,
                   context: p.context ? { ...p.context, window: 0, estimated: true } : undefined, // window filled in below
                 };
           summaryCache.set(fp, { mtimeMs: stat.mtimeMs, summary });
@@ -276,6 +299,12 @@ export async function listSessions(): Promise<SessionSummary[]> {
       );
     }),
   );
+
+  // A session just opened in a terminal (or the desktop app) has no
+  // transcript until its first message, but it's running: list it anyway.
+  const listed = new Set(results.map((s) => s.id));
+  for (const [id, run] of active)
+    if (!listed.has(id) && !run.byLens && !hidden.has(id)) results.push(notStartedYet(id, run));
 
   return results
     .map((s) => {
@@ -304,9 +333,25 @@ export async function findSessionFile(id: string): Promise<{ dir: string; file: 
   return null;
 }
 
+// The summary of a running session that hasn't written its transcript yet.
+function notStartedYet(id: string, run: { cwd: string | null; startedAt: number }): SessionSummary {
+  return {
+    id,
+    projectDir: (run.cwd ?? "").replace(/[^A-Za-z0-9]/g, "-"),
+    projectName: run.cwd ? path.basename(run.cwd) || run.cwd : "unknown folder",
+    cwd: run.cwd,
+    title: "New session (no messages yet)",
+    updatedAt: new Date(run.startedAt || Date.now()).toISOString(),
+    messageCount: 0,
+  };
+}
+
 export async function getSession(id: string): Promise<SessionDetail | null> {
   const found = await findSessionFile(id);
-  if (!found) return null;
+  if (!found) {
+    const run = (await activeSessions()).get(id);
+    return run && !run.byLens ? { ...notStartedYet(id, run), messages: [] } : null;
+  }
   const [raw, stat] = await Promise.all([fs.readFile(found.file, "utf8"), fs.stat(found.file)]);
   const p = parseJsonl(raw, true, id);
   const { contextWindows } = await getLimits();
