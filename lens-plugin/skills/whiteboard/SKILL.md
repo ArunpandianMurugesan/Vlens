@@ -1,11 +1,13 @@
 ---
 name: whiteboard
-description: Explain something by sketching it on a hand-drawn whiteboard. Use when teaching or walking someone through a concept, architecture, data flow, mental model or comparison and a picture helps; when the user says "draw it", "sketch", "whiteboard", "explain visually", "teach me"; or when boxes, arrows and notes laid out in space say more than a list. Claude Lens renders ```excalidraw blocks as live, editable Excalidraw boards.
+description: Teach on a hand-drawn Excalidraw whiteboard. Use only when the user wants to learn or understand something and a sketch helps - "teach me", "explain it on a whiteboard", "walk me through how X works", "help me understand", "sketch it", or a beginner asking how a concept works - so notes, groupings, comparisons and a highlighted takeaway matter more than exact shapes. Not for plain flowcharts, sequences, state machines or schemas: those use lens:diagrams (Mermaid). Claude Lens renders ```excalidraw blocks as live, editable whiteboards.
 ---
 
 # Whiteboard sketches in Claude Lens
 
-Claude Lens draws a fenced ```excalidraw block as a hand-drawn Excalidraw board, and the user can open it full screen to move things around and draw on it. Reach for it when you're **teaching**: the free layout (groups, notes, side-by-side comparisons, a highlighted "you are here") is the point. For a plain flow or sequence, a ```mermaid diagram is usually enough.
+Claude Lens draws a fenced ```excalidraw block as a hand-drawn Excalidraw board, and the user can open it full screen to move things around and draw on it. Reach for it when you're **teaching**: the free layout (groups, notes, side-by-side comparisons, a highlighted "you are here") is the point.
+
+**Whiteboard or Mermaid?** If the picture is a flowchart, a sequence of calls, states or a schema, draw it with Mermaid (`lens:diagrams`), even when teaching. Use the whiteboard when the explanation needs what Mermaid can't do well: notes beside things, groupings, before/after or side-by-side comparisons, a mental model, emphasis on one key idea. Don't draw the same thing both ways.
 
 ## Format
 

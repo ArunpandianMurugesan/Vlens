@@ -23,6 +23,8 @@ Lens also ships its own Claude Code plugin in [`lens-plugin/`](lens-plugin) with
 
 ## Whiteboard (built in)
 
+**Mermaid or whiteboard?** Mermaid is for flowcharts and structured diagrams (flows, sequences, states, schemas, timelines): the default for any flow. The Excalidraw whiteboard is for teaching: when you ask Claude to teach or walk you through something and notes, groupings or comparisons matter more than exact shapes. The two built-in skills tell Claude which to use, and not to draw the same thing twice.
+
 Replies with an ```` ```excalidraw ```` block (a JSON list of simple shapes, labels and arrows) are drawn as hand-drawn [Excalidraw](https://excalidraw.com) boards. **Open board** makes it a full editable whiteboard: move things, draw, add notes, export PNG or `.excalidraw`. Every Mermaid diagram also gets an **Open on whiteboard** button that converts it into editable shapes.
 
 The built-in **`lens:whiteboard`** skill (in `lens-plugin/`) tells Claude to teach with a board when boxes, arrows and notes explain it better. Settings → **Diagrams & whiteboard** switches drawing and each skill on or off separately. (Lens builds a small `lens` plugin with only the skills that are on, in its data folder, and passes it with `--plugin-dir`.) Excalidraw's fonts ship with Lens in `public/excalidraw-assets/`, so boards work offline.

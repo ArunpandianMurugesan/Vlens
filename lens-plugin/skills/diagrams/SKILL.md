@@ -1,9 +1,11 @@
 ---
 name: diagrams
-description: Draw a Mermaid diagram whenever a flow, sequence, architecture, state machine, data model, timeline or dependency graph would explain something better than prose. Claude Lens renders ```mermaid blocks as live, animated diagrams.
+description: Draw flowcharts and other structured diagrams with Mermaid - a process or request flow, a call sequence between services, a state machine, a data model, a timeline, a dependency graph - whenever one says it better than prose, or the user asks for a flowchart or diagram. This is the default for any flow. (For teaching a concept on a hand-drawn whiteboard, use lens:whiteboard instead.) Claude Lens renders ```mermaid blocks as live, animated diagrams.
 ---
 
 # Diagrams in Claude Lens
+
+**Mermaid or whiteboard?** Mermaid (this skill) is for flowcharts and structured diagrams: anything that is a flow, a sequence, states or a schema. When the user wants to be *taught* or *walked through* a concept ("teach me", "explain it on a whiteboard"), use the `lens:whiteboard` skill instead. Don't draw the same thing both ways.
 
 Claude Lens shows fenced ```mermaid code blocks as rendered diagrams. Use one when the answer is about how things connect or happen in order: a request flow, a call chain across services, a state machine, a schema, a decision tree, a timeline.
 
