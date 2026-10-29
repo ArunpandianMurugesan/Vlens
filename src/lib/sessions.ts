@@ -346,14 +346,26 @@ function notStartedYet(id: string, run: { cwd: string | null; startedAt: number 
   };
 }
 
+// The last few full sessions parsed, newest last.
+const g = globalThis as { lensParsedSessions?: Map<string, Parsed & { mtimeMs: number; size: number }> };
+const parsedCache = (g.lensParsedSessions ??= new Map());
+
 export async function getSession(id: string): Promise<SessionDetail | null> {
   const found = await findSessionFile(id);
   if (!found) {
     const run = (await activeSessions()).get(id);
     return run && !run.byLens ? { ...notStartedYet(id, run), messages: [] } : null;
   }
-  const [raw, stat] = await Promise.all([fs.readFile(found.file, "utf8"), fs.stat(found.file)]);
-  const p = parseJsonl(raw, true, id);
+  const stat = await fs.stat(found.file);
+  // The open session is polled every few seconds, and a long one is tens of MB.
+  // Re-parse it only when the file has changed.
+  let p = parsedCache.get(found.file);
+  if (!p || p.mtimeMs !== stat.mtimeMs || p.size !== stat.size) {
+    p = { ...parseJsonl(await fs.readFile(found.file, "utf8"), true, id), mtimeMs: stat.mtimeMs, size: stat.size };
+    parsedCache.delete(found.file);
+    parsedCache.set(found.file, p);
+    if (parsedCache.size > 3) parsedCache.delete(parsedCache.keys().next().value!);
+  }
   const { contextWindows } = await getLimits();
   return {
     id,

@@ -8,11 +8,14 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_req: Request, { params }: Ctx) {
+// ?since=<updatedAt> skips resending the messages when the file hasn't changed.
+export async function GET(req: Request, { params }: Ctx) {
   const { id } = await params;
   const session = await getSession(id);
   if (!session) return Response.json({ error: "not found" }, { status: 404 });
-  return Response.json({ session, threads: await threadsForSession(id) });
+  const threads = await threadsForSession(id);
+  if (new URL(req.url).searchParams.get("since") === session.updatedAt) return Response.json({ unchanged: true, threads });
+  return Response.json({ session, threads });
 }
 
 // { title } renames, { pinned } pins or unpins.

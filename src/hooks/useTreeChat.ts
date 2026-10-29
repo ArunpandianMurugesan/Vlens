@@ -81,6 +81,14 @@ export interface SpawnSource {
   parentMessageText: string;
 }
 
+// fetch says only "network error" when the stream breaks, e.g. when the dev
+// server restarts. Say what that means instead.
+function runError(e: unknown) {
+  return e instanceof TypeError
+    ? "Lost the connection to Vlens mid-reply. Claude may still finish: the session updates here when it does."
+    : String(e);
+}
+
 // Reads the NDJSON stream from /api/agent or /api/chat and applies it to a LiveRun.
 async function readRun(
   res: Response,
@@ -324,12 +332,12 @@ export function useTreeChat() {
     let lastUpdated = "";
     setLoadingSession(true);
     const load = () =>
-      fetch(`/api/sessions/${activeId}`)
+      fetch(`/api/sessions/${activeId}${lastUpdated ? `?since=${encodeURIComponent(lastUpdated)}` : ""}`)
         .then((r) => r.json())
-        .then((d: { session: SessionDetail; threads: SubThread[] }) => {
-          if (stop || !d.session) return;
+        .then((d: { session?: SessionDetail; unchanged?: true; threads: SubThread[] }) => {
+          if (stop || (!d.session && !d.unchanged)) return;
           setLoadingSession(false);
-          if (d.session.updatedAt !== lastUpdated) {
+          if (d.session && d.session.updatedAt !== lastUpdated) {
             lastUpdated = d.session.updatedAt;
             setSession(d.session);
           }
@@ -497,7 +505,7 @@ export function useTreeChat() {
           },
         });
       } catch (e) {
-        if ((e as Error).name !== "AbortError") patchLive((r) => ({ ...r, error: String(e) }));
+        if ((e as Error).name !== "AbortError") patchLive((r) => ({ ...r, error: runError(e) }));
       } finally {
         delete aborts.current[threadId];
       }
@@ -561,7 +569,7 @@ export function useTreeChat() {
         });
       } catch (e) {
         if ((e as Error).name === "AbortError") void finish();
-        else patch((r) => ({ ...r, error: String(e) }));
+        else patch((r) => ({ ...r, error: runError(e) }));
       } finally {
         delete aborts.current[ROOT];
       }
