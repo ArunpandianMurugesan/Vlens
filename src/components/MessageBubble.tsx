@@ -189,7 +189,7 @@ export function MessageBubble({
         <div
           data-msg={message.id}
           data-ctx={ctx}
-          className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-user px-4 py-2.5 text-[0.95rem] leading-relaxed"
+          className="max-w-[85%] whitespace-pre-wrap wrap-anywhere rounded-2xl rounded-br-md bg-user px-4 py-2.5 text-[0.95rem] leading-relaxed"
         >
           {message.blocks.some((b) => b.kind === "image") && (
             <div className="mb-1.5 flex flex-wrap justify-end gap-1.5" data-no-select>
