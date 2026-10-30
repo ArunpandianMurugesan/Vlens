@@ -7,9 +7,9 @@ import { fileURLToPath } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = 3467;
-const url = `http://localhost:${port}`;
+const url = `http://127.0.0.1:${port}`;
 
-const dev = spawn("npx", ["next", "dev", "--turbopack", "-p", String(port)], { cwd: root, stdio: "inherit" });
+const dev = spawn("npx", ["next", "dev", "--turbopack", "-H", "127.0.0.1", "-p", String(port)], { cwd: root, stdio: "inherit" });
 let app = null;
 
 const stop = (code = 0) => {

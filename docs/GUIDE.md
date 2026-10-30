@@ -123,7 +123,7 @@ That builds `desktop/dist/Vlens-<version>-arm64.dmg`: it runs `next build`, stag
 ## Developing
 
 - `npm run app` starts `next dev` on port 3467 and opens the Electron window on it. Edits in `src/` reload right away; quitting the window stops the server.
-- Only want the browser? `npm run dev -- -p 3467`, then open http://localhost:3467.
+- Only want the browser? `npm run dev -- -p 3467`, then open http://127.0.0.1:3467.
 - To try things without touching your own pins and settings, use a scratch data folder: `LENS_DATA_DIR=/tmp/vlens-data npm run app`.
 - `lens-plugin/` holds the built-in skills (diagrams, whiteboard) that Vlens loads only into the runs it starts. Your terminal `claude` doesn't get them.
 - Before a PR: `npx tsc --noEmit` and `npx eslint src` should both be clean.
