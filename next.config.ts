@@ -14,9 +14,10 @@ const nextConfig: NextConfig = {
   // Mac app runs with Electron's built-in Node.
   output: "standalone",
   outputFileTracingRoot: path.join(__dirname),
-  // node-pty loads a native binary at runtime: keep it out of the bundle and
-  // ship its prebuilt files (pty.node, spawn-helper) with the server.
-  serverExternalPackages: ["node-pty"],
+  // node-pty loads a native binary at runtime, and ws has optional native
+  // add-ons: keep both out of the bundle, and ship node-pty's prebuilt files
+  // (pty.node, spawn-helper) with the server.
+  serverExternalPackages: ["node-pty", "ws"],
   outputFileTracingIncludes: { "/api/terminal/**": ["./node_modules/node-pty/prebuilds/darwin-*/**"] },
   // Hide the Next.js dev badge (the "N" circle) in the corner; it only shows in dev anyway.
   devIndicators: false,

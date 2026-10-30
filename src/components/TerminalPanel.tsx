@@ -27,6 +27,9 @@ const remember = (cwd: string, id: string | null) => {
   } catch {}
 };
 
+// The server closes the socket with 4000 + the exit code when the shell ends (lib/terminals.ts).
+const EXIT_BASE = 4000;
+
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 export function TerminalPanel({ cwd }: { cwd: string | null }) {
@@ -40,24 +43,10 @@ export function TerminalPanel({ cwd }: { cwd: string | null }) {
   useEffect(() => {
     let gone = false;
     let term: Terminal | null = null;
-    let id: string | null = null;
-    const ac = new AbortController();
+    let ws: WebSocket | null = null;
     const cleanups: (() => void)[] = [];
     setEnded(null);
     setErr(null);
-
-    // Keys go out in order, a batch at a time, so fast typing doesn't race.
-    let queue = "";
-    let sending = false;
-    const flush = async () => {
-      if (sending || !queue || !id) return;
-      sending = true;
-      const data = queue;
-      queue = "";
-      await post(id, { data }).catch(() => {});
-      sending = false;
-      void flush();
-    };
 
     (async () => {
       const [{ Terminal }, { FitAddon }] = await Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit")]);
@@ -74,68 +63,51 @@ export function TerminalPanel({ cwd }: { cwd: string | null }) {
       term.loadAddon(fit);
       term.open(box.current);
       fit.fit();
-      term.focus();
 
-      // Reattach to this folder's shell if it's still running, or start one.
-      id = ids()[folder] ?? null;
-      let res = id ? await fetch(`/api/terminal/${id}`, { signal: ac.signal }).catch(() => null) : null;
-      if (!res?.ok) {
-        const made = await fetch("/api/terminal", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cwd, cols: term.cols, rows: term.rows }),
-        }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))));
-        id = made.id as string;
-        remember(folder, id);
-        res = await fetch(`/api/terminal/${id}`, { signal: ac.signal });
-      } else {
-        void post(id!, { cols: term.cols, rows: term.rows });
-      }
-      if (gone) return;
-      term.focus(); // ready to type as soon as the shell is there
-
-      term.onData((d) => {
-        queue += d;
-        void flush();
+      // This folder's shell if it's still running, or a new one; then its socket.
+      const res = await fetch("/api/terminal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: ids()[folder] ?? null, cwd, cols: term.cols, rows: term.rows }),
       });
+      const t = (await res.json()) as { id: string; port: number; token: string; error?: string };
+      if (!res.ok) throw new Error(t.error ?? res.statusText);
+      if (gone) return;
+      remember(folder, t.id);
+      ws = new WebSocket(`ws://127.0.0.1:${t.port}/?id=${t.id}&token=${t.token}`);
+      const size = () => ws?.readyState === WebSocket.OPEN && term && ws.send("\0" + JSON.stringify({ cols: term.cols, rows: term.rows }));
+      ws.onopen = () => {
+        size();
+        term?.focus(); // ready to type as soon as the shell is there
+      };
+      ws.onmessage = (e) => term?.write(e.data as string);
+      ws.onclose = (e) => {
+        if (gone) return;
+        if (e.code >= EXIT_BASE && e.code < EXIT_BASE + 256) {
+          remember(folder, null);
+          setEnded(e.code - EXIT_BASE);
+        } else setErr("Lost the connection to this terminal. Restart to open a new one.");
+      };
+      term.onData((d) => ws?.readyState === WebSocket.OPEN && ws.send(d));
+
       let timer: ReturnType<typeof setTimeout> | undefined;
       const ro = new ResizeObserver(() => {
         clearTimeout(timer);
         timer = setTimeout(() => {
           if (!term || !box.current?.offsetWidth) return;
           fit.fit();
-          if (id) void post(id, { cols: term.cols, rows: term.rows }).catch(() => {});
-        }, 80);
+          size();
+        }, 50);
       });
       ro.observe(box.current);
       cleanups.push(() => ro.disconnect());
-
-      // Stream the shell's output into the terminal.
-      const reader = res.body!.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let nl: number;
-        while ((nl = buf.indexOf("\n")) >= 0) {
-          const ev = JSON.parse(buf.slice(0, nl)) as { type: "data"; data: string } | { type: "exit"; code: number };
-          buf = buf.slice(nl + 1);
-          if (ev.type === "data") term.write(ev.data);
-          else {
-            remember(folder, null);
-            setEnded(ev.code);
-          }
-        }
-      }
     })().catch((e) => {
-      if (!gone && (e as Error).name !== "AbortError") setErr("Lost the connection to this terminal. Restart to open a new one.");
+      if (!gone) setErr(`Couldn't open the terminal: ${(e as Error).message}`);
     });
 
     return () => {
       gone = true;
-      ac.abort();
+      ws?.close();
       for (const c of cleanups) c();
       term?.dispose();
     };
@@ -177,6 +149,3 @@ export function TerminalPanel({ cwd }: { cwd: string | null }) {
     </section>
   );
 }
-
-const post = (id: string, body: object) =>
-  fetch(`/api/terminal/${id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
