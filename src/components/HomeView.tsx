@@ -10,7 +10,6 @@ import {
   Layers,
   Lightbulb,
   Loader2,
-  Menu,
   Minimize2,
   Plus,
   RefreshCw,
@@ -23,6 +22,7 @@ import type { TreeChat } from "@/hooks/useTreeChat";
 import type { DashboardData, DayStats, HeavySession } from "@/lib/types";
 import { CoachCard, runRetro } from "./CoachCard";
 import { Ring } from "./Usage";
+import { MenuButton } from "./Sidebar";
 
 const fmt = (n: number) =>
   n >= 1e9 ? `${+(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n);
@@ -322,9 +322,7 @@ export function HomeView({ chat, onMenu, onNew, onReview }: { chat: TreeChat; on
   return (
     <main className="flex min-w-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b border-line px-4 py-3">
-        <button onClick={onMenu} className="text-muted md:hidden" aria-label="Open sidebar">
-          <Menu size={20} />
-        </button>
+        <MenuButton onClick={onMenu} />
         <h1 className="flex-1 font-medium">Home</h1>
         <button onClick={() => void load()} disabled={loading} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs text-muted hover:border-accent hover:text-accent disabled:opacity-60">
           <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh

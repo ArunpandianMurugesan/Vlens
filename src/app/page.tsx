@@ -6,6 +6,7 @@ import { ChatWindow } from "@/components/ChatWindow";
 import { messageText } from "@/components/MessageBubble";
 import { type Picked, SelectionPopover } from "@/components/SelectionPopover";
 import { Sidebar } from "@/components/Sidebar";
+import { toggleSidebar } from "@/lib/sidebar";
 import { ReviewView } from "@/components/ReviewView";
 import { SettingsView } from "@/components/SettingsView";
 import { SubAgentPanel } from "@/components/SubAgentPanel";
@@ -13,6 +14,7 @@ import { NewVersion } from "@/components/NewVersion";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { FilesProvider, useFiles } from "@/components/FileContext";
 import { FileViewer } from "@/components/FileViewer";
+import { TerminalPanel } from "@/components/TerminalPanel";
 import { HomeView } from "@/components/HomeView";
 import { MarketplaceView } from "@/components/MarketplaceView";
 import { HistoryView } from "@/components/HistoryView";
@@ -28,6 +30,19 @@ const PEEK = 28;
 export default function Home() {
   const chat = useTreeChat();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // ⌘B slides the sidebar away and back on a wide window.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        toggleSidebar();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  // The header's menu button: slides the sidebar over on a narrow window, brings it back on a wide one.
+  const showSidebar = () => setSidebarOpen(true);
   const [view, setView] = useState<"chat" | "settings" | "review" | "marketplace" | "history">("chat");
   const [tab, setTab] = useState<"sessions" | "review">("sessions");
   const review = useReview();
@@ -105,7 +120,7 @@ export default function Home() {
         {view === "history" ? (
           <HistoryView
             chat={chat}
-            onMenu={() => setSidebarOpen(true)}
+            onMenu={showSidebar}
             onOpen={(id) => {
               setTab("sessions");
               setView("chat");
@@ -113,14 +128,14 @@ export default function Home() {
             }}
           />
         ) : view === "marketplace" ? (
-          <MarketplaceView chat={chat} onMenu={() => setSidebarOpen(true)} />
+          <MarketplaceView chat={chat} onMenu={showSidebar} />
         ) : view === "settings" ? (
           <SettingsView chat={chat} onBack={() => setView(tab === "review" ? "review" : "chat")} />
         ) : view === "review" ? (
           <ReviewView
             review={review}
             home={review.board?.home ?? ""}
-            onMenu={() => setSidebarOpen(true)}
+            onMenu={showSidebar}
             onStart={(prompt, mode, cwd) => {
               // A review becomes a normal Vlens session: switch to it and send the first message.
               setTab("sessions");
@@ -132,7 +147,7 @@ export default function Home() {
           // Nothing open: the home dashboard (also what the app opens to).
           <HomeView
             chat={chat}
-            onMenu={() => setSidebarOpen(true)}
+            onMenu={showSidebar}
             onNew={() => chat.newSession()}
             onReview={() => {
               setTab("review");
@@ -140,7 +155,7 @@ export default function Home() {
             }}
           />
         ) : (
-          <ChatWithFiles chat={chat} onMenu={() => setSidebarOpen(true)} />
+          <ChatWithFiles chat={chat} onMenu={showSidebar} />
         )}
 
         {/* Stacked sub-agent sheets. Deeper levels slide in on top; parents peek out on the left. */}
@@ -184,23 +199,46 @@ export default function Home() {
   );
 }
 
-// The chat, with the file panel beside it when files are open (or filling the
-// space when maximized). On a phone-width window the panel covers the chat.
+// The chat, with the file panel and/or the terminal beside it (files on top,
+// terminal below when both are open). Maximized files fill the space. On a
+// phone-width window the panel covers the chat.
 function ChatWithFiles({ chat, onMenu }: { chat: ReturnType<typeof useTreeChat>; onMenu: () => void }) {
   const files = useFiles()!;
-  const open = files.tabs.length > 0;
+  const showFiles = files.tabs.length > 0;
+  const open = showFiles || files.terminal;
+  const cwd = chat.session?.cwd ?? chat.draft?.cwd ?? null;
+  // Ctrl+` shows or hides the terminal, like VS Code.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === "`") {
+        e.preventDefault();
+        files.setTerminal((t) => !t);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [files]);
   return (
     <div className="flex min-w-0 flex-1">
-      <div className={`min-w-0 flex-1 ${open && files.maximized ? "hidden" : "flex"}`}>
+      <div className={`min-w-0 flex-1 ${showFiles && files.maximized ? "hidden" : "flex"}`}>
         <ChatWindow chat={chat} onMenu={onMenu} />
       </div>
       {open && (
         <div
-          className={`fixed inset-0 z-40 border-l border-line md:static md:z-auto ${
-            files.maximized ? "md:flex-1" : "md:w-[46%] md:min-w-[380px] md:max-w-[900px] md:shrink-0"
+          className={`fixed inset-0 z-40 flex flex-col border-l border-line md:static md:z-auto ${
+            showFiles && files.maximized ? "md:flex-1" : "md:w-[46%] md:min-w-[380px] md:max-w-[900px] md:shrink-0"
           }`}
         >
-          <FileViewer />
+          {showFiles && (
+            <div className={`min-h-0 ${files.terminal ? "h-[55%] border-b border-line" : "flex-1"}`}>
+              <FileViewer />
+            </div>
+          )}
+          {files.terminal && (
+            <div className="min-h-0 flex-1">
+              <TerminalPanel cwd={cwd} />
+            </div>
+          )}
         </div>
       )}
     </div>

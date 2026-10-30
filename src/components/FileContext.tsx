@@ -4,7 +4,8 @@ import { createContext, type ReactNode, useCallback, useContext, useState } from
 import type { FileView } from "@/lib/types";
 
 // The file panel beside the chat: which files are open, and a way for any
-// message (tool chips, links, `code` paths) to open one.
+// message (tool chips, links, `code` paths) to open one. Also whether the
+// terminal panel is showing, since it shares that side of the window.
 
 export interface OpenOpts {
   cwd?: string | null; // relative paths resolve against the session's folder
@@ -32,6 +33,8 @@ interface Files {
   activate: (key: string) => void;
   reload: (key: string) => void;
   setMaximized: (v: boolean) => void;
+  terminal: boolean; // the terminal panel is showing
+  setTerminal: (v: boolean | ((v: boolean) => boolean)) => void;
 }
 
 const FilesContext = createContext<Files | null>(null);
@@ -52,6 +55,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
   const [tabs, setTabs] = useState<FileTab[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [maximized, setMaximized] = useState(false);
+  const [terminal, setTerminal] = useState(false);
 
   const load = useCallback(async (key: string, path: string, cwd?: string | null) => {
     try {
@@ -117,7 +121,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <FilesContext.Provider value={{ tabs, active, maximized, open, close, closeAll, activate: setActive, reload, setMaximized }}>
+    <FilesContext.Provider value={{ tabs, active, maximized, open, close, closeAll, activate: setActive, reload, setMaximized, terminal, setTerminal }}>
       {children}
     </FilesContext.Provider>
   );

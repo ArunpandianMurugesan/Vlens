@@ -9,6 +9,8 @@ import {
   List,
   FolderOpen,
   MessagesSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -23,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { setCollapsed, toggleSidebar, useSidebarCollapsed } from "@/lib/sidebar";
 import type { Review } from "@/hooks/useReview";
 import type { TreeChat } from "@/hooks/useTreeChat";
 import { ReviewSidebar } from "./ReviewSidebar";
@@ -84,6 +87,22 @@ interface Props {
   actions: Actions;
   open: boolean;
   onClose: () => void;
+}
+
+// ☰ at the top-left of every view. On a wide window it slides the sidebar away
+// or back (also ⌘B); on a narrow one it opens the sidebar over the page.
+export function MenuButton({ onClick, className = "" }: { onClick: () => void; className?: string }) {
+  const collapsed = useSidebarCollapsed();
+  return (
+    <button
+      onClick={() => (window.matchMedia("(min-width: 768px)").matches ? toggleSidebar() : onClick())}
+      className={`rounded-md p-0.5 text-muted hover:bg-sunken hover:text-ink ${className}`}
+      aria-label={collapsed ? "Show sidebar" : "Hide sidebar"}
+      title={`${collapsed ? "Show" : "Hide"} the sidebar (⌘B)`}
+    >
+      {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+    </button>
+  );
 }
 
 export function Sidebar({
@@ -232,7 +251,7 @@ export function Sidebar({
         className={`fixed inset-0 z-30 bg-black/30 transition-opacity md:hidden ${open ? "opacity-100" : "pointer-events-none opacity-0"}`}
       />
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-line bg-sunken transition-transform md:static md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-72 shrink-0 flex-col border-r border-line bg-sunken lens-sidebar transition-transform md:static md:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -253,6 +272,9 @@ export function Sidebar({
           <span className="ml-auto">
             <ThemeToggle />
           </span>
+          <button onClick={() => setCollapsed(true)} className="hidden rounded-md p-1 text-muted hover:bg-panel hover:text-ink md:block" aria-label="Hide sidebar" title="Hide the sidebar (⌘B)">
+            <PanelLeftClose size={16} />
+          </button>
           <button onClick={onClose} className="text-muted md:hidden" aria-label="Close sidebar">
             <X size={18} />
           </button>

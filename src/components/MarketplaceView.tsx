@@ -4,7 +4,6 @@ import {
   ChevronRight,
   Download,
   Loader2,
-  Menu,
   Package,
   Plus,
   RefreshCw,
@@ -19,6 +18,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import type { TreeChat } from "@/hooks/useTreeChat";
 import type { Marketplace, MarketplacePlugin, PluginDetail } from "@/lib/types";
 import { Markdown } from "./Markdown";
+import { MenuButton } from "./Sidebar";
 
 const OFFICIAL = "claude-plugins-official";
 const PAGE = 60;
@@ -314,9 +314,7 @@ export function MarketplaceView({ chat, onMenu }: { chat: TreeChat; onMenu: () =
   return (
     <main className="flex min-w-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b border-line px-4 py-3">
-        <button onClick={onMenu} className="text-muted md:hidden" aria-label="Open sidebar">
-          <Menu size={20} />
-        </button>
+        <MenuButton onClick={onMenu} />
         <h1 className="flex-1 font-medium">Marketplace</h1>
         <button className={btn} onClick={() => setAdding((a) => !a)}>
           <Plus size={12} /> Add marketplace

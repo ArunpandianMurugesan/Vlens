@@ -11,7 +11,6 @@ import {
   GitBranch,
   GitPullRequest,
   Loader2,
-  Menu,
   MessageSquare,
   RefreshCw,
   Sparkles,
@@ -23,6 +22,7 @@ import type { Review } from "@/hooks/useReview";
 import type { PrSummary } from "@/lib/types";
 import { Markdown } from "./Markdown";
 import { ago, CI_DOT, LANES } from "./ReviewSidebar";
+import { MenuButton } from "./Sidebar";
 
 // What Claude is asked to do. Reviews run read-only; addressing your own PR may edit files.
 export function reviewPrompt(p: PrSummary, hasClone: boolean) {
@@ -109,9 +109,7 @@ export function ReviewView({ review, onMenu, onStart, home }: Props) {
     return (
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center gap-3 border-b border-line px-4 py-3">
-          <button onClick={onMenu} className="text-muted md:hidden" aria-label="Open sidebar">
-            <Menu size={20} />
-          </button>
+          <MenuButton onClick={onMenu} />
           <h1 className="flex-1 font-medium">Vlens Review</h1>
           {refreshBtn}
         </header>
@@ -136,9 +134,7 @@ export function ReviewView({ review, onMenu, onStart, home }: Props) {
   return (
     <main className="flex min-w-0 flex-1 flex-col">
       <header className="flex items-start gap-3 border-b border-line px-4 py-3">
-        <button onClick={onMenu} className="mt-1 text-muted md:hidden" aria-label="Open sidebar">
-          <Menu size={20} />
-        </button>
+        <MenuButton onClick={onMenu} className="mt-1" />
         <div className="min-w-0 flex-1">
           <h1 className="font-medium leading-snug">{pr.title}</h1>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted">

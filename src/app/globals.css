@@ -198,6 +198,27 @@ body {
   border-radius: 5px;
   padding: 0.1em 0.35em;
 }
+/* The sidebar slides away on a wide window (src/lib/sidebar.ts). Only the
+   sidebar moves; the page re-lays out once, at the start or end. */
+@media (min-width: 768px) {
+  .lens-sidebar {
+    transition: transform 200ms ease;
+  }
+  :root[data-sidebar="hiding"] .lens-sidebar,
+  :root[data-sidebar="showing"] .lens-sidebar {
+    transform: translateX(-100%);
+  }
+  :root[data-sidebar="hiding"] .lens-sidebar {
+    position: fixed;
+  }
+  :root[data-sidebar="showing"] .lens-sidebar {
+    transition: none;
+  }
+  :root[data-sidebar="collapsed"] .lens-sidebar {
+    display: none;
+  }
+}
+
 .md pre {
   background: var(--term-bg);
   color: var(--term-text);

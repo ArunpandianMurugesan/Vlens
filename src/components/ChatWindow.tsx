@@ -1,21 +1,23 @@
 "use client";
 
-import { Check, Clock, Copy, Eye, FolderOpen, Loader2, Menu, Pencil, Power, ShieldCheck, ShieldOff, Sparkles, SquareTerminal, X } from "lucide-react";
+import { Check, Clock, Copy, Eye, FolderOpen, Loader2, Pencil, Power, ShieldCheck, ShieldOff, Sparkles, SquareTerminal, Terminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ROOT, type RootMode, type TreeChat } from "@/hooks/useTreeChat";
 import { PERMISSION_MODES } from "@/lib/modes";
 import { MODELS } from "@/lib/models";
 import type { ImageInput } from "@/lib/types";
 import { Composer } from "./Composer";
-import { CwdContext } from "./FileContext";
+import { CwdContext, useFiles } from "./FileContext";
 import { FolderPicker } from "./FolderPicker";
 import { liveMessage, MessageBubble } from "./MessageBubble";
 import { PermissionCard } from "./PermissionCard";
 import { ContextBadge } from "./Usage";
+import { MenuButton } from "./Sidebar";
 
 export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => void }) {
   const { session, loadingSession, stack, threadsFrom, openThread, rootPending, draft } = chat;
   const newDraft = !session ? draft : null; // starting a new session, not yet created
+  const files = useFiles();
   // Folders of existing sessions, most recent first, for the folder picker.
   const recent = useMemo(
     () => [...new Set(chat.sessions.map((s) => s.cwd).filter((c): c is string => !!c))],
@@ -110,9 +112,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
     <CwdContext.Provider value={session?.cwd ?? newDraft?.cwd ?? null}>
     <main className="flex min-w-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b border-line bg-bg/80 px-4 py-3 backdrop-blur">
-        <button onClick={onMenu} className="text-muted md:hidden" aria-label="Open sidebar">
-          <Menu size={20} />
-        </button>
+        <MenuButton onClick={onMenu} />
         {session ? (
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -142,6 +142,18 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
           <div className="flex-1 text-muted">{loadingSession ? "Loading…" : "Vlens"}</div>
         )}
         {session && <ContextBadge ctx={session.context} />}
+        {(session || newDraft?.cwd) && files && (
+          <button
+            onClick={() => files.setTerminal((t) => !t)}
+            title="A shell in this session's folder, beside the chat (Ctrl+`)"
+            aria-pressed={files.terminal}
+            className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs hover:text-ink ${
+              files.terminal ? "border-accent bg-accent-soft text-accent" : "border-line text-muted"
+            }`}
+          >
+            <Terminal size={12} /> <span className="hidden sm:inline">Terminal</span>
+          </button>
+        )}
         {session && !elsewhere && (
           <button
             onClick={toTerminal}

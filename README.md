@@ -27,6 +27,7 @@ Just want to use it? Download the dmg from the [latest release](https://github.c
 | **Chat like the terminal** | Permission prompts with the same choices, plan approval, Claude's questions, all five permission modes (Shift+Tab), type ahead while Claude works. |
 | **Hand off** | **Take over here** from a terminal, or **Continue in terminal** from Vlens. One writer at a time, same conversation. |
 | **Visual replies** | Mermaid diagrams, an Excalidraw whiteboard, and a file panel that jumps to the changed lines. |
+| **Terminal** | A real shell in the session's folder beside the chat (**Terminal** button or Ctrl+`). It keeps running while hidden. |
 | **History** | The last 15 days, day by day, with Resume here / Terminal. Crashed sessions come back with Restore. |
 | **Notifications** | When Claude asks, has a plan, or finishes, for terminal sessions too. |
 | **Home and Coach** | 5-hour and weekly limits, context health with Compact / Fresh start, and a coach that turns session retros into lessons in `CLAUDE.md`. |
