@@ -55,7 +55,7 @@ export default function Home() {
       .catch(() => {});
   }, []);
 
-  const onAsk = (p: Picked) => {
+  const onAsk = (p: Picked, prompt?: string) => {
     if (p.ctx === "live") return; // still streaming; wait for the final message
     const parentThreadId = p.ctx === "root" ? null : p.ctx;
     const pool = parentThreadId ? chat.threads[parentThreadId]?.messages : chat.session?.messages;
@@ -66,6 +66,7 @@ export default function Home() {
       anchorMessageId: msg.id,
       selectedText: p.text,
       parentMessageText: messageText(msg),
+      prompt,
     });
   };
 

@@ -79,6 +79,7 @@ export interface SpawnSource {
   anchorMessageId: string;
   selectedText: string;
   parentMessageText: string;
+  prompt?: string; // typed at the selection: sent as the thread's first message
 }
 
 // fetch says only "network error" when the stream breaks, e.g. when the dev
@@ -436,6 +437,7 @@ export function useTreeChat() {
       };
       // Kept on the thread only while it's a draft; the server builds its own first prompt.
       parentTexts.current[id] = src.parentMessageText;
+      if (src.prompt) firstPrompts.current[id] = src.prompt;
       setThreads((p) => ({ ...p, [id]: t }));
       setDrafts((d) => new Set(d).add(id));
       setStack((s) => {
@@ -446,6 +448,7 @@ export function useTreeChat() {
     [session],
   );
   const parentTexts = useRef<Record<string, string>>({});
+  const firstPrompts = useRef<Record<string, string>>({});
 
   const send = useCallback(
     async (threadId: string, prompt: string, images: ImageInput[] = []) => {
@@ -512,6 +515,16 @@ export function useTreeChat() {
     },
     [threads, drafts],
   );
+
+  // A question typed at the selection goes out once its new thread is in state
+  // (send reads the thread, so it can't run in the same tick as spawnThread).
+  useEffect(() => {
+    for (const [id, prompt] of Object.entries(firstPrompts.current))
+      if (threads[id]) {
+        delete firstPrompts.current[id];
+        void send(id, prompt);
+      }
+  }, [threads, send]);
 
   const sendRoot = useCallback(
     // newIn: start a brand-new session in this folder instead (e.g. from Vlens Review).
