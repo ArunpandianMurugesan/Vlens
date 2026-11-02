@@ -544,7 +544,8 @@ function SessionItem({
     else setName(s.title);
   };
 
-  const canEnd = s.active?.entrypoint === "cli";
+  // A desktop-app session can be ended while it's idle, not mid-reply (see endSession).
+  const canEnd = s.active?.entrypoint === "cli" || s.active?.status === "idle";
   const menuItem = "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-sunken disabled:opacity-40";
 
   return (
@@ -613,7 +614,11 @@ function SessionItem({
         <div className="absolute right-1.5 top-8 z-50 w-56 overflow-hidden rounded-lg border border-line bg-panel py-1 shadow-xl">
           {confirm === "end" ? (
             <ConfirmBox
-              text="End the running Claude process for this session? Whatever it's doing in that terminal stops."
+              text={
+                s.active?.entrypoint === "desktop"
+                  ? "Stop the desktop app's claude for this session? The conversation is kept; your next message in the app picks it up again."
+                  : "End the running Claude process for this session? Whatever it's doing in that terminal stops."
+              }
               action="End session"
               busy={busy}
               onYes={() => act(() => actions.endSession(s.id))}
@@ -662,7 +667,7 @@ function SessionItem({
                 <button
                   className={menuItem}
                   disabled={!canEnd}
-                  title={canEnd ? undefined : "This session runs in the desktop app. End it there."}
+                  title={canEnd ? undefined : "Claude is working on this in the desktop app. Wait for it to finish first."}
                   onClick={() => setConfirm("end")}
                 >
                   <Power size={13} /> End session

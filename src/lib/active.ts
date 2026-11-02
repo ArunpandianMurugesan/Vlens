@@ -55,12 +55,16 @@ export async function isClaudeProcess(pid: number) {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// Stops the Claude CLI process that has this session open, like pressing Ctrl+C
-// twice in the terminal. Desktop-app sessions are left to the app itself.
+// Stops the Claude process that has this session open, like pressing Ctrl+C
+// twice in the terminal, so Vlens can carry on the conversation. The desktop app
+// keeps a claude running for each session it has open, even when idle; stopping
+// that one is fine (the app resumes from the file on your next message there),
+// but not mid-reply, which would cut off work you're watching in the app.
 export async function endSession(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const run = (await activeSessions()).get(id);
   if (!run) return { ok: false, error: "This session isn't running." };
-  if (run.entrypoint === "desktop") return { ok: false, error: "This session runs in the desktop app. End it there." };
+  if (run.entrypoint === "desktop" && run.status === "busy")
+    return { ok: false, error: "Claude is working on this in the desktop app. Wait for it to finish (or stop it there), then take over." };
 
   // The pid could have been reused by another program since the registry file was written.
   if (!(await isClaudeProcess(run.pid)))

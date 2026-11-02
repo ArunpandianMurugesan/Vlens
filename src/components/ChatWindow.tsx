@@ -246,25 +246,26 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
                   <div className="font-medium">Open in {elsewhere === "desktop" ? "the Claude desktop app" : "a terminal"}</div>
                   <div className="text-xs text-muted">
                     Type there (and answer Claude&apos;s questions there); Vlens shows it here as it happens.
-                    {elsewhere === "cli" && " To continue in Vlens instead, take it over: that ends the claude in the terminal, and its conversation is kept."}
+                    {elsewhere === "cli"
+                      ? " To continue in Vlens instead, take it over: that ends the claude in the terminal, and its conversation is kept."
+                      : " To continue in Vlens instead, take it over: the desktop app lets go of it, and its conversation is kept. Back in the app, your next message there picks up from Vlens's replies."}
                   </div>
                 </div>
-                {elsewhere === "cli" &&
-                  (handoff === "confirm" ? (
-                    <span className="flex items-center gap-2 text-xs">
-                      End the claude in that terminal?
-                      <button onClick={takeOver} className="rounded-lg bg-accent px-2.5 py-1 font-medium text-white">Take over</button>
-                      <button onClick={() => setHandoff("idle")} className="rounded-lg px-2 py-1 text-muted hover:text-ink">Cancel</button>
-                    </span>
-                  ) : (
-                    <button
-                      onClick={() => setHandoff("confirm")}
-                      disabled={handoff === "busy"}
-                      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs hover:border-accent hover:text-accent disabled:opacity-50"
-                    >
-                      {handoff === "busy" ? <Loader2 size={12} className="animate-spin" /> : <Power size={12} />} Take over here
-                    </button>
-                  ))}
+                {handoff === "confirm" ? (
+                  <span className="flex items-center gap-2 text-xs">
+                    {elsewhere === "cli" ? "End the claude in that terminal?" : "Stop the desktop app's claude for this session?"}
+                    <button onClick={takeOver} className="rounded-lg bg-accent px-2.5 py-1 font-medium text-white">Take over</button>
+                    <button onClick={() => setHandoff("idle")} className="rounded-lg px-2 py-1 text-muted hover:text-ink">Cancel</button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setHandoff("confirm")}
+                    disabled={handoff === "busy"}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs hover:border-accent hover:text-accent disabled:opacity-50"
+                  >
+                    {handoff === "busy" ? <Loader2 size={12} className="animate-spin" /> : <Power size={12} />} Take over here
+                  </button>
+                )}
               </div>
             ) : (
             <>
