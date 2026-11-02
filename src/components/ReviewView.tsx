@@ -17,8 +17,10 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { Review } from "@/hooks/useReview";
+import type { TreeChat } from "@/hooks/useTreeChat";
+import { addPrSession, usePrSessions } from "@/lib/prSessions";
 import type { PrSummary } from "@/lib/types";
 import { Markdown } from "./Markdown";
 import { ago, CI_DOT, LANES } from "./ReviewSidebar";
@@ -81,12 +83,47 @@ function Fold({ title, count, open: start = false, children }: { title: string; 
 interface Props {
   review: Review;
   onMenu: () => void;
-  onStart: (prompt: string, mode: "plan" | "acceptEdits", cwd: string) => void;
+  chat: TreeChat;
+  // The open session's chat (with its file and terminal panels), shown in a PR's session tab.
+  renderChat: () => ReactNode;
   home: string;
 }
 
-export function ReviewView({ review, onMenu, onStart, home }: Props) {
+// "overview" (the PR itself), "new" (a session that's starting), or a session id.
+type Tab = string;
+
+export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
   const { pr, detail, cloneFor, dismiss, prs, refresh, loading } = review;
+  // Each PR keeps its own tabs: the sessions its buttons started, carried on right here.
+  const prSessions = usePrSessions(pr?.url);
+  const [tabOf, setTabOf] = useState<Record<string, Tab>>({});
+  const [starting, setStarting] = useState<{ url: string; kind: string } | null>(null);
+  const tab = (pr && tabOf[pr.url]) || "overview";
+  const setTab = (url: string, t: Tab) => setTabOf((all) => ({ ...all, [url]: t }));
+  // Coming back to a session tab (from another PR, or after opening a session elsewhere): load it again.
+  // Not the one just started, though: it's still streaming in as a draft until its first reply ends.
+  const fresh = useRef<string | null>(null);
+  useEffect(() => {
+    if (tab === "overview" || tab === "new" || chat.activeId === tab) return;
+    if (tab === fresh.current && !chat.activeId && chat.rootPending) return;
+    chat.selectSession(tab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the tab changes
+  }, [tab, pr?.url]);
+  const busy = !!chat.rootPending || !!starting;
+  const start = (kind: string, prompt: string, mode: "plan" | "acceptEdits", cwd: string) => {
+    if (!pr || busy) return;
+    const url = pr.url;
+    setStarting({ url, kind });
+    setTab(url, "new");
+    void chat
+      .sendRoot(prompt, mode, undefined, [], cwd, (id) => {
+        fresh.current = id;
+        addPrSession(url, { id, kind, at: Date.now() });
+        setTabOf((all) => (all[url] === "new" ? { ...all, [url]: id } : all));
+        setStarting(null);
+      })
+      .finally(() => setStarting((s) => (s?.url === url ? null : s)));
+  };
   const [loadingDetail, setLoadingDetail] = useState(false);
   const refreshing = loading || loadingDetail || (!!detail && !detail.data && !detail.error);
   const refreshBtn = (
@@ -152,6 +189,28 @@ export function ReviewView({ review, onMenu, onStart, home }: Props) {
         {refreshBtn}
       </header>
 
+      {(prSessions.length > 0 || tab === "new") && (
+        <nav className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-3 py-1.5 scroll-thin" aria-label="This PR's sessions">
+          <TabButton on={tab === "overview"} onClick={() => setTab(pr.url, "overview")}>
+            <GitPullRequest size={12} /> Overview
+          </TabButton>
+          {prSessions.map((s) => (
+            <TabButton key={s.id} on={tab === s.id} onClick={() => setTab(pr.url, s.id)} title={`Started ${ago(new Date(s.at).toISOString())} ago`}>
+              <Sparkles size={12} /> {s.kind}
+              <span className="text-muted">· {ago(new Date(s.at).toISOString())}</span>
+            </TabButton>
+          ))}
+          {starting?.url === pr.url && (
+            <TabButton on={tab === "new"} onClick={() => setTab(pr.url, "new")}>
+              <Loader2 size={12} className="animate-spin" /> {starting.kind}
+            </TabButton>
+          )}
+        </nav>
+      )}
+
+      {tab !== "overview" ? (
+        <div className="flex min-h-0 flex-1">{renderChat()}</div>
+      ) : (
       <div className="flex-1 overflow-y-auto scroll-thin">
         <div className="mx-auto max-w-3xl space-y-4 px-4 py-5">
           <div className={`rounded-xl px-3 py-2 text-sm ${pr.lane === "needsYou" ? "bg-amber-500/10" : "bg-sunken"}`}>
@@ -166,17 +225,18 @@ export function ReviewView({ review, onMenu, onStart, home }: Props) {
           <div className="flex flex-wrap items-center gap-2">
             {!mine && (
               <button
-                onClick={() => onStart(reviewPrompt(pr, !!clone), "plan", clone ?? home)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white"
+                onClick={() => start("Review", reviewPrompt(pr, !!clone), "plan", clone ?? home)}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
               >
                 <Sparkles size={14} /> Review with Claude
               </button>
             )}
             {mine && (
               <button
-                onClick={() => clone && onStart(addressPrompt(pr), "acceptEdits", clone)}
-                disabled={!clone}
-                title={clone ? undefined : "Clone this repo on your Mac first, so Claude can work on the branch."}
+                onClick={() => clone && start("Address feedback", addressPrompt(pr), "acceptEdits", clone)}
+                disabled={!clone || busy}
+                title={clone ? (busy ? busyHint : undefined) : "Clone this repo on your Mac first, so Claude can work on the branch."}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
               >
                 <Wrench size={14} /> Address feedback
@@ -184,8 +244,10 @@ export function ReviewView({ review, onMenu, onStart, home }: Props) {
             )}
             {mine && (
               <button
-                onClick={() => onStart(reviewPrompt(pr, !!clone), "plan", clone ?? home)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent"
+                onClick={() => start("Self-review", reviewPrompt(pr, !!clone), "plan", clone ?? home)}
+                disabled={busy}
+                title={busy ? busyHint : undefined}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent disabled:opacity-50"
               >
                 <Sparkles size={14} /> Self-review
               </button>
@@ -318,6 +380,22 @@ export function ReviewView({ review, onMenu, onStart, home }: Props) {
           )}
         </div>
       </div>
+      )}
     </main>
+  );
+}
+
+const busyHint = "Claude is still starting the last one. Wait a moment.";
+
+function TabButton({ on, onClick, title, children }: { on: boolean; onClick: () => void; title?: string; children: ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      aria-pressed={on}
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs ${on ? "bg-sunken font-medium text-ink" : "text-muted hover:text-ink"}`}
+    >
+      {children}
+    </button>
   );
 }

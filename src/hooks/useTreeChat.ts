@@ -528,7 +528,8 @@ export function useTreeChat() {
 
   const sendRoot = useCallback(
     // newIn: start a brand-new session in this folder instead (e.g. from Vlens Review).
-    async (prompt: string, mode: RootMode, model?: string, images: ImageInput[] = [], newIn?: string) => {
+    // onId: told the new session's id as soon as Claude reports it.
+    async (prompt: string, mode: RootMode, model?: string, images: ImageInput[] = [], newIn?: string, onId?: (id: string) => void) => {
       const cur = newIn ? null : session;
       const cwd = newIn ?? draft?.cwd;
       if ((!cur && !cwd) || aborts.current[ROOT]) return;
@@ -577,7 +578,10 @@ export function useTreeChat() {
           ),
         });
         await readRun(res, patch, {
-          session: (id) => (sessionId = id),
+          session: (id) => {
+            sessionId = id;
+            onId?.(id);
+          },
           done: () => void finish(),
         });
       } catch (e) {

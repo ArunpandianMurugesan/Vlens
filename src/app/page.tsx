@@ -137,12 +137,9 @@ export default function Home() {
             review={review}
             home={review.board?.home ?? ""}
             onMenu={showSidebar}
-            onStart={(prompt, mode, cwd) => {
-              // A review becomes a normal Vlens session: switch to it and send the first message.
-              setTab("sessions");
-              setView("chat");
-              void chat.sendRoot(prompt, mode, undefined, [], cwd);
-            }}
+            chat={chat}
+            // A PR's sessions open in its own tabs, right on the Review page.
+            renderChat={() => <ChatWithFiles chat={chat} onMenu={showSidebar} />}
           />
         ) : !chat.activeId && !chat.draft ? (
           // Nothing open: the home dashboard (also what the app opens to).
