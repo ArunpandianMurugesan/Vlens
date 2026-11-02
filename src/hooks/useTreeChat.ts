@@ -161,8 +161,15 @@ async function readRun(
 
 export type RootMode = PermissionMode;
 
-// Key for the main session's run in the `live` map (thread ids are UUIDs, so no clash).
-export const ROOT = "root";
+// A reply in progress in a main session: the prompt just sent, how many
+// messages the session had before it (the CLI writes the session file as it
+// goes, so anything past that count is shown from the live stream instead),
+// and the key of its stream in the `live` map.
+export interface RootRun {
+  message: ChatMessage;
+  base: number;
+  runId: string;
+}
 
 function without<T>(rec: Record<string, T>, key: string) {
   const next = { ...rec };
@@ -182,12 +189,18 @@ export function useTreeChat() {
   const [stack, setStack] = useState<string[]>([]); // open panels, root-most first
   const [live, setLive] = useState<Record<string, LiveRun>>({});
   const aborts = useRef<Record<string, AbortController>>({});
-  // While the main session is replying: the prompt just sent, and how many
-  // messages the session had before it. The CLI writes the session file as it
-  // goes, so anything past that count is shown from the live stream instead.
-  const [rootPending, setRootPending] = useState<{ message: ChatMessage; base: number } | null>(null);
+  // Replies in progress, by session id (or a new session's draft key until its
+  // id arrives). Each belongs to its own session: switching to another one
+  // neither shows it there nor stops it, and several sessions can reply at once.
+  const [rootRuns, setRootRuns] = useState<Record<string, RootRun>>({});
   // A session that doesn't exist yet: the user picked "New session" and is choosing a folder.
   const [draft, setDraft] = useState<{ cwd: string } | null>(null);
+  // Names that draft in rootRuns; a new one for every "New session".
+  const [draftKey, setDraftKey] = useState(() => `new:${crypto.randomUUID()}`);
+  const viewRef = useRef<string | null>(null);
+  const viewKey = activeId ?? (draft ? draftKey : null);
+  viewRef.current = viewKey;
+  const rootPending = (viewKey && rootRuns[viewKey]) || null;
   // Last time this app wrote to a session, so the UI can tell our writes from someone else's.
   const [ownWrite, setOwnWrite] = useState<{ id: string; at: number } | null>(null);
 
@@ -357,6 +370,15 @@ export function useTreeChat() {
     };
   }, [activeId]);
 
+  // A reply that ended in an error stays on screen until you leave its session.
+  const dropFinished = useCallback(() => {
+    setRootRuns((all) => {
+      const left = Object.fromEntries(Object.entries(all).filter(([, r]) => aborts.current[r.runId]));
+      for (const [, r] of Object.entries(all)) if (!aborts.current[r.runId]) setLive((l) => without(l, r.runId));
+      return Object.keys(left).length === Object.keys(all).length ? all : left;
+    });
+  }, []);
+
   const selectSession = useCallback((id: string) => {
     // Clicking the session that's already open: keep it (clearing it here would
     // leave the chat blank, since the loader only runs when the id changes).
@@ -365,9 +387,9 @@ export function useTreeChat() {
     setSession(null);
     setStack([]);
     setThreads({});
-    setRootPending(null);
+    dropFinished();
     setDraft(null);
-  }, []);
+  }, [dropFinished]);
   openRef.current = selectSession; // a notification click opens its session
 
   // Back to the home dashboard: nothing open.
@@ -376,18 +398,19 @@ export function useTreeChat() {
     setSession(null);
     setStack([]);
     setThreads({});
-    setRootPending(null);
+    dropFinished();
     setDraft(null);
-  }, []);
+  }, [dropFinished]);
 
   const newSession = useCallback((cwd = "") => {
     setActiveId(null);
     setSession(null);
     setStack([]);
     setThreads({});
-    setRootPending(null);
+    dropFinished();
     setDraft({ cwd });
-  }, []);
+    setDraftKey(`new:${crypto.randomUUID()}`);
+  }, [dropFinished]);
 
   const threadsFrom = useCallback(
     (parentThreadId: string | null, anchorMessageId?: string) =>
@@ -532,16 +555,19 @@ export function useTreeChat() {
     async (prompt: string, mode: RootMode, model?: string, images: ImageInput[] = [], newIn?: string, onId?: (id: string) => void) => {
       const cur = newIn ? null : session;
       const cwd = newIn ?? draft?.cwd;
-      if ((!cur && !cwd) || aborts.current[ROOT]) return;
+      let key = newIn ? `new:${crypto.randomUUID()}` : (cur?.id ?? draftKey);
+      if ((!cur && !cwd) || (rootRuns[key] && aborts.current[rootRuns[key].runId])) return;
       if (newIn) {
         setActiveId(null);
         setSession(null);
         setStack([]);
         setThreads({});
         setDraft({ cwd: newIn });
+        setDraftKey(key);
       }
       // For a new session the id arrives in the stream's "session" event.
       let sessionId = cur?.id ?? null;
+      const runId = `root:${crypto.randomUUID()}`;
       const message: ChatMessage = {
         id: crypto.randomUUID(),
         parentId: cur?.messages.at(-1)?.id ?? null,
@@ -549,22 +575,27 @@ export function useTreeChat() {
         blocks: [...(prompt ? [{ kind: "text" as const, text: prompt }] : []), ...imageBlocks(images)],
         timestamp: new Date().toISOString(),
       };
-      setRootPending({ message, base: cur?.messages.length ?? 0 });
-      setLive((l) => ({ ...l, [ROOT]: { text: "", tools: [] } }));
+      const old = rootRuns[key]?.runId;
+      if (old) setLive((l) => without(l, old));
+      setRootRuns((all) => ({ ...all, [key]: { message, base: cur?.messages.length ?? 0, runId } }));
+      setLive((l) => ({ ...l, [runId]: { text: "", tools: [] } }));
       const ac = new AbortController();
-      aborts.current[ROOT] = ac;
-      const patch = (fn: (r: LiveRun) => LiveRun) => setLive((l) => (l[ROOT] ? { ...l, [ROOT]: fn(l[ROOT]) } : l));
+      aborts.current[runId] = ac;
+      const patch = (fn: (r: LiveRun) => LiveRun) => setLive((l) => (l[runId] ? { ...l, [runId]: fn(l[runId]) } : l));
       // Swap the live view for the saved session only once the new file is loaded, so nothing flickers.
+      // Only if you're still looking at it: never pull you back from another session.
       const finish = async () => {
         if (sessionId) setOwnWrite({ id: sessionId, at: Date.now() });
-        const d = sessionId ? await fetch(`/api/sessions/${sessionId}`).then((r) => r.json()) : {};
-        if (d.session) {
+        const watching = viewRef.current === key;
+        const d = sessionId && watching ? await fetch(`/api/sessions/${sessionId}`).then((r) => r.json()) : {};
+        if (d.session && viewRef.current === key) {
           setSession(d.session);
           setActiveId(d.session.id);
           setDraft(null);
         }
-        setRootPending(null);
-        setLive((l) => without(l, ROOT));
+        setRootRuns((all) => without(all, key));
+        setLive((l) => without(l, runId));
+        void loadSessions();
       };
       try {
         const res = await fetch("/api/chat", {
@@ -580,6 +611,19 @@ export function useTreeChat() {
         await readRun(res, patch, {
           session: (id) => {
             sessionId = id;
+            // From now on the run belongs to the session's real id, so opening
+            // it from the sidebar (even after looking elsewhere) shows it live.
+            if (key !== id) {
+              const from = key;
+              key = id;
+              setRootRuns((all) => (all[from] ? { ...without(all, from), [id]: all[from] } : all));
+              // Still looking at it as the new-session draft: keep looking (its file
+              // may not be written yet, so it only becomes the open session at the end).
+              if (viewRef.current === from) {
+                viewRef.current = id;
+                setDraftKey(id);
+              }
+            }
             onId?.(id);
           },
           done: () => void finish(),
@@ -588,10 +632,10 @@ export function useTreeChat() {
         if ((e as Error).name === "AbortError") void finish();
         else patch((r) => ({ ...r, error: runError(e) }));
       } finally {
-        delete aborts.current[ROOT];
+        delete aborts.current[runId];
       }
     },
-    [session, draft],
+    [session, draft, draftKey, rootRuns, loadSessions],
   );
 
   const stop = useCallback((threadId: string) => {

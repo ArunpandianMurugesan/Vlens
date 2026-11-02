@@ -2,7 +2,7 @@
 
 import { Check, Clock, Copy, Eye, FolderOpen, Loader2, Pencil, Power, ShieldCheck, ShieldOff, Sparkles, SquareTerminal, Terminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ROOT, type RootMode, type TreeChat } from "@/hooks/useTreeChat";
+import { type RootMode, type TreeChat } from "@/hooks/useTreeChat";
 import { PERMISSION_MODES } from "@/lib/modes";
 import { MODELS } from "@/lib/models";
 import type { ImageInput } from "@/lib/types";
@@ -30,7 +30,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
   // Per-message model; null = use the default from Settings.
   const [model, setModel] = useState<string | null>(null);
   const currentModel = model ?? chat.settings?.defaultModel ?? "";
-  const run = chat.live[ROOT];
+  const run = rootPending ? chat.live[rootPending.runId] : undefined;
   const replying = !!run && !run.error;
   // While replying, show the session as it was plus the live stream (see rootPending in the hook).
   const shown = session ? (rootPending ? session.messages.slice(0, rootPending.base) : session.messages) : [];
@@ -318,7 +318,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
               cwd={session?.cwd ?? newDraft?.cwd ?? null}
               onStop={() => {
                 if (queue.length) setPaused(true); // like Esc in the terminal: don't fire the queued messages
-                chat.stop(ROOT);
+                if (rootPending) chat.stop(rootPending.runId);
               }}
               footer={
                 <div className="flex flex-wrap items-center gap-2">
