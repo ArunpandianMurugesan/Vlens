@@ -219,8 +219,9 @@ export function useTreeChat() {
   const [ownWrite, setOwnWrite] = useState<{ id: string; at: number } | null>(null);
 
   // Sidebar: poll so new CLI sessions show up on their own.
-  // A terminal or desktop-app session that goes from working to waiting gets a
-  // notification, like the terminal's bell. (Vlens's own runs notify as they finish.)
+  // A terminal or desktop-app session that stops to ask you something (a
+  // permission prompt, a question) or finishes gets a notification, like the
+  // terminal's bell. (Vlens's own runs notify from their stream.)
   const lastStatus = useRef<Map<string, string> | null>(null);
   const openRef = useRef<(id: string) => void>(() => {});
   const loadSessions = useCallback(
@@ -229,11 +230,17 @@ export function useTreeChat() {
         .then((r) => r.json())
         .then((list: SessionSummary[]) => {
           const before = lastStatus.current;
+          const state = (s: SessionSummary) => (!s.active || s.active.byLens ? "off" : s.active.waitingFor ? "waiting" : s.active.status);
           if (before)
-            for (const s of list)
-              if (before.get(s.id) === "busy" && s.active?.status !== "busy" && !s.active?.byLens)
-                notify(s.title, `Claude finished in ${s.projectName} and is waiting for you.`, { tag: `s-${s.id}`, onClick: () => openRef.current(s.id) });
-          lastStatus.current = new Map(list.map((s) => [s.id, s.active && !s.active.byLens ? s.active.status : "off"]));
+            for (const s of list) {
+              const was = before.get(s.id);
+              const open = () => openRef.current(s.id);
+              if (state(s) === "waiting" && was !== "waiting")
+                notify(`Claude needs you: ${s.title}`, `${s.projectName}: ${s.active!.waitingFor}.`, { tag: `s-${s.id}`, onClick: open });
+              else if (was === "busy" && state(s) === "idle")
+                notify(s.title, `Claude finished in ${s.projectName} and is waiting for you.`, { tag: `s-${s.id}`, onClick: open });
+            }
+          lastStatus.current = new Map(list.map((s) => [s.id, state(s)]));
           setSessions(list);
         })
         .catch(() => {}),
@@ -353,6 +360,19 @@ export function useTreeChat() {
     }
   };
 
+  // Claude working on its own (a background task reported back) is news too:
+  // a question it asks you then, and when it's done.
+  const lastLive = useRef<LiveState | null>(null);
+  const noteLive = useCallback((l: LiveState | null, title?: string) => {
+    const prev = lastLive.current;
+    lastLive.current = l;
+    const name = title ?? "Your session";
+    for (const a of l?.asks ?? [])
+      if (!prev?.asks.some((p) => p.id === a.id))
+        notify(a.plan !== undefined ? "Claude's plan is ready" : a.questions ? "Claude has a question" : `Claude wants to use ${a.tool}`, `${name}: ${a.questions?.[0]?.question ?? a.description ?? "Open Vlens to answer."}`, { tag: `ask-${a.id}` });
+    if (prev?.busy && l && !l.busy) notify(name, "Claude finished an update from its background work.", { tag: `bg-${activeIdRef.current}` });
+  }, []);
+
   // Open session: poll too, so a session running in the terminal updates live,
   // and so does Vlens's own Claude when background work reports back. Faster
   // while something is going on.
@@ -361,8 +381,10 @@ export function useTreeChat() {
     let stop = false;
     let lastUpdated = "";
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let title: string | undefined;
     setLoadingSession(true);
     setLiveState(null);
+    lastLive.current = null;
     const load = () =>
       fetch(`/api/sessions/${activeId}${lastUpdated ? `?since=${encodeURIComponent(lastUpdated)}` : ""}`)
         .then((r) => r.json())
@@ -378,6 +400,8 @@ export function useTreeChat() {
             for (const t of d.threads) if (!aborts.current[t.id]) next[t.id] = t;
             return next;
           });
+          title = d.session?.title ?? title;
+          noteLive(d.live ?? null, title);
           setLiveState(d.live ?? null);
           return d.live;
         })
@@ -392,7 +416,7 @@ export function useTreeChat() {
       stop = true;
       clearTimeout(timer);
     };
-  }, [activeId]);
+  }, [activeId, noteLive]);
 
   // Stop what Claude is doing on its own (a background task reported back).
   const stopLive = useCallback(async () => {

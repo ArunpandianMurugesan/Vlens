@@ -29,7 +29,7 @@ import {
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { TreeChat } from "@/hooks/useTreeChat";
 import { MODELS } from "@/lib/models";
-import { askNotificationPermission, notificationsSupported, notify } from "@/lib/notify";
+import { askNotificationPermission, notificationPermission, notify } from "@/lib/notify";
 import type { Account, HookEntry, McpServer, Settings, Skill, UpdateInfo } from "@/lib/types";
 import { MermaidBlock } from "./Mermaid";
 import { WhiteboardBlock } from "./Whiteboard";
@@ -294,7 +294,7 @@ function CoachSection({ settings, save }: { settings: Settings; save: (p: Partia
 
 function NotifySection({ settings, save }: { settings: Settings; save: (p: Partial<Settings>) => void }) {
   const [perm, setPerm] = useState<NotificationPermission | "unsupported">("default");
-  useEffect(() => setPerm(notificationsSupported() ? Notification.permission : "unsupported"), []);
+  useEffect(() => setPerm(notificationPermission()), []);
   const allow = async () => setPerm(await askNotificationPermission());
   const btn = "rounded-lg border border-line px-2.5 py-1 text-xs hover:border-accent hover:text-accent";
 

@@ -35,6 +35,8 @@ export async function activeSessions(): Promise<Map<string, Running>> {
           out.set(d.sessionId, {
             pid: d.pid,
             status: d.status === "busy" ? "busy" : "idle",
+            // The CLI says "waiting" (with what for) when a prompt or question needs you.
+            ...(d.status === "waiting" ? { waitingFor: typeof d.waitingFor === "string" ? d.waitingFor : "input needed" } : {}),
             entrypoint: d.entrypoint === "claude-desktop" ? "desktop" : "cli",
             startedAt: typeof d.startedAt === "number" ? d.startedAt : 0,
             byLens: isLensRun(d.pid) || undefined,

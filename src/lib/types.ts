@@ -63,6 +63,7 @@ export interface SlashCommand {
 
 export interface ActiveInfo {
   status: "busy" | "idle"; // busy = working on a reply
+  waitingFor?: string; // set while it needs you: "input needed", "dialog open", …
   entrypoint: "cli" | "desktop";
   startedAt: number; // when the process started; gives the sidebar a stable order
   byLens?: boolean; // a `claude -p` run Vlens itself started (not a terminal or the desktop app)
