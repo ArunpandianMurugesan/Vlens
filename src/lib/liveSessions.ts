@@ -84,7 +84,8 @@ export async function procFor(o: {
     ...(o.model ? ["--model", o.model] : []),
     ...o.extra,
   ];
-  const proc = new ClaudeProc(args, o.cwd, o.sessionId, { onSession: o.onSession });
+  // "vlens": your chats show up in the terminal's `claude --resume` list too.
+  const proc = new ClaudeProc(args, o.cwd, o.sessionId, { onSession: o.onSession, entrypoint: "vlens" });
   all.set(proc, { proc, mode: o.mode, model: o.model, extra });
   proc.onExit(() => all.delete(proc));
   sweep();

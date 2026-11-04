@@ -72,11 +72,17 @@ export class ClaudeProc {
     args: string[],
     cwd: string | null,
     sessionId: string | null,
-    private readonly o: { oneShot?: boolean; onSession?: (id: string) => void } = {},
+    private readonly o: { oneShot?: boolean; onSession?: (id: string) => void; entrypoint?: string } = {},
   ) {
     this.sessionId = sessionId;
     const env = { ...process.env };
     delete env.CLAUDECODE; // don't let the child think it's nested inside another session
+    // Who started it, saved in the session file. The CLI marks `-p` runs "sdk-cli"
+    // and leaves those out of `claude --resume` and `--continue` in the terminal;
+    // a name of our own keeps your Vlens sessions there. Without one, the CLI
+    // decides (and a name inherited from whoever started Vlens is dropped).
+    if (o.entrypoint) env.CLAUDE_CODE_ENTRYPOINT = o.entrypoint;
+    else delete env.CLAUDE_CODE_ENTRYPOINT;
     this.child = spawn(
       "claude",
       [
