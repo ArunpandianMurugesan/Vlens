@@ -1,5 +1,6 @@
 import "server-only";
 import { activeSessions } from "./active";
+import { releaseLive } from "./liveSessions";
 import { markRecent } from "./recent";
 import { runClaudeOnce } from "./runClaude";
 import { getSession } from "./sessions";
@@ -9,8 +10,10 @@ import { getSession } from "./sessions";
 async function idle(id: string) {
   const s = await getSession(id);
   if (!s) throw new Error("Session not found.");
-  // Two writers on one session file would tangle it.
-  if ((await activeSessions()).has(id)) throw new Error("This session is open in a terminal or the desktop app. Run /compact there, or close it first.");
+  // Two writers on one session file would tangle it. Vlens's own open Claude can step aside.
+  if ((await releaseLive(id)) === "busy") throw new Error("Claude is still working in this session. Wait for it to finish first.");
+  const run = (await activeSessions()).get(id);
+  if (run && !run.byLens) throw new Error("This session is open in a terminal or the desktop app. Run /compact there, or close it first.");
   return s;
 }
 

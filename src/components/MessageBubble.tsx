@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Brain, ChevronRight, CornerDownRight, ExternalLink, Sparkles, Terminal, XCircle } from "lucide-react";
+import { BellRing, Bot, Brain, ChevronRight, CornerDownRight, ExternalLink, Sparkles, Terminal, XCircle } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import type { LiveRun, ToolRun } from "@/hooks/useTreeChat";
 import { useSnippetHighlights } from "@/lib/highlight";
@@ -136,11 +136,16 @@ function Thinking({ text }: { text: string }) {
 function groupBlocks(blocks: Block[]) {
   const results = new Map<string, { text: string; isError: boolean }>();
   for (const b of blocks) if (b.kind === "tool_result") results.set(b.toolUseId, { text: b.text, isError: b.isError });
-  type Piece = { type: "text"; text: string } | { type: "thinking"; text: string } | { type: "tools"; runs: ToolRun[] };
+  type Piece =
+    | { type: "text"; text: string }
+    | { type: "thinking"; text: string }
+    | { type: "notice"; text: string }
+    | { type: "tools"; runs: ToolRun[] };
   const out: Piece[] = [];
   for (const b of blocks) {
     if (b.kind === "text") out.push({ type: "text", text: b.text });
     else if (b.kind === "thinking") out.push({ type: "thinking", text: b.text });
+    else if (b.kind === "notice") out.push({ type: "notice", text: b.text });
     else if (b.kind === "tool_use") {
       const run = { id: b.id, name: b.name, input: b.input, result: results.get(b.id) };
       const last = out[out.length - 1];
@@ -226,6 +231,11 @@ export function MessageBubble({
               <Markdown key={i} text={p.text} className={streaming && i === pieces.length - 1 ? "caret" : ""} />
             ) : p.type === "thinking" ? (
               <Thinking key={i} text={p.text} />
+            ) : p.type === "notice" ? (
+              <div key={i} className="flex items-center gap-1.5 text-xs text-muted" data-no-select>
+                <BellRing size={12} className="shrink-0 text-accent" />
+                <span className="min-w-0 truncate">{p.text}</span>
+              </div>
             ) : (
               <div key={i} className="space-y-1.5" data-no-select>
                 {p.runs.map((r) =>

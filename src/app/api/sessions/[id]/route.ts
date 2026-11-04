@@ -1,6 +1,7 @@
 import { deleteSession, renameSession } from "@/lib/manage";
 import { setPinned } from "@/lib/pins";
 import { forgetRecent } from "@/lib/recent";
+import { liveState } from "@/lib/liveSessions";
 import { findSessionFile, getSession } from "@/lib/sessions";
 import { threadsForSession } from "@/lib/threads";
 
@@ -14,8 +15,10 @@ export async function GET(req: Request, { params }: Ctx) {
   const session = await getSession(id);
   if (!session) return Response.json({ error: "not found" }, { status: 404 });
   const threads = await threadsForSession(id);
-  if (new URL(req.url).searchParams.get("since") === session.updatedAt) return Response.json({ unchanged: true, threads });
-  return Response.json({ session, threads });
+  // What its open Claude is doing on its own (background work), if Vlens has one.
+  const live = liveState(id);
+  if (new URL(req.url).searchParams.get("since") === session.updatedAt) return Response.json({ unchanged: true, threads, live });
+  return Response.json({ session, threads, live });
 }
 
 // { title } renames, { pinned } pins or unpins.

@@ -7,7 +7,8 @@ export type Block =
   | { kind: "tool_use"; id: string; name: string; input: unknown }
   | { kind: "tool_result"; toolUseId: string; text: string; isError: boolean }
   | { kind: "image"; src?: string } // src: a URL or data: URL to show it
-  | { kind: "compact"; text: string }; // the summary the conversation was compacted into
+  | { kind: "compact"; text: string } // the summary the conversation was compacted into
+  | { kind: "notice"; text: string }; // a background agent or command reported back
 
 
 export interface ChatMessage {
@@ -87,8 +88,31 @@ export interface SubThread {
 }
 
 // Events streamed from /api/agent to the browser (newline-delimited JSON).
+// A sub-agent or background command Claude started, as the CLI reports it.
+export interface TaskInfo {
+  id: string;
+  toolUseId: string | null; // the Agent / Bash call that started it
+  parentId: string | null; // set when another task started this one
+  kind: string; // "local_agent", "local_bash", …
+  agentType: string | null; // e.g. "general-purpose", "Explore"
+  description: string;
+  background: boolean;
+  status: "running" | "completed" | "failed" | "killed";
+  lastTool: string | null;
+  activity: string | null; // what it's doing now, e.g. "Reading a.txt"
+  toolUses: number;
+  tokens: number;
+  startedAt: number;
+  ms: number;
+}
+
+// What Claude is doing right now in the main conversation.
+export type RunStatus = { kind: "requesting" | "thinking" | "writing" } | { kind: "tool"; tool: string };
+
 export type AgentEvent =
   | { type: "thread"; thread: SubThread }
+  | { type: "status"; status: RunStatus }
+  | { type: "task"; task: TaskInfo }
   | { type: "session"; claudeSessionId: string }
   | { type: "delta"; text: string }
   | { type: "tool"; id: string; name: string; input: unknown }
@@ -108,6 +132,16 @@ export type AgentEvent =
   | { type: "permission_done"; id: string; decision: "allow" | "always" | "deny"; mode?: PermissionMode } // mode: the plan was approved in this mode
   | { type: "done"; message: ChatMessage }
   | { type: "error"; error: string };
+
+// A session's Claude process outside of any reply you're waiting on: Claude
+// working on its own after a background task reported back, the background
+// work still running, and questions it's waiting on you for.
+export interface LiveState {
+  busy: boolean;
+  status: RunStatus | null;
+  tasks: TaskInfo[];
+  asks: Extract<AgentEvent, { type: "permission" }>[];
+}
 
 export interface Settings {
   defaultModel: string; // "" = CLI default; used for replies and new sessions from Vlens

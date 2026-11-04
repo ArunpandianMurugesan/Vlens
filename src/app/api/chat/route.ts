@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { streamClaude } from "@/lib/runClaude";
+import { procFor } from "@/lib/liveSessions";
+import { turnResponse, userContent } from "@/lib/runClaude";
 import { activeSessions } from "@/lib/active";
 import { resolveDir } from "@/lib/folders";
 import { parseImages } from "@/lib/images";
-import { isModel, modelArgs } from "@/lib/models";
+import { isModel } from "@/lib/models";
 import { markRecent } from "@/lib/recent";
 import { getSession } from "@/lib/sessions";
 import { lensPluginArgs } from "@/lib/lensPlugin";
@@ -24,9 +25,11 @@ interface Body {
   images?: unknown;
 }
 
-// Continues a root CLI session, or starts a new one in a folder. `--resume`
-// appends to the same session file, so the session view picks up the new turn
-// on its next refresh. A new session sends its id in the "session" event.
+// Continues a root CLI session, or starts a new one in a folder. The session's
+// Claude stays open between replies (see liveSessions.ts); a new one starts
+// with `--resume`, which appends to the same session file, so the session view
+// picks up each turn on its next refresh. A new session sends its id in the
+// "session" event.
 export async function POST(req: Request) {
   const body = (await req.json()) as Body;
   const parsed = parseImages(body.images);
@@ -36,28 +39,22 @@ export async function POST(req: Request) {
   if (!isPermissionMode(body.mode)) return Response.json({ error: "bad mode" }, { status: 400 });
   if (body.model !== undefined && !isModel(body.model)) return Response.json({ error: "bad model" }, { status: 400 });
   const settings = await getSettings();
-  const model = [...modelArgs(body.model ?? settings.defaultModel), ...(await lensPluginArgs(settings))];
+  const model = body.model ?? settings.defaultModel;
+  const extra = await lensPluginArgs(settings);
+  const content = userContent(body.prompt, images);
 
   if (!body.sessionId) {
     const cwd = await resolveDir(body.cwd ?? "");
     if (!cwd) return Response.json({ error: "That folder doesn't exist" }, { status: 400 });
-    return streamClaude({
-      prompt: body.prompt,
-      images,
-      args: ["--permission-mode", body.mode, ...model],
-      cwd,
-      signal: req.signal,
-      sessionId: null,
-      // Keep it on the sidebar after the reply, when its process has exited.
-      onSession: (id) => void markRecent(id),
-      onFinish: async (blocks) => ({
-        id: randomUUID(),
-        parentId: null,
-        role: "assistant",
-        blocks,
-        timestamp: new Date().toISOString(),
-      }),
-    });
+    // Keep it on the sidebar after the reply, when its process has exited.
+    const proc = await procFor({ sessionId: null, cwd, mode: body.mode, model, extra, onSession: (id) => void markRecent(id) });
+    return turnResponse(proc, content, req.signal, async (blocks) => ({
+      id: randomUUID(),
+      parentId: null,
+      role: "assistant",
+      blocks,
+      timestamp: new Date().toISOString(),
+    }));
   }
 
   const session = await getSession(body.sessionId);
@@ -73,20 +70,14 @@ export async function POST(req: Request) {
     );
   await markRecent(session.id);
 
-  return streamClaude({
-    prompt: body.prompt,
-    images,
-    args: ["--resume", session.id, "--permission-mode", body.mode, ...model],
-    cwd: session.cwd,
-    signal: req.signal,
-    sessionId: session.id,
-    onFinish: async (blocks) =>
-      ({
-        id: randomUUID(),
-        parentId: session.messages.at(-1)?.id ?? null,
-        role: "assistant",
-        blocks,
-        timestamp: new Date().toISOString(),
-      }) satisfies ChatMessage,
-  });
+  const proc = await procFor({ sessionId: session.id, cwd: session.cwd, mode: body.mode, model, extra });
+  return turnResponse(proc, content, req.signal, async (blocks) =>
+    ({
+      id: randomUUID(),
+      parentId: session.messages.at(-1)?.id ?? null,
+      role: "assistant",
+      blocks,
+      timestamp: new Date().toISOString(),
+    }) satisfies ChatMessage,
+  );
 }

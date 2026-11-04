@@ -7,6 +7,7 @@ import type { ImageInput, SubThread } from "@/lib/types";
 import { Composer } from "./Composer";
 import { CwdContext } from "./FileContext";
 import { liveMessage, MessageBubble } from "./MessageBubble";
+import { RunActivity } from "./RunActivity";
 import { PermissionCard } from "./PermissionCard";
 import { TerminalConsole } from "./TerminalConsole";
 
@@ -112,9 +113,7 @@ export function SubAgentPanel({ thread, depth, chat }: Props) {
           />
         )}
         {live?.asks?.map((a) => <PermissionCard key={a.id} ask={a} />)}
-        {running && !live.text && live.tools.length === 0 && (
-          <div className="text-sm text-muted">Starting Claude…</div>
-        )}
+        {live && <RunActivity run={live} replying={running} compact />}
         {live?.error && (
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600">{live.error}</div>
         )}

@@ -2,7 +2,7 @@
 
 import { Check, Clock, Copy, Eye, FolderOpen, Loader2, Pencil, Power, ShieldCheck, ShieldOff, Sparkles, SquareTerminal, Terminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { type RootMode, type TreeChat } from "@/hooks/useTreeChat";
+import { type LiveRun, type RootMode, type TreeChat } from "@/hooks/useTreeChat";
 import { PERMISSION_MODES } from "@/lib/modes";
 import { MODELS } from "@/lib/models";
 import type { ImageInput } from "@/lib/types";
@@ -11,6 +11,7 @@ import { CwdContext, useFiles } from "./FileContext";
 import { FolderPicker } from "./FolderPicker";
 import { liveMessage, MessageBubble } from "./MessageBubble";
 import { PermissionCard } from "./PermissionCard";
+import { RunActivity } from "./RunActivity";
 import { ContextBadge } from "./Usage";
 import { MenuButton } from "./Sidebar";
 
@@ -32,6 +33,12 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
   const currentModel = model ?? chat.settings?.defaultModel ?? "";
   const run = rootPending ? chat.live[rootPending.runId] : undefined;
   const replying = !!run && !run.error;
+  // The open Claude's background work between replies, shaped like a live run.
+  const bg = useMemo<LiveRun | null>(() => {
+    const l = chat.liveState;
+    if (!l || (!l.busy && !l.tasks.length && !l.asks.length)) return null;
+    return { text: "", tools: [], status: l.status ?? undefined, tasks: Object.fromEntries(l.tasks.map((t) => [t.id, t])) };
+  }, [chat.liveState]);
   // While replying, show the session as it was plus the live stream (see rootPending in the hook).
   const shown = session ? (rootPending ? session.messages.slice(0, rootPending.base) : session.messages) : [];
   const scroller = useRef<HTMLDivElement>(null);
@@ -51,12 +58,14 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
   const updated = session ? new Date(session.updatedAt).getTime() : 0;
   const own = chat.ownWrite;
   const ours = !!session && own?.id === session.id && updated <= own.at + 2000;
-  const live = session && !rootPending && !ours && Date.now() - updated < 60_000;
-  const resumeCmd = session ? `claude --resume ${session.id}` : "";
   // Open in a terminal or the desktop app (not one of Vlens's own runs)? That claude
   // holds the conversation in memory, so only one place can type at a time.
   const proc = chat.sessions.find((s) => s.id === session?.id)?.active;
   const elsewhere = proc && !proc.byLens ? proc.entrypoint : null;
+  // Changed by something else just now. Vlens's own Claude writes between replies
+  // too (when background work reports back), and that's not "something else".
+  const live = session && !rootPending && !ours && !chat.liveState && !proc?.byLens && Date.now() - updated < 60_000;
+  const resumeCmd = session ? `claude --resume ${session.id}` : "";
   // Messages you send while Claude works wait here and go out together when it's
   // done, like typing ahead in the terminal. Stopping (or an error) pauses them.
   const [queue, setQueue] = useState<{ text: string; images: ImageInput[] }[]>([]);
@@ -226,7 +235,18 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
                 <PermissionCard ask={a} onMode={setMode} />
               </div>
             ))}
-            {replying && !run.text && run.tools.length === 0 && <div className="pl-10 text-sm text-muted">Starting Claude…</div>}
+            {run && <RunActivity run={run} replying={replying} />}
+            {/* Between replies: Claude's background work, and Claude telling itself it finished. */}
+            {!rootPending && bg && (
+              <>
+                <RunActivity run={bg} replying={!!chat.liveState?.busy} onStop={chat.liveState?.busy ? () => void chat.stopLive() : undefined} />
+                {chat.liveState?.asks.map((a) => (
+                  <div key={a.id} className="pl-10">
+                    <PermissionCard ask={a} onMode={setMode} />
+                  </div>
+                ))}
+              </>
+            )}
             {run?.error && (
               <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600">{run.error}</div>
             )}

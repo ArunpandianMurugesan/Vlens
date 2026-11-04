@@ -125,7 +125,8 @@ export async function dashboard(): Promise<DashboardData> {
         title: s.title,
         projectName: s.projectName,
         cwd: s.cwd,
-        active: !!s.active,
+        // Vlens's own Claude steps aside for /compact (lib/context.ts), so it doesn't block.
+        active: !!s.active && !s.active.byLens,
         activeWhere: s.active?.entrypoint ?? null,
         used: st!.lastContext,
         window,

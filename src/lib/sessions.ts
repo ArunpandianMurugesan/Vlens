@@ -59,6 +59,13 @@ function commandOutput(content: unknown): string | null {
   return text || null;
 }
 
+// "Agent "x" finished" from a <task-notification>, without the XML around it.
+function noticeText(text: string) {
+  const summary = text.match(/<summary>([\s\S]*?)<\/summary>/)?.[1]?.trim();
+  const status = text.match(/<status>([^<]*)<\/status>/)?.[1]?.trim();
+  return summary || `Background task ${status ?? "updated"}`;
+}
+
 // `!cmd` turns in the CLI are stored as <bash-input>/<bash-stdout> tags; show them as a shell block.
 function shellToMarkdown(text: string) {
   if (!text.includes("<bash-")) return text;
@@ -149,6 +156,13 @@ function parseJsonl(raw: string, withMessages: boolean, sessionId?: string): Par
       continue;
     }
     if ((d.type !== "user" && d.type !== "assistant") || d.isSidechain || d.isMeta) continue;
+    // A background agent or command finished: the CLI hands Claude a <task-notification>
+    // as a user turn. Show it as a short note in Claude's reply, not as something you typed.
+    if (d.type === "user" && d.origin?.kind === "task-notification") {
+      if (withMessages && d.uuid)
+        messages.push({ id: d.uuid, parentId: d.parentUuid ?? null, role: "assistant", blocks: [{ kind: "notice", text: noticeText(textOf(d.message?.content)) }], timestamp: d.timestamp });
+      continue;
+    }
 
     const content = d.message?.content;
     // Tokens sent with the last reply = how much of the context window is in use.

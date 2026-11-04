@@ -11,10 +11,13 @@ import type {
   ImageInput,
   Question,
   Limits,
+  LiveState,
+  RunStatus,
   SessionDetail,
   SessionSummary,
   Settings,
   SubThread,
+  TaskInfo,
 } from "@/lib/types";
 
 export interface ToolRun {
@@ -41,6 +44,9 @@ export interface LiveRun {
   tools: ToolRun[];
   asks?: PermissionAsk[];
   error?: string;
+  status?: RunStatus; // what Claude is doing right now
+  tasks?: Record<string, TaskInfo>; // sub-agents and background commands, by task id
+  startedAt?: number;
 }
 
 // Your answer to a permission question; the run continues once it lands.
@@ -133,6 +139,12 @@ async function readRun(
         case "session":
           on.session?.(ev.claudeSessionId);
           break;
+        case "status":
+          patch((r) => ({ ...r, status: ev.status }));
+          break;
+        case "task":
+          patch((r) => ({ ...r, tasks: { ...r.tasks, [ev.task.id]: ev.task } }));
+          break;
         case "done": {
           on.done(ev.message);
           const said = ev.message.blocks.map((b) => (b.kind === "text" ? b.text : "")).join(" ").trim();
@@ -188,6 +200,8 @@ export function useTreeChat() {
   const [drafts, setDrafts] = useState<Set<string>>(new Set()); // opened but nothing sent yet
   const [stack, setStack] = useState<string[]>([]); // open panels, root-most first
   const [live, setLive] = useState<Record<string, LiveRun>>({});
+  // The open session's Claude between replies (background work), if Vlens has one open.
+  const [liveState, setLiveState] = useState<LiveState | null>(null);
   const aborts = useRef<Record<string, AbortController>>({});
   // Replies in progress, by session id (or a new session's draft key until its
   // id arrives). Each belongs to its own session: switching to another one
@@ -339,16 +353,20 @@ export function useTreeChat() {
     }
   };
 
-  // Open session: poll too, so a session running in the terminal updates live.
+  // Open session: poll too, so a session running in the terminal updates live,
+  // and so does Vlens's own Claude when background work reports back. Faster
+  // while something is going on.
   useEffect(() => {
     if (!activeId) return;
     let stop = false;
     let lastUpdated = "";
+    let timer: ReturnType<typeof setTimeout> | undefined;
     setLoadingSession(true);
+    setLiveState(null);
     const load = () =>
       fetch(`/api/sessions/${activeId}${lastUpdated ? `?since=${encodeURIComponent(lastUpdated)}` : ""}`)
         .then((r) => r.json())
-        .then((d: { session?: SessionDetail; unchanged?: true; threads: SubThread[] }) => {
+        .then((d: { session?: SessionDetail; unchanged?: true; threads: SubThread[]; live?: LiveState | null }) => {
           if (stop || (!d.session && !d.unchanged)) return;
           setLoadingSession(false);
           if (d.session && d.session.updatedAt !== lastUpdated) {
@@ -360,15 +378,26 @@ export function useTreeChat() {
             for (const t of d.threads) if (!aborts.current[t.id]) next[t.id] = t;
             return next;
           });
+          setLiveState(d.live ?? null);
+          return d.live;
         })
-        .catch(() => {});
+        .catch(() => null)
+        .then((live) => {
+          if (stop) return;
+          const going = !!live && (live.busy || live.asks.length > 0 || live.tasks.some((t) => t.status === "running"));
+          timer = setTimeout(load, going ? 1000 : 3000);
+        });
     load();
-    const t = setInterval(load, 3000);
     return () => {
       stop = true;
-      clearInterval(t);
+      clearTimeout(timer);
     };
   }, [activeId]);
+
+  // Stop what Claude is doing on its own (a background task reported back).
+  const stopLive = useCallback(async () => {
+    if (activeIdRef.current) await fetch(`/api/sessions/${activeIdRef.current}/live`, { method: "DELETE" }).catch(() => {});
+  }, []);
 
   // A reply that ended in an error stays on screen until you leave its session.
   const dropFinished = useCallback(() => {
@@ -487,7 +516,7 @@ export function useTreeChat() {
         timestamp: new Date().toISOString(),
       };
       setThreads((p) => ({ ...p, [threadId]: { ...p[threadId], messages: [...p[threadId].messages, userMsg] } }));
-      setLive((l) => ({ ...l, [threadId]: { text: "", tools: [] } }));
+      setLive((l) => ({ ...l, [threadId]: { text: "", tools: [], startedAt: Date.now() } }));
 
       const ac = new AbortController();
       aborts.current[threadId] = ac;
@@ -578,7 +607,7 @@ export function useTreeChat() {
       const old = rootRuns[key]?.runId;
       if (old) setLive((l) => without(l, old));
       setRootRuns((all) => ({ ...all, [key]: { message, base: cur?.messages.length ?? 0, runId } }));
-      setLive((l) => ({ ...l, [runId]: { text: "", tools: [] } }));
+      setLive((l) => ({ ...l, [runId]: { text: "", tools: [], startedAt: Date.now() } }));
       const ac = new AbortController();
       aborts.current[runId] = ac;
       const patch = (fn: (r: LiveRun) => LiveRun) => setLive((l) => (l[runId] ? { ...l, [runId]: fn(l[runId]) } : l));
@@ -592,6 +621,7 @@ export function useTreeChat() {
           setSession(d.session);
           setActiveId(d.session.id);
           setDraft(null);
+          setLiveState(d.live ?? null); // background work carries on from the reply's
         }
         setRootRuns((all) => without(all, key));
         setLive((l) => without(l, runId));
@@ -651,6 +681,8 @@ export function useTreeChat() {
     threads,
     stack,
     live,
+    liveState,
+    stopLive,
     selectSession,
     threadsFrom,
     openThread,
