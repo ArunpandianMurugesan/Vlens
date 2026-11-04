@@ -208,7 +208,8 @@ export function useTreeChat() {
   // neither shows it there nor stops it, and several sessions can reply at once.
   const [rootRuns, setRootRuns] = useState<Record<string, RootRun>>({});
   // A session that doesn't exist yet: the user picked "New session" and is choosing a folder.
-  const [draft, setDraft] = useState<{ cwd: string } | null>(null);
+  // worktree: start it in its own git worktree (see lib/worktree.ts).
+  const [draft, setDraft] = useState<{ cwd: string; worktree?: boolean } | null>(null);
   // Names that draft in rootRuns; a new one for every "New session".
   const [draftKey, setDraftKey] = useState(() => `new:${crypto.randomUUID()}`);
   const viewRef = useRef<string | null>(null);
@@ -417,6 +418,14 @@ export function useTreeChat() {
       clearTimeout(timer);
     };
   }, [activeId, noteLive]);
+
+  // Stop one background agent or command; the reply and the rest carry on.
+  const stopTask = useCallback(async (sessionId: string, taskId: string) => {
+    const r = await fetch(`/api/sessions/${sessionId}/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+    if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? r.statusText);
+    // Show it stopped now, not at the next refresh.
+    setLiveState((l) => (l ? { ...l, tasks: l.tasks.map((t) => (t.id === taskId ? { ...t, status: "killed", ms: Date.now() - t.startedAt } : t)) } : l));
+  }, []);
 
   // Stop what Claude is doing on its own (a background task reported back).
   const stopLive = useCallback(async () => {
@@ -659,7 +668,7 @@ export function useTreeChat() {
           body: JSON.stringify(
             sessionId
               ? { sessionId, prompt, mode, model, images }
-              : { cwd, prompt, mode, model, images },
+              : { cwd, prompt, mode, model, images, worktree: !newIn && !!draft?.worktree },
           ),
         });
         await readRun(res, patch, {
@@ -707,6 +716,10 @@ export function useTreeChat() {
     live,
     liveState,
     stopLive,
+    // The session being looked at, by its real id once Claude has given one
+    // (a new session has it before it opens as the active one).
+    viewSessionId: viewKey && !viewKey.startsWith("new:") ? viewKey : null,
+    stopTask,
     selectSession,
     threadsFrom,
     openThread,

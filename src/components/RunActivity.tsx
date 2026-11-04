@@ -32,7 +32,19 @@ function statusLabel(s: RunStatus | undefined, agents: number, background: numbe
 
 // What Claude is doing while it replies, like the CLI's spinner line, plus the
 // sub-agents and background commands it started and how far along they are.
-export function RunActivity({ run, replying, compact, onStop }: { run: LiveRun; replying: boolean; compact?: boolean; onStop?: () => void }) {
+export function RunActivity({
+  run,
+  replying,
+  compact,
+  onStop,
+  onStopTask,
+}: {
+  run: LiveRun;
+  replying: boolean;
+  compact?: boolean;
+  onStop?: () => void;
+  onStopTask?: (taskId: string) => Promise<void>; // stop just this background task
+}) {
   const tasks = Object.values(run.tasks ?? {});
   const running = tasks.some((t) => t.status === "running");
   const now = useNow(replying || running);
@@ -45,7 +57,7 @@ export function RunActivity({ run, replying, compact, onStop }: { run: LiveRun; 
       {tasks.length > 0 && (
         <div className="space-y-1">
           {tasks.filter((t) => !t.parentId).map((t) => (
-            <TaskRow key={t.id} task={t} now={now} subs={tasks.filter((c) => c.parentId === t.id)} />
+            <TaskRow key={t.id} task={t} now={now} subs={tasks.filter((c) => c.parentId === t.id)} onStop={onStopTask} />
           ))}
         </div>
       )}
@@ -65,7 +77,8 @@ export function RunActivity({ run, replying, compact, onStop }: { run: LiveRun; 
   );
 }
 
-function TaskRow({ task: t, now, subs }: { task: TaskInfo; now: number; subs: TaskInfo[] }) {
+function TaskRow({ task: t, now, subs, onStop }: { task: TaskInfo; now: number; subs: TaskInfo[]; onStop?: (id: string) => Promise<void> }) {
+  const [stopping, setStopping] = useState(false);
   const Icon = t.kind === "local_bash" ? Terminal : Bot;
   const ms = t.status === "running" ? now - t.startedAt : t.ms;
   const doing =
@@ -80,6 +93,19 @@ function TaskRow({ task: t, now, subs }: { task: TaskInfo; now: number; subs: Ta
         <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted tabular-nums">
           {t.toolUses > 0 && <span>{t.toolUses} tool{t.toolUses === 1 ? "" : "s"}</span>}
           <span>{secs(ms)}</span>
+          {t.status === "running" && onStop && (
+            <button
+              onClick={() => {
+                setStopping(true);
+                void onStop(t.id).finally(() => setStopping(false));
+              }}
+              disabled={stopping}
+              title="Stop just this one (the reply and other work carry on)"
+              className="rounded border border-line px-1.5 text-[0.7rem] hover:border-red-500 hover:text-red-600 disabled:opacity-50"
+            >
+              {stopping ? "Stopping…" : "Stop"}
+            </button>
+          )}
           {t.status === "running" ? (
             <Loader2 size={12} className="animate-spin" />
           ) : t.status === "completed" ? (
@@ -93,7 +119,7 @@ function TaskRow({ task: t, now, subs }: { task: TaskInfo; now: number; subs: Ta
       {subs.length > 0 && (
         <div className="mt-1 space-y-1 pl-5">
           {subs.map((c) => (
-            <TaskRow key={c.id} task={c} now={now} subs={[]} />
+            <TaskRow key={c.id} task={c} now={now} subs={[]} onStop={onStop} />
           ))}
         </div>
       )}

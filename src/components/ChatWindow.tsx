@@ -14,6 +14,7 @@ import { liveMessage, MessageBubble } from "./MessageBubble";
 import { PermissionCard } from "./PermissionCard";
 import { RunActivity } from "./RunActivity";
 import { SlashPanel } from "./SlashPanel";
+import { lastWorktree, rememberWorktree, WorktreeToggle } from "./WorktreeToggle";
 import { ContextBadge } from "./Usage";
 import { MenuButton } from "./Sidebar";
 
@@ -35,6 +36,8 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
   const currentModel = model ?? chat.settings?.defaultModel ?? "";
   const run = rootPending ? chat.live[rootPending.runId] : undefined;
   const replying = !!run && !run.error;
+  const sid = chat.viewSessionId;
+  const stopTask = sid ? (taskId: string) => chat.stopTask(sid, taskId).catch(() => {}) : undefined;
   // The open Claude's background work between replies, shaped like a live run.
   const bg = useMemo<LiveRun | null>(() => {
     const l = chat.liveState;
@@ -212,7 +215,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
           <div className="mx-auto max-w-2xl px-4 py-8">
             <h2 className="mb-1 text-xl font-semibold">Start a new session</h2>
             <p className="mb-6 text-sm text-muted">Pick the folder Claude should work in, then type your first message below.</p>
-            <FolderPicker value={newDraft.cwd} onChange={(cwd) => chat.setDraft({ cwd })} recent={recent} />
+            <FolderPicker value={newDraft.cwd} onChange={(cwd) => chat.setDraft({ cwd, worktree: lastWorktree(cwd) })} recent={recent} />
           </div>
         )}
         {!session && loadingSession && (
@@ -245,11 +248,11 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
                 <PermissionCard ask={a} onMode={setMode} />
               </div>
             ))}
-            {run && <RunActivity run={run} replying={replying} />}
+            {run && <RunActivity run={run} replying={replying} onStopTask={stopTask} />}
             {/* Between replies: Claude's background work, and Claude telling itself it finished. */}
             {!rootPending && bg && (
               <>
-                <RunActivity run={bg} replying={!!chat.liveState?.busy} onStop={chat.liveState?.busy ? () => void chat.stopLive() : undefined} />
+                <RunActivity run={bg} replying={!!chat.liveState?.busy} onStop={chat.liveState?.busy ? () => void chat.stopLive() : undefined} onStopTask={stopTask} />
                 {chat.liveState?.asks.map((a) => (
                   <div key={a.id} className="pl-10">
                     <PermissionCard ask={a} onMode={setMode} />
@@ -366,6 +369,16 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
               }}
               footer={
                 <div className="flex flex-wrap items-center gap-2">
+                  {newDraft?.cwd && !rootPending && (
+                    <WorktreeToggle
+                      cwd={newDraft.cwd}
+                      on={!!newDraft.worktree}
+                      onChange={(on) => {
+                        rememberWorktree(newDraft.cwd, on);
+                        chat.setDraft({ cwd: newDraft.cwd, worktree: on });
+                      }}
+                    />
+                  )}
                   <ModePicker mode={mode} cliMode={chat.settings?.cliMode} onChange={setMode} />
                   <select
                     value={currentModel}

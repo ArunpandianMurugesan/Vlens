@@ -33,6 +33,12 @@ export async function interruptLive(sessionId: string) {
   return l ? l.proc.control({ subtype: "interrupt" }) : false;
 }
 
+// Stops one background agent or command, leaving the rest (and the reply) alone.
+export async function stopLiveTask(sessionId: string, taskId: string) {
+  const l = bySession(sessionId);
+  return l ? l.proc.control({ subtype: "stop_task", task_id: taskId }) : false;
+}
+
 // Ends the session's open process so something else can take the session
 // (the terminal, /compact). "busy" when Claude is still working in it.
 export async function releaseLive(sessionId: string): Promise<"none" | "closed" | "busy"> {
