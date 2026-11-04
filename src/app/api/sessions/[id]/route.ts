@@ -1,7 +1,8 @@
 import { deleteSession, renameSession } from "@/lib/manage";
 import { setPinned } from "@/lib/pins";
 import { forgetRecent } from "@/lib/recent";
-import { liveState } from "@/lib/liveSessions";
+import { setArchived } from "@/lib/archive";
+import { liveState, releaseLive } from "@/lib/liveSessions";
 import { findSessionFile, getSession } from "@/lib/sessions";
 import { threadsForSession } from "@/lib/threads";
 
@@ -25,7 +26,7 @@ export async function GET(req: Request, { params }: Ctx) {
 export async function PATCH(req: Request, { params }: Ctx) {
   const { id } = await params;
   if (!(await findSessionFile(id))) return Response.json({ error: "not found" }, { status: 404 });
-  const body = (await req.json()) as { title?: string; pinned?: boolean; recent?: false };
+  const body = (await req.json()) as { title?: string; pinned?: boolean; recent?: false; archived?: boolean };
 
   if (typeof body.title === "string") {
     const title = body.title.replace(/\s+/g, " ").trim().slice(0, 200);
@@ -34,6 +35,12 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
   if (typeof body.pinned === "boolean") await setPinned(id, body.pinned);
   if (body.recent === false) await forgetRecent(id);
+  if (typeof body.archived === "boolean") {
+    // Vlens's own Claude for it closes (the conversation is kept); not while it's working.
+    if (body.archived && (await releaseLive(id)) === "busy")
+      return Response.json({ error: "Claude is still working in this session. Wait for it to finish (or stop it) first." }, { status: 409 });
+    await setArchived(id, body.archived);
+  }
   return Response.json({ ok: true });
 }
 

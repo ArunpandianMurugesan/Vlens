@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Clock, Copy, Eye, FolderOpen, Loader2, Pencil, Power, ShieldCheck, ShieldOff, Sparkles, SquareTerminal, Terminal, X } from "lucide-react";
+import { Archive, Check, Clock, Copy, Eye, FolderOpen, Loader2, Pencil, Power, ShieldCheck, ShieldOff, Sparkles, SquareTerminal, Terminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type LiveRun, type RootMode, type TreeChat } from "@/hooks/useTreeChat";
 import { PERMISSION_MODES } from "@/lib/modes";
@@ -67,6 +67,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
   // holds the conversation in memory, so only one place can type at a time.
   const proc = chat.sessions.find((s) => s.id === session?.id)?.active;
   const elsewhere = proc && !proc.byLens ? proc.entrypoint : null;
+  const archivedAt = chat.sessions.find((s) => s.id === session?.id)?.archivedAt;
   // Changed by something else just now. Vlens's own Claude writes between replies
   // too (when background work reports back), and that's not "something else".
   const live = session && !rootPending && !ours && !chat.liveState && !proc?.byLens && Date.now() - updated < 60_000;
@@ -271,6 +272,15 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
         <div className={`px-4 pb-4 pt-2 transition-[padding] duration-300 ${stack.length ? "xl:pr-[556px]" : ""}`}>
           <div className="mx-auto max-w-5xl">
             {handoffErr && <p className="mb-2 text-xs text-red-600">{handoffErr}</p>}
+            {archivedAt && !rootPending && (
+              <div className="mb-2 flex items-center gap-2 px-1 text-xs text-muted">
+                <Archive size={12} className="shrink-0" />
+                Archived. Sending a message brings it back.
+                <button onClick={() => void chat.archiveSession(session!.id, false)} className="text-accent hover:underline">
+                  Unarchive
+                </button>
+              </div>
+            )}
             {elsewhere ? (
               // Typing here wouldn't reach that claude, so hand over explicitly instead.
               <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-line bg-panel px-4 py-3 text-sm">

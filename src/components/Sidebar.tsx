@@ -2,6 +2,8 @@
 
 import {
   AlertTriangle,
+  Archive,
+  ArchiveRestore,
   ChevronRight,
   Folder,
   FolderTree,
@@ -56,6 +58,7 @@ type Actions = Pick<
   TreeChat,
   | "renameSession"
   | "pinSession"
+  | "archiveSession"
   | "forgetRecent"
   | "endSession"
   | "deleteSession"
@@ -133,18 +136,38 @@ export function Sidebar({
   // (so you can still end and delete it after it stops).
   const matches = (s: SessionSummary) =>
     !q || s.title.toLowerCase().includes(q.toLowerCase()) || s.projectName.toLowerCase().includes(q.toLowerCase());
+  // Archived sessions sit in their own list at the bottom, unless one is running
+  // in a terminal or the desktop app (that can't hide).
+  const isArchived = (s: SessionSummary) => !!s.archivedAt && !(s.active && !s.active.byLens);
+  const shown = sessions.filter((s) => !isArchived(s));
   // Stable order, so items don't jump around while you use them.
-  const pinned = sessions
+  const pinned = shown
     .filter((s) => s.pinOrder !== undefined && matches(s))
     .sort((a, b) => a.pinOrder! - b.pinOrder!);
-  const active = sessions
+  const active = shown
     .filter((s) => s.pinOrder === undefined && (s.active || s.id === activeId) && matches(s))
     .sort((a, b) => (b.active?.startedAt ?? Infinity) - (a.active?.startedAt ?? Infinity));
   // Sessions Vlens started or replied in lately. Their `claude -p` process exits
   // after each reply, so without this they'd vanish when you switch away.
-  const recent = sessions
+  const recent = shown
     .filter((s) => s.pinOrder === undefined && !s.active && s.id !== activeId && s.recentAt && matches(s))
     .sort((a, b) => b.recentAt!.localeCompare(a.recentAt!));
+  const archived = sessions.filter((s) => isArchived(s) && matches(s)).sort((a, b) => b.archivedAt!.localeCompare(a.archivedAt!));
+  // Folded until you open it (remembered), or while you search or have one open.
+  const [showArchived, setShowArchived] = useState(false);
+  useEffect(() => {
+    try {
+      setShowArchived(localStorage.getItem(ARCHIVED_KEY) === "open");
+    } catch {}
+  }, []);
+  const toggleArchived = () =>
+    setShowArchived((v) => {
+      try {
+        localStorage.setItem(ARCHIVED_KEY, v ? "closed" : "open");
+      } catch {}
+      return !v;
+    });
+  const archivedOpen = showArchived || !!q || archived.some((s) => s.id === activeId);
 
   const run = async (fn: () => Promise<void>) => {
     setError(null);
@@ -371,6 +394,20 @@ export function Sidebar({
               {list("recent", recent)}
             </>
           )}
+          {archived.length > 0 && (
+            <>
+              <div className="mt-3" />
+              <button
+                onClick={toggleArchived}
+                className="flex w-full items-center gap-1.5 px-2 pb-1 text-left text-[0.65rem] font-semibold uppercase tracking-wider text-muted hover:text-ink"
+              >
+                <ChevronRight size={11} className={`transition-transform ${archivedOpen ? "rotate-90" : ""}`} />
+                <Archive size={11} /> Archived
+                <span className="ml-auto rounded-full bg-panel px-1.5 text-[0.65rem] font-normal normal-case tracking-normal">{archived.length}</span>
+              </button>
+              {archivedOpen && list("archived", archived)}
+            </>
+          )}
         </nav>
           </>
         )}
@@ -477,6 +514,7 @@ function CrashedBanner({ actions, run }: { actions: Actions; run: (fn: () => Pro
 
 const GROUP_KEY = "lens.sidebarGrouping";
 const FLIPPED_KEY = "lens.flippedFolders"; // folders flipped from their default (Active open, others closed)
+const ARCHIVED_KEY = "lens.archivedOpen"; // the Archived list is folded or open
 
 function Heading({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
   return (
@@ -648,7 +686,25 @@ function SessionItem({
                 {s.pinOrder !== undefined ? <PinOff size={13} /> : <Pin size={13} />}{" "}
                 {s.pinOrder !== undefined ? "Unpin" : "Pin"}
               </button>
-              {s.recentAt && !s.active && s.pinOrder === undefined && (
+              {s.archivedAt ? (
+                <button className={menuItem} onClick={() => act(() => actions.archiveSession(s.id, false))}>
+                  <ArchiveRestore size={13} /> Unarchive
+                </button>
+              ) : (
+                <button
+                  className={menuItem}
+                  disabled={!!s.active && !s.active.byLens}
+                  title={
+                    s.active && !s.active.byLens
+                      ? "It's open in a terminal or the desktop app. End it there first."
+                      : "Put it away in Archived. Open it from there any time; sending a message brings it back."
+                  }
+                  onClick={() => act(() => actions.archiveSession(s.id, true))}
+                >
+                  <Archive size={13} /> Archive
+                </button>
+              )}
+              {s.recentAt && !s.active && s.pinOrder === undefined && !s.archivedAt && (
                 <button className={menuItem} onClick={() => act(() => actions.forgetRecent(s.id))}>
                   <X size={13} /> Remove from Recent
                 </button>

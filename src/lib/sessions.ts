@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { withoutPastes } from "./pasted";
 import { parseWorktree } from "./worktree";
+import { archivedSessions } from "./archive";
 import type { Block, ChatMessage, ContextUsage, SessionDetail, SessionSummary } from "./types";
 import { activeSessions } from "./active";
 import { contextWindowFor, getLimits } from "./limits";
@@ -257,12 +258,13 @@ function activity(raw: string): { days: Record<string, number>; last: string | n
 }
 
 export async function listSessions(): Promise<SessionSummary[]> {
-  const [hidden, active, pins, recent, limits] = await Promise.all([
+  const [hidden, active, pins, recent, limits, archived] = await Promise.all([
     subThreadSessionIds(),
     activeSessions(),
     pinnedIds(),
     recentSessions(),
     getLimits(),
+    archivedSessions(),
   ]);
   let dirs: string[] = [];
   try {
@@ -332,6 +334,7 @@ export async function listSessions(): Promise<SessionSummary[]> {
         active: run && { status: run.status, entrypoint: run.entrypoint, startedAt: run.startedAt, byLens: run.byLens, waitingFor: run.waitingFor },
         pinOrder: pins.includes(s.id) ? pins.indexOf(s.id) : undefined,
         recentAt: recent.get(s.id),
+        archivedAt: archived[s.id],
         context: s.context && withWindow(s.context, limits.contextWindows),
       };
     })

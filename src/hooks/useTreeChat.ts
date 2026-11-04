@@ -350,6 +350,8 @@ export function useTreeChat() {
     manage(`/api/sessions/${id}`, { method: "PATCH", body: JSON.stringify({ recent: false }) });
   const pinSession = (id: string, pinned: boolean) =>
     manage(`/api/sessions/${id}`, { method: "PATCH", body: JSON.stringify({ pinned }) });
+  const archiveSession = (id: string, archived: boolean) =>
+    manage(`/api/sessions/${id}`, { method: "PATCH", body: JSON.stringify({ archived }) });
   const endSession = (id: string) => manage(`/api/sessions/${id}/end`, { method: "POST" });
   const deleteSession = async (id: string) => {
     await manage(`/api/sessions/${id}`, { method: "DELETE" });
@@ -745,6 +747,7 @@ export function useTreeChat() {
     refreshingLimits,
     refreshLimits,
     pinSession,
+    archiveSession,
     forgetRecent,
     endSession,
     deleteSession,

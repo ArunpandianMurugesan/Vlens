@@ -11,6 +11,7 @@ import { lensPluginArgs } from "@/lib/lensPlugin";
 import { isPermissionMode } from "@/lib/modes";
 import { getSettings } from "@/lib/settings";
 import { worktreeArgs } from "@/lib/worktree";
+import { setArchived } from "@/lib/archive";
 import type { ChatMessage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -79,6 +80,7 @@ export async function POST(req: Request) {
       { status: 409 },
     );
   await markRecent(session.id);
+  await setArchived(session.id, false); // writing in an archived session brings it back
 
   const proc = await procFor({ sessionId: session.id, cwd: session.cwd, mode: body.mode, model, extra });
   return turnResponse(proc, content, req.signal, async (blocks) =>

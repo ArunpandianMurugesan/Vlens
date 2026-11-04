@@ -30,6 +30,7 @@ export interface SessionSummary {
   active?: ActiveInfo; // set while a Claude Code process has this session open
   pinOrder?: number; // set when pinned: position in pin order
   recentAt?: string; // when Vlens last started or replied in it (within the Recent window)
+  archivedAt?: string; // set when you archived it (lib/archive.ts)
   days?: Record<string, number>; // local date (YYYY-MM-DD) → messages that day, for the last few weeks (History)
   context?: ContextUsage;
 }
