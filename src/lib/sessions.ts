@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { withoutPastes } from "./pasted";
+import { parseWorktree } from "./worktree";
 import type { Block, ChatMessage, ContextUsage, SessionDetail, SessionSummary } from "./types";
 import { activeSessions } from "./active";
 import { contextWindowFor, getLimits } from "./limits";
@@ -17,6 +18,8 @@ const SESSION_FILE = /^[0-9a-f-]{36}\.jsonl$/;
 
 // "-Users-am-Desktop-claude-lens" -> "claude-lens"
 function projectNameFromDir(dir: string, cwd: string | null) {
+  const wt = parseWorktree(cwd);
+  if (wt) return `${path.basename(wt.repo)} ⎇ ${wt.name}`; // a session in its own worktree
   if (cwd) return path.basename(cwd) || cwd;
   const parts = dir.split("-").filter(Boolean);
   return parts[parts.length - 1] ?? dir;

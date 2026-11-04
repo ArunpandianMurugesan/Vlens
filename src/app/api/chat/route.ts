@@ -10,6 +10,7 @@ import { getSession } from "@/lib/sessions";
 import { lensPluginArgs } from "@/lib/lensPlugin";
 import { isPermissionMode } from "@/lib/modes";
 import { getSettings } from "@/lib/settings";
+import { worktreeArgs } from "@/lib/worktree";
 import type { ChatMessage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,7 @@ interface Body {
   mode: string;
   model?: string; // per-message pick; falls back to the default in Settings
   images?: unknown;
+  worktree?: boolean; // a new session: work in its own git worktree
 }
 
 // Continues a root CLI session, or starts a new one in a folder. The session's
@@ -46,8 +48,16 @@ export async function POST(req: Request) {
   if (!body.sessionId) {
     const cwd = await resolveDir(body.cwd ?? "");
     if (!cwd) return Response.json({ error: "That folder doesn't exist" }, { status: 400 });
+    let wt: string[] = [];
+    if (body.worktree) {
+      try {
+        wt = await worktreeArgs(cwd);
+      } catch (e) {
+        return Response.json({ error: `Can't make a worktree here: ${(e as Error).message}` }, { status: 400 });
+      }
+    }
     // Keep it on the sidebar after the reply, when its process has exited.
-    const proc = await procFor({ sessionId: null, cwd, mode: body.mode, model, extra, onSession: (id) => void markRecent(id) });
+    const proc = await procFor({ sessionId: null, cwd, mode: body.mode, model, extra: [...extra, ...wt], onSession: (id) => void markRecent(id) });
     return turnResponse(proc, content, req.signal, async (blocks) => ({
       id: randomUUID(),
       parentId: null,
