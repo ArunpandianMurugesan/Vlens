@@ -234,7 +234,12 @@ function ChatWithFiles({ chat, onMenu }: { chat: ReturnType<typeof useTreeChat>;
           )}
           {files.terminal && (
             <div className="min-h-0 flex-1">
-              <TerminalPanel cwd={cwd} />
+              {/* Wait for the session to load, so its shell starts in the session's folder. */}
+              {!chat.activeId || chat.session?.id === chat.activeId ? (
+                <TerminalPanel owner={chat.activeId ?? `folder:${cwd ?? "~"}`} cwd={cwd} />
+              ) : (
+                <div className="h-full bg-term" />
+              )}
             </div>
           )}
         </div>

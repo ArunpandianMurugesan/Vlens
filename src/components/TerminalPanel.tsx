@@ -1,16 +1,21 @@
 "use client";
 
 import "@xterm/xterm/css/xterm.css";
+import type { FitAddon } from "@xterm/addon-fit";
 import type { Terminal } from "@xterm/xterm";
 import { FolderOpen, RotateCcw, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useFiles } from "./FileContext";
 
-// A real shell in the session's folder, beside the chat (like the file panel).
-// Each folder gets its own shell; it keeps running while the panel is hidden
-// or you look at another session, and comes back with its output on reopen.
+// A real shell beside the chat (like the file panel). Each session gets its own
+// shell; it keeps running while the panel is hidden or you look at another
+// session, and comes back as it was.
+//
+// The terminal itself stays alive too: switching back just moves it into view
+// again, instead of building a new one and replaying all of its output. It
+// draws with the GPU (WebGL), falling back to the slower DOM renderer.
 
-const KEY = "lens.terminals"; // folder -> shell id, for this window
+const KEY = "lens.terminals"; // session (or folder, before it has one) -> shell id, for this window
 const ids = (): Record<string, string> => {
   try {
     return JSON.parse(sessionStorage.getItem(KEY) ?? "{}");
@@ -18,11 +23,11 @@ const ids = (): Record<string, string> => {
     return {};
   }
 };
-const remember = (cwd: string, id: string | null) => {
+const remember = (owner: string, id: string | null) => {
   try {
     const m = ids();
-    if (id) m[cwd] = id;
-    else delete m[cwd];
+    if (id) m[owner] = id;
+    else delete m[owner];
     sessionStorage.setItem(KEY, JSON.stringify(m));
   } catch {}
 };
@@ -32,92 +37,154 @@ const EXIT_BASE = 4000;
 
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-export function TerminalPanel({ cwd }: { cwd: string | null }) {
+interface Shell {
+  el: HTMLDivElement; // the terminal's own element, moved into whichever panel shows it
+  term?: Terminal;
+  fit?: FitAddon;
+  ws?: WebSocket;
+  ended: number | null;
+  err: string | null;
+  dispose: () => void;
+}
+
+// One per session, for as long as the page is open.
+const shells = new Map<string, Shell>();
+const listeners = new Set<() => void>();
+let version = 0;
+const changed = () => {
+  version++;
+  for (const l of listeners) l();
+};
+
+function openShell(owner: string, cwd: string | null): Shell {
+  const el = document.createElement("div");
+  el.style.height = "100%";
+  let gone = false;
+  const s: Shell = {
+    el,
+    ended: null,
+    err: null,
+    dispose: () => {
+      gone = true;
+      s.ws?.close();
+      s.term?.dispose();
+    },
+  };
+  (async () => {
+    const [{ Terminal }, { FitAddon }, { WebglAddon }] = await Promise.all([
+      import("@xterm/xterm"),
+      import("@xterm/addon-fit"),
+      import("@xterm/addon-webgl"),
+    ]);
+    if (gone) return;
+    const term = new Terminal({
+      fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+      fontSize: 12.5,
+      cursorBlink: true,
+      allowProposedApi: true,
+      scrollback: 5000,
+      theme: { background: css("--term-bg"), foreground: css("--term-text"), cursor: css("--accent") },
+    });
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(el);
+    try {
+      const gl = new WebglAddon();
+      gl.onContextLoss(() => gl.dispose()); // back to the DOM renderer if the GPU drops it
+      term.loadAddon(gl);
+    } catch {}
+    s.term = term;
+    s.fit = fit;
+    if (el.isConnected && el.offsetWidth) fit.fit();
+
+    // This session's shell if it's still running, or a new one; then its socket.
+    const res = await fetch("/api/terminal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: ids()[owner] ?? null, cwd, cols: term.cols, rows: term.rows }),
+    });
+    const t = (await res.json()) as { id: string; port: number; token: string; error?: string };
+    if (!res.ok) throw new Error(t.error ?? res.statusText);
+    if (gone) return;
+    remember(owner, t.id);
+    const ws = new WebSocket(`ws://127.0.0.1:${t.port}/?id=${t.id}&token=${t.token}`);
+    s.ws = ws;
+    ws.onopen = () => {
+      sendSize(s);
+      if (el.isConnected) term.focus(); // ready to type as soon as the shell is there
+    };
+    ws.onmessage = (e) => term.write(e.data as string);
+    ws.onclose = (e) => {
+      if (gone) return;
+      if (e.code >= EXIT_BASE && e.code < EXIT_BASE + 256) {
+        remember(owner, null);
+        s.ended = e.code - EXIT_BASE;
+      } else s.err = "Lost the connection to this terminal. Restart to open a new one.";
+      changed();
+    };
+    term.onData((d) => ws.readyState === WebSocket.OPEN && ws.send(d));
+  })().catch((e) => {
+    if (gone) return;
+    s.err = `Couldn't open the terminal: ${(e as Error).message}`;
+    changed();
+  });
+  return s;
+}
+
+function sendSize(s: Shell) {
+  if (s.ws?.readyState === WebSocket.OPEN && s.term) s.ws.send("\0" + JSON.stringify({ cols: s.term.cols, rows: s.term.rows }));
+}
+
+function shellFor(owner: string, cwd: string | null) {
+  let s = shells.get(owner);
+  if (!s) shells.set(owner, (s = openShell(owner, cwd)));
+  return s;
+}
+
+// owner: the session the shell belongs to (its folder while it's still a draft).
+export function TerminalPanel({ owner, cwd }: { owner: string; cwd: string | null }) {
   const files = useFiles()!;
   const box = useRef<HTMLDivElement>(null);
-  const [ended, setEnded] = useState<number | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [run, setRun] = useState(0); // bump to start a fresh shell
+  useSyncExternalStore(
+    (l) => (listeners.add(l), () => listeners.delete(l)),
+    () => version,
+    () => 0,
+  );
   const folder = cwd ?? "~";
+  const shell = shellFor(owner, cwd);
 
+  // Show this session's terminal here; it stays alive when hidden.
   useEffect(() => {
-    let gone = false;
-    let term: Terminal | null = null;
-    let ws: WebSocket | null = null;
-    const cleanups: (() => void)[] = [];
-    setEnded(null);
-    setErr(null);
-
-    (async () => {
-      const [{ Terminal }, { FitAddon }] = await Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit")]);
-      if (gone || !box.current) return;
-      term = new Terminal({
-        fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
-        fontSize: 12.5,
-        cursorBlink: true,
-        allowProposedApi: true,
-        scrollback: 5000,
-        theme: { background: css("--term-bg"), foreground: css("--term-text"), cursor: css("--accent") },
-      });
-      const fit = new FitAddon();
-      term.loadAddon(fit);
-      term.open(box.current);
-      fit.fit();
-
-      // This folder's shell if it's still running, or a new one; then its socket.
-      const res = await fetch("/api/terminal", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: ids()[folder] ?? null, cwd, cols: term.cols, rows: term.rows }),
-      });
-      const t = (await res.json()) as { id: string; port: number; token: string; error?: string };
-      if (!res.ok) throw new Error(t.error ?? res.statusText);
-      if (gone) return;
-      remember(folder, t.id);
-      ws = new WebSocket(`ws://127.0.0.1:${t.port}/?id=${t.id}&token=${t.token}`);
-      const size = () => ws?.readyState === WebSocket.OPEN && term && ws.send("\0" + JSON.stringify({ cols: term.cols, rows: term.rows }));
-      ws.onopen = () => {
-        size();
-        term?.focus(); // ready to type as soon as the shell is there
-      };
-      ws.onmessage = (e) => term?.write(e.data as string);
-      ws.onclose = (e) => {
-        if (gone) return;
-        if (e.code >= EXIT_BASE && e.code < EXIT_BASE + 256) {
-          remember(folder, null);
-          setEnded(e.code - EXIT_BASE);
-        } else setErr("Lost the connection to this terminal. Restart to open a new one.");
-      };
-      term.onData((d) => ws?.readyState === WebSocket.OPEN && ws.send(d));
-
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const ro = new ResizeObserver(() => {
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-          if (!term || !box.current?.offsetWidth) return;
-          fit.fit();
-          size();
-        }, 50);
-      });
-      ro.observe(box.current);
-      cleanups.push(() => ro.disconnect());
-    })().catch((e) => {
-      if (!gone) setErr(`Couldn't open the terminal: ${(e as Error).message}`);
-    });
-
-    return () => {
-      gone = true;
-      ws?.close();
-      for (const c of cleanups) c();
-      term?.dispose();
+    const host = box.current;
+    if (!host) return;
+    host.appendChild(shell.el);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refit = () => {
+      if (!shell.fit || !host.offsetWidth) return;
+      shell.fit.fit();
+      sendSize(shell);
     };
-  }, [folder, cwd, run]);
+    refit();
+    shell.term?.focus();
+    const ro = new ResizeObserver(() => {
+      clearTimeout(timer);
+      timer = setTimeout(refit, 50);
+    });
+    ro.observe(host);
+    return () => {
+      ro.disconnect();
+      clearTimeout(timer);
+      if (shell.el.parentElement === host) host.removeChild(shell.el);
+    };
+  }, [shell]);
 
   const restart = () => {
-    const id = ids()[folder];
+    const id = ids()[owner];
     if (id) void fetch(`/api/terminal/${id}`, { method: "DELETE" });
-    remember(folder, null);
-    setRun((n) => n + 1);
+    remember(owner, null);
+    shell.dispose();
+    shells.delete(owner);
+    changed();
   };
 
   const icon = "rounded-md p-1.5 text-term-ink/60 hover:bg-white/10 hover:text-term-ink";
@@ -137,9 +204,9 @@ export function TerminalPanel({ cwd }: { cwd: string | null }) {
           <X size={14} />
         </button>
       </div>
-      {(ended !== null || err) && (
+      {(shell.ended !== null || shell.err) && (
         <div className="flex items-center gap-2 border-b border-white/10 px-3 py-1.5 text-xs text-term-ink/70">
-          {err ?? `The shell ended (code ${ended}).`}
+          {shell.err ?? `The shell ended (code ${shell.ended}).`}
           <button className="font-medium text-accent hover:underline" onClick={restart}>
             Start a new one
           </button>
