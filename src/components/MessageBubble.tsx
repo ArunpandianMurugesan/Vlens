@@ -5,6 +5,7 @@ import { useMemo, useRef, useState } from "react";
 import type { LiveRun, ToolRun } from "@/hooks/useTreeChat";
 import { useSnippetHighlights } from "@/lib/highlight";
 import { splitPasted } from "@/lib/pasted";
+import { unavailableCommand } from "@/lib/slash";
 import type { Block, ChatMessage, SubThread } from "@/lib/types";
 import { FILE_TOOLS, FileChip } from "./FileChip";
 import { useCwd, useFiles } from "./FileContext";
@@ -269,7 +270,21 @@ export function MessageBubble({
         <div ref={textRef} data-msg={message.id} data-ctx={ctx} className="space-y-2.5">
           {pieces.map((p, i) =>
             p.type === "text" ? (
-              <Markdown key={i} text={p.text} className={streaming && i === pieces.length - 1 ? "caret" : ""} />
+              ctx === "root" && unavailableCommand(p.text) ? (
+                // Claude here has no screen for this command: run it in the session's terminal.
+                <div key={i} className="space-y-1.5">
+                  <Markdown text={p.text} />
+                  <button
+                    data-no-select
+                    onClick={() => window.dispatchEvent(new CustomEvent("lens:terminal-claude", { detail: `/${unavailableCommand(p.text)}` }))}
+                    className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs hover:border-accent hover:text-accent"
+                  >
+                    <Terminal size={12} /> Run /{unavailableCommand(p.text)} in this session&apos;s terminal
+                  </button>
+                </div>
+              ) : (
+                <Markdown key={i} text={p.text} className={streaming && i === pieces.length - 1 ? "caret" : ""} />
+              )
             ) : p.type === "thinking" ? (
               <Thinking key={i} text={p.text} />
             ) : p.type === "notice" ? (

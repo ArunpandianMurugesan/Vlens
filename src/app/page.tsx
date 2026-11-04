@@ -14,7 +14,7 @@ import { NewVersion } from "@/components/NewVersion";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { FilesProvider, useFiles } from "@/components/FileContext";
 import { FileViewer } from "@/components/FileViewer";
-import { TerminalPanel } from "@/components/TerminalPanel";
+import { runInTerminal, TerminalPanel } from "@/components/TerminalPanel";
 import { HomeView } from "@/components/HomeView";
 import { MarketplaceView } from "@/components/MarketplaceView";
 import { HistoryView } from "@/components/HistoryView";
@@ -45,6 +45,16 @@ export default function Home() {
   const showSidebar = () => setSidebarOpen(true);
   const [view, setView] = useState<"chat" | "settings" | "review" | "marketplace" | "history">("chat");
   const [tab, setTab] = useState<"sessions" | "review">("sessions");
+  // "/mcp" and "/hooks" open their Settings page.
+  const [settingsCard, setSettingsCard] = useState<"mcp" | "hooks" | null>(null);
+  useEffect(() => {
+    const open = (e: Event) => {
+      setSettingsCard((e as CustomEvent<"mcp" | "hooks">).detail);
+      setView("settings");
+    };
+    window.addEventListener("lens:open-settings", open);
+    return () => window.removeEventListener("lens:open-settings", open);
+  }, []);
   const review = useReview();
   // First launch, or Claude Code missing / signed out: show Get started over the app.
   const [setup, setSetup] = useState<SetupStatus | null>(null);
@@ -131,7 +141,15 @@ export default function Home() {
         ) : view === "marketplace" ? (
           <MarketplaceView chat={chat} onMenu={showSidebar} />
         ) : view === "settings" ? (
-          <SettingsView chat={chat} onBack={() => setView(tab === "review" ? "review" : "chat")} />
+          <SettingsView
+            key={settingsCard ?? "all"}
+            chat={chat}
+            initial={settingsCard}
+            onBack={() => {
+              setSettingsCard(null);
+              setView(tab === "review" ? "review" : "chat");
+            }}
+          />
         ) : view === "review" ? (
           <ReviewView
             review={review}
@@ -205,6 +223,22 @@ function ChatWithFiles({ chat, onMenu }: { chat: ReturnType<typeof useTreeChat>;
   const showFiles = files.tabs.length > 0;
   const open = showFiles || files.terminal;
   const cwd = chat.session?.cwd ?? chat.draft?.cwd ?? null;
+  // A command only the CLI's own screen can run (/permissions, /rewind…): hand
+  // the session to the real interactive `claude` in its terminal, with the
+  // command typed in. Vlens's Claude steps aside first, so only one writes it.
+  useEffect(() => {
+    const run = async (e: Event) => {
+      const id = chat.activeId;
+      if (!id) return;
+      const cmd = (e as CustomEvent<string>).detail;
+      const r = await fetch(`/api/sessions/${id}/live`, { method: "POST" });
+      if (!r.ok) return window.alert((await r.json().catch(() => null))?.error ?? "Couldn't hand the session to the terminal.");
+      files.setTerminal(true);
+      runInTerminal(id, cwd, `claude --resume ${id} ${shellQuote(cmd)}`);
+    };
+    window.addEventListener("lens:terminal-claude", run);
+    return () => window.removeEventListener("lens:terminal-claude", run);
+  }, [chat.activeId, cwd, files]);
   // Ctrl+` shows or hides the terminal, like VS Code.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -247,3 +281,5 @@ function ChatWithFiles({ chat, onMenu }: { chat: ReturnType<typeof useTreeChat>;
     </div>
   );
 }
+
+const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;

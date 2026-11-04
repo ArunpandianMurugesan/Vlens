@@ -1221,9 +1221,9 @@ const CARDS: { id: CardId; icon: typeof User; title: string; hint: string }[] = 
   { id: "about", icon: Info, title: "About & updates", hint: "Your version, and new releases." },
 ];
 
-export function SettingsView({ chat, onBack }: { chat: TreeChat; onBack: () => void }) {
+export function SettingsView({ chat, onBack, initial }: { chat: TreeChat; onBack: () => void; initial?: CardId | null }) {
   const { settings, saveSettings } = chat;
-  const [open, setOpen] = useState<CardId | null>(null);
+  const [open, setOpen] = useState<CardId | null>(initial ?? null);
   const card = CARDS.find((c) => c.id === open);
   const needs = (el: (s: Settings) => ReactNode) => (settings ? el(settings) : <Loader2 size={16} className="animate-spin text-muted" />);
 
@@ -1267,7 +1267,8 @@ export function SettingsView({ chat, onBack }: { chat: TreeChat; onBack: () => v
     <main className="flex min-w-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b border-line px-4 py-3">
         <button
-          onClick={() => (open ? setOpen(null) : onBack())}
+          // Opened right at a page (from /mcp or /hooks): back goes back to the chat.
+          onClick={() => (open && !initial ? setOpen(null) : onBack())}
           className="rounded-md p-1 text-muted hover:bg-sunken hover:text-ink"
           aria-label={open ? "Back to all settings" : "Back to chat"}
         >

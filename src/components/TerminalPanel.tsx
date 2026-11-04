@@ -141,6 +141,17 @@ function shellFor(owner: string, cwd: string | null) {
   return s;
 }
 
+// Types a command into this session's shell (starting it if needed), as if you had.
+export function runInTerminal(owner: string, cwd: string | null, line: string) {
+  const s = shellFor(owner, cwd);
+  const started = Date.now();
+  const go = () => {
+    if (s.ws?.readyState === WebSocket.OPEN) s.ws.send(line + "\r");
+    else if (Date.now() - started < 15_000 && !s.err) setTimeout(go, 100);
+  };
+  go();
+}
+
 // owner: the session the shell belongs to (its folder while it's still a draft).
 export function TerminalPanel({ owner, cwd }: { owner: string; cwd: string | null }) {
   const files = useFiles()!;

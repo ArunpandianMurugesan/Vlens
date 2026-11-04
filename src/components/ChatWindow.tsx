@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { type LiveRun, type RootMode, type TreeChat } from "@/hooks/useTreeChat";
 import { PERMISSION_MODES } from "@/lib/modes";
 import { MODELS } from "@/lib/models";
+import { type SlashUi, slashUi } from "@/lib/slash";
 import type { ImageInput } from "@/lib/types";
 import { Composer } from "./Composer";
 import { CwdContext, useFiles } from "./FileContext";
@@ -12,6 +13,7 @@ import { FolderPicker } from "./FolderPicker";
 import { liveMessage, MessageBubble } from "./MessageBubble";
 import { PermissionCard } from "./PermissionCard";
 import { RunActivity } from "./RunActivity";
+import { SlashPanel } from "./SlashPanel";
 import { ContextBadge } from "./Usage";
 import { MenuButton } from "./Sidebar";
 
@@ -85,6 +87,14 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
     setPaused(false);
     void chat.sendRoot(all.map((q) => q.text).filter(Boolean).join("\n\n"), mode, currentModel, all.flatMap((q) => q.images));
   };
+  // "/model", "/config", … open Vlens's own menu: Claude here has no screen for them.
+  const [slash, setSlash] = useState<SlashUi | null>(null);
+  const picked = (text: string, images: ImageInput[]) => {
+    const ui = images.length ? null : slashUi(text);
+    if (ui) setSlash(ui);
+    return !!ui;
+  };
+  useEffect(() => setSlash(null), [session?.id]);
   const failed = !!run?.error;
   useEffect(() => {
     if (replying || paused || failed || !queue.length) return;
@@ -322,6 +332,20 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
                 </div>
               </div>
             )}
+            {slash && (
+              <SlashPanel
+                ui={slash}
+                chat={chat}
+                cwd={session?.cwd ?? newDraft?.cwd ?? null}
+                model={currentModel}
+                mode={mode}
+                onModel={setModel}
+                send={(t) => (replying ? setQueue((q) => [...q, { text: t, images: [] }]) : send(t, []))}
+                onSettings={(card) => window.dispatchEvent(new CustomEvent("lens:open-settings", { detail: card }))}
+                onTerminal={(cmd) => window.dispatchEvent(new CustomEvent("lens:terminal-claude", { detail: cmd }))}
+                onClose={() => setSlash(null)}
+              />
+            )}
             <Composer
               placeholder={
                 session
@@ -332,8 +356,8 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
               }
               disabled={!session && !newDraft?.cwd}
               running={replying}
-              onSend={send}
-              onQueue={(text, images) => setQueue((q) => [...q, { text, images }])}
+              onSend={(text, images) => picked(text, images) || send(text, images)}
+              onQueue={(text, images) => picked(text, images) || setQueue((q) => [...q, { text, images }])}
               onShiftTab={cycleMode}
               cwd={session?.cwd ?? newDraft?.cwd ?? null}
               onStop={() => {

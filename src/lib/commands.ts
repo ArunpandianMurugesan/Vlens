@@ -28,7 +28,16 @@ const BUILT_IN: Record<string, string> = {
   loop: "Run a prompt on a repeating interval",
   schedule: "Schedule a recurring cloud agent",
   "reload-skills": "Reload skills from disk",
+  resume: "Open another session",
+  memory: "Open the CLAUDE.md files Claude reads",
+  status: "Session, model, folder and account",
+  hooks: "Manage hooks",
+  permissions: "Permission rules",
 };
+
+// Vlens shows its own menu or screen for these (lib/slash.ts), so offer them
+// even when the CLI leaves them out of its list.
+const OWN = ["model", "effort", "output-style", "config", "resume", "memory", "status", "mcp", "hooks", "permissions"];
 
 const probing = new Map<string, number>(); // folder -> when we last fetched its list
 
@@ -52,6 +61,7 @@ export async function slashCommands(cwd?: string): Promise<SlashCommand[]> {
     desc.set(s.name, s.description);
     desc.set(s.name.split(":").pop()!, s.description); // synced skills show up as "plugin:name"
   }
+  names = [...names, ...OWN.filter((n) => !names.includes(n))];
   return names.map((name) => {
     const d = desc.get(name) ?? desc.get(name.split(":").pop()!);
     return { name, description: d ?? BUILT_IN[name] ?? "", kind: d ? "skill" : "command" };
