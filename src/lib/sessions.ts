@@ -3,6 +3,7 @@ import "server-only";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { withoutPastes } from "./pasted";
 import type { Block, ChatMessage, ContextUsage, SessionDetail, SessionSummary } from "./types";
 import { activeSessions } from "./active";
 import { contextWindowFor, getLimits } from "./limits";
@@ -224,7 +225,7 @@ function withWindow(c: { used: number; model: string | null }, known: Record<str
 
 function summaryTitle(p: Parsed) {
   if (p.title) return p.title;
-  if (p.firstPrompt) return p.firstPrompt.replace(/\s+/g, " ").trim().slice(0, 80);
+  if (p.firstPrompt) return withoutPastes(p.firstPrompt).replace(/\s+/g, " ").trim().slice(0, 80);
   return "Untitled session";
 }
 

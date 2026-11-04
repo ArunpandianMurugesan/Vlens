@@ -4,10 +4,12 @@ import { BellRing, Bot, Brain, ChevronRight, CornerDownRight, ExternalLink, Spar
 import { useMemo, useRef, useState } from "react";
 import type { LiveRun, ToolRun } from "@/hooks/useTreeChat";
 import { useSnippetHighlights } from "@/lib/highlight";
+import { splitPasted } from "@/lib/pasted";
 import type { Block, ChatMessage, SubThread } from "@/lib/types";
 import { FILE_TOOLS, FileChip } from "./FileChip";
 import { useCwd, useFiles } from "./FileContext";
 import { Markdown } from "./Markdown";
+import { PastedCard, PastedText } from "./PastedCard";
 import { PlanRecord } from "./PlanCard";
 import { QuestionRecord } from "./QuestionCard";
 
@@ -132,6 +134,45 @@ function Thinking({ text }: { text: string }) {
   );
 }
 
+// What you typed: pastes as cards you can open, and long text cut short with
+// "Show more", so one big message doesn't fill the screen.
+const LONG_LINES = 12;
+const LONG_CHARS = 900;
+function UserText({ text }: { text: string }) {
+  const parts = useMemo(() => splitPasted(text), [text]);
+  const [open, setOpen] = useState<number | null>(null);
+  const pastes = parts.filter((p) => p.kind === "paste");
+  return (
+    <>
+      {parts.map((p, i) => (p.kind === "text" ? <LongText key={i} text={p.text} /> : null))}
+      {pastes.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap justify-end gap-1.5 whitespace-normal">
+          {parts.map((p, i) => (p.kind === "paste" ? <PastedCard key={i} text={p.text} open={open === i} onClick={() => setOpen((v) => (v === i ? null : i))} /> : null))}
+        </div>
+      )}
+      {open !== null && parts[open] && (
+        <div className="mt-1.5">
+          <PastedText text={parts[open].text} />
+        </div>
+      )}
+    </>
+  );
+}
+
+function LongText({ text }: { text: string }) {
+  const long = text.length > LONG_CHARS || text.split("\n").length > LONG_LINES;
+  const [more, setMore] = useState(false);
+  if (!long) return <span className="block">{text}</span>;
+  return (
+    <span className="block">
+      <span className={`block ${more ? "" : "max-h-64 overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]"}`}>{text}</span>
+      <button type="button" data-no-select onClick={() => setMore((m) => !m)} className="mt-1 text-xs font-medium text-muted hover:text-accent">
+        {more ? "Show less" : "Show more"}
+      </button>
+    </span>
+  );
+}
+
 // Turn the flat block list into renderable pieces, pairing each tool call with its result.
 function groupBlocks(blocks: Block[]) {
   const results = new Map<string, { text: string; isError: boolean }>();
@@ -210,7 +251,7 @@ export function MessageBubble({
               )}
             </div>
           )}
-          {message.blocks.map((b, i) => (b.kind === "text" ? <span key={i}>{b.text}</span> : null))}
+          {message.blocks.map((b, i) => (b.kind === "text" ? <UserText key={i} text={b.text} /> : null))}
         </div>
       </div>
     );

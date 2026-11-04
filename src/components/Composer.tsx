@@ -3,7 +3,9 @@
 import { ArrowUp, Paperclip, Slash, Sparkles, Square, X } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { type Attachment, toAttachment } from "@/lib/clientImages";
+import { isLongPaste, wrapPaste } from "@/lib/pasted";
 import type { ImageInput, SlashCommand } from "@/lib/types";
+import { PastedCard, PastedText } from "./PastedCard";
 
 interface Props {
   placeholder: string;
@@ -47,6 +49,9 @@ function useCommands(cwd: string | null | undefined) {
 export function Composer({ placeholder, running, disabled, onSend, onStop, inputRef, footer, cwd, onQueue, onShiftTab }: Props) {
   const [input, setInput] = useState("");
   const [images, setImages] = useState<Attachment[]>([]);
+  // Long pastes, kept as cards so the box stays small (like Claude or ChatGPT).
+  const [pastes, setPastes] = useState<{ id: string; text: string }[]>([]);
+  const [peek, setPeek] = useState<string | null>(null); // the paste being previewed
   const [err, setErr] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [pick, setPick] = useState(0);
@@ -86,13 +91,17 @@ export function Composer({ placeholder, running, disabled, onSend, onStop, input
   };
 
   const submit = () => {
-    const t = input.trim();
+    const t = [input.trim(), ...pastes.map((p) => wrapPaste(p.text))].filter(Boolean).join("\n\n");
     if ((!t && !images.length) || disabled || (running && !onQueue)) return;
     (running ? onQueue! : onSend)(t, images.map(({ mediaType, data }) => ({ mediaType, data })));
     setInput("");
     setImages([]);
+    setPastes([]);
+    setPeek(null);
     setErr(null);
   };
+  const empty = !input.trim() && !images.length && !pastes.length;
+  const peeked = pastes.find((p) => p.id === peek);
 
   return (
     <div
@@ -137,8 +146,39 @@ export function Composer({ placeholder, running, disabled, onSend, onStop, input
         </div>
       )}
 
-      {images.length > 0 && (
+      {peeked && (
+        <div className="mb-2 space-y-1.5">
+          <PastedText text={peeked.text} />
+          <button
+            type="button"
+            className="text-xs text-muted hover:text-accent"
+            onClick={() => {
+              // Back into the box as plain text, to edit it.
+              setInput((v) => (v ? `${v}\n${peeked.text}` : peeked.text));
+              setPastes((p) => p.filter((x) => x.id !== peeked.id));
+              setPeek(null);
+              ref.current?.focus();
+            }}
+          >
+            Edit as text
+          </button>
+        </div>
+      )}
+
+      {(images.length > 0 || pastes.length > 0) && (
         <div className="mb-2 flex flex-wrap gap-2">
+          {pastes.map((p) => (
+            <PastedCard
+              key={p.id}
+              text={p.text}
+              open={peek === p.id}
+              onClick={() => setPeek((v) => (v === p.id ? null : p.id))}
+              onRemove={() => {
+                setPastes((all) => all.filter((x) => x.id !== p.id));
+                setPeek((v) => (v === p.id ? null : v));
+              }}
+            />
+          ))}
           {images.map((im) => (
             <div key={im.id} className="group relative">
               {/* eslint-disable-next-line @next/next/no-img-element -- local data: URL preview */}
@@ -168,6 +208,12 @@ export function Composer({ placeholder, running, disabled, onSend, onStop, input
           if (files.length) {
             e.preventDefault();
             void add(files);
+            return;
+          }
+          const text = e.clipboardData.getData("text/plain");
+          if (isLongPaste(text)) {
+            e.preventDefault();
+            setPastes((p) => [...p, { id: crypto.randomUUID(), text: text.replace(/\r\n/g, "\n") }]);
           }
         }}
         onKeyDown={(e) => {
@@ -231,7 +277,7 @@ export function Composer({ placeholder, running, disabled, onSend, onStop, input
         ) : (
           <button
             onClick={submit}
-            disabled={(!input.trim() && !images.length) || disabled}
+            disabled={empty || disabled}
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-white disabled:opacity-40"
             aria-label="Send"
           >
