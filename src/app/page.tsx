@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChatWindow } from "@/components/ChatWindow";
 import { messageText } from "@/components/MessageBubble";
 import { type Picked, SelectionPopover } from "@/components/SelectionPopover";
@@ -21,6 +21,7 @@ import { HistoryView } from "@/components/HistoryView";
 import { BotsView } from "@/components/BotsView";
 import { SpaceRail } from "@/components/SpaceRail";
 import { BotBell } from "@/components/BotBell";
+import { type Go, QuickSwitcher } from "@/components/QuickSwitcher";
 import { Inspector, useInspector } from "@/components/Inspector";
 import { LensSettingsContext } from "@/components/LensSettings";
 import { useReview } from "@/hooks/useReview";
@@ -111,10 +112,44 @@ export default function Home() {
   }, [chat.activeId]);
 
   const n = chat.stack.length;
+  // Where the ⌘K switcher can take you.
+  const go = useMemo<Go>(
+    () => ({
+      session: (id) => {
+        setTab("sessions");
+        setView("chat");
+        chat.selectSession(id);
+      },
+      pr: (url) => {
+        setTab("review");
+        setView("review");
+        void review.select(url);
+      },
+      bot: (id) => window.dispatchEvent(new CustomEvent("lens:open-bot", { detail: { bot: id, target: null } })),
+      page: (p) => {
+        if (p === "home") {
+          setTab("sessions");
+          setView("chat");
+          chat.goHome();
+        } else if (p === "review") {
+          setTab("review");
+          setView("review");
+        } else setView(p);
+      },
+      newIn: (cwd) => {
+        setTab("sessions");
+        setView("chat");
+        chat.newSession(cwd);
+      },
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the chat and review hooks' functions are stable
+    [chat.selectSession, chat.goHome, chat.newSession, review.select],
+  );
 
   return (
     <LensSettingsContext.Provider value={chat.settings}>
       {setup && <GetStarted initial={setup} onDone={() => setSetup(null)} />}
+      <QuickSwitcher chat={chat} review={review} go={go} />
       <FilesProvider>
       <div className="flex h-dvh overflow-hidden">
         <SpaceRail

@@ -413,6 +413,14 @@ export function Sidebar({
               placeholder="Search sessions"
               className="w-full bg-transparent outline-none placeholder:text-muted"
             />
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event("lens:switcher"))}
+              title="Search everything: sessions, PRs, bots, actions"
+              className="shrink-0 rounded border border-line px-1 text-[0.65rem] text-muted hover:border-accent hover:text-accent"
+            >
+              ⌘K
+            </button>
           </label>
         </div>
 
