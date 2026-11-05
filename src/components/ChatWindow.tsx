@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Check, Clock, Copy, Eye, FolderOpen, Loader2, PanelRight, Pencil, Power, ShieldCheck, ShieldOff, Sparkles, SquareTerminal, Terminal, X } from "lucide-react";
+import { Archive, Check, Clock, Copy, Eye, Loader2, PanelRight, Pencil, Power, ShieldCheck, ShieldOff, Sparkles, SquareTerminal, Terminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type LiveRun, type RootMode, type TreeChat } from "@/hooks/useTreeChat";
 import { PERMISSION_MODES } from "@/lib/modes";
@@ -26,6 +26,8 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
   const newDraft = !session ? draft : null; // starting a new session, not yet created
   const files = useFiles();
   const [inspector, setInspector] = useInspector();
+  // The inspector is beside the chat (wide window, nothing else open there).
+  const inspectorShown = botMode === undefined && inspector && !files?.tabs.length && !files?.terminal;
   // Folders of existing sessions, most recent first, for the folder picker.
   const recent = useMemo(
     () => [...new Set(chat.sessions.map((s) => s.cwd).filter((c): c is string => !!c))],
@@ -164,55 +166,45 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
         {session ? (
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h1 className="truncate font-medium">{session.title}</h1>
+              <h1 className="truncate text-sm font-semibold">{session.title}</h1>
               {live && (
                 <span className="flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[0.68rem] font-medium text-emerald-600">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" /> live
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-1.5 truncate text-xs text-muted">
-              <FolderOpen size={11} className="shrink-0" />
-              <span className="truncate">{session.cwd ?? session.projectName}</span>
+            {/* folder · branch · model, like the design */}
+            <div className="truncate text-[0.7rem] text-muted" title={session.cwd ?? undefined}>
+              {[session.projectName, session.branch, prettyModel(session.context?.model ?? null)].filter(Boolean).join(" · ")}
             </div>
           </div>
         ) : newDraft ? (
           <div className="min-w-0 flex-1">
-            <h1 className="font-medium">New session</h1>
-            {newDraft.cwd && (
-              <div className="flex items-center gap-1.5 truncate text-xs text-muted">
-                <FolderOpen size={11} className="shrink-0" />
-                <span className="truncate">{newDraft.cwd}</span>
-              </div>
-            )}
+            <h1 className="text-sm font-semibold">New session</h1>
+            {newDraft.cwd && <div className="truncate text-[0.7rem] text-muted">{newDraft.cwd.replace(/^\/Users\/[^/]+/, "~")}</div>}
           </div>
         ) : (
           <div className="flex-1 text-muted">{loadingSession ? "Loading…" : "Vlens"}</div>
         )}
-        {session && <ContextBadge ctx={session.context} />}
+        {/* The inspector shows context and the terminal on a wide window; these are for narrower ones. */}
+        {session && (
+          <span className={inspectorShown ? "xl:hidden" : ""}>
+            <ContextBadge ctx={session.context} />
+          </span>
+        )}
         {(session || newDraft?.cwd) && files && (
           <button
             onClick={() => files.setTerminal((t) => !t)}
             title="A shell in this session's folder, beside the chat (Ctrl+`)"
             aria-pressed={files.terminal}
-            className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs hover:text-ink ${
+            className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs hover:text-ink ${inspectorShown ? "xl:hidden" : ""} ${
               files.terminal ? "border-accent bg-accent-soft text-accent" : "border-line text-muted"
             }`}
           >
             <Terminal size={12} /> <span className="hidden sm:inline">Terminal</span>
           </button>
         )}
-        {session && botMode === undefined && !files?.tabs.length && !files?.terminal && (
-          <button
-            onClick={() => setInspector(!inspector)}
-            aria-pressed={inspector}
-            aria-label="Toggle inspector"
-            title="Context, files changed, plan usage and terminal, beside the chat"
-            className={`hidden shrink-0 rounded-lg border p-1.5 xl:block ${inspector ? "border-accent bg-accent-soft text-accent" : "border-line text-muted hover:text-ink"}`}
-          >
-            <PanelRight size={13} />
-          </button>
-        )}
+        {(session || newDraft?.cwd) && !elsewhere && <ModePicker mode={mode} cliMode={chat.settings?.cliMode} onChange={setMode} header />}
         {session && !elsewhere && (
           <button
             onClick={toTerminal}
@@ -230,11 +222,22 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
               setCopied(true);
               setTimeout(() => setCopied(false), 1500);
             }}
-            title={resumeCmd}
-            className="hidden shrink-0 items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs text-muted hover:text-ink sm:flex"
+            title={`Copy: ${resumeCmd}`}
+            aria-label="Copy the resume command"
+            className="hidden shrink-0 rounded-lg border border-line p-1.5 text-muted hover:text-ink sm:block"
           >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-            {copied ? "Copied" : "Resume in CLI"}
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+          </button>
+        )}
+        {session && !files?.tabs.length && !files?.terminal && (
+          <button
+            onClick={() => setInspector(!inspector)}
+            aria-pressed={inspector}
+            aria-label="Toggle inspector"
+            title="Context, files changed, plan usage and terminal, beside the chat (⌥⌘I)"
+            className={`hidden shrink-0 rounded-lg p-1.5 xl:block ${inspector ? "bg-accent-soft text-accent" : "text-muted hover:bg-sunken hover:text-ink"}`}
+          >
+            <PanelRight size={14} />
           </button>
         )}
       </header>
@@ -399,7 +402,7 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
             <Composer
               placeholder={
                 session
-                  ? "Reply…  type / for commands, paste images, select text to ask a sub-agent"
+                  ? "Reply, or type / for commands"
                   : newDraft?.cwd
                     ? "What should Claude do in this folder?"
                     : "Pick a folder first"
@@ -426,7 +429,7 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
                       }}
                     />
                   )}
-                  {botMode !== undefined ? <BotMode mode={botMode} /> : <ModePicker mode={mode} cliMode={chat.settings?.cliMode} onChange={setMode} />}
+                  {botMode !== undefined ? <BotMode mode={botMode} /> : elsewhere ? null : <span className="sm:hidden"><ModePicker mode={mode} cliMode={chat.settings?.cliMode} onChange={setMode} /></span>}
                   <select
                     value={currentModel}
                     onChange={(e) => setModel(e.target.value)}
@@ -464,14 +467,20 @@ function BotMode({ mode }: { mode: RootMode | "" }) {
   );
 }
 
+// "claude-opus-5-5" -> "Opus 5.5"
+function prettyModel(m: string | null) {
+  const x = m?.match(/(opus|sonnet|haiku|fable)-(\d+)(?:-(\d+))?/i);
+  return x ? `${x[1][0].toUpperCase()}${x[1].slice(1)} ${x[2]}${x[3] ? `.${x[3]}` : ""}` : null;
+}
+
 // The permission mode for your next messages. Shift+Tab in the message box cycles it, like the terminal.
-function ModePicker({ mode, cliMode, onChange }: { mode: RootMode; cliMode?: RootMode; onChange: (m: RootMode) => void }) {
+function ModePicker({ mode, cliMode, onChange, header }: { mode: RootMode; cliMode?: RootMode; onChange: (m: RootMode) => void; header?: boolean }) {
   const cur = PERMISSION_MODES.find((m) => m.id === mode)!;
   const Icon = mode === "plan" ? Eye : mode === "bypassPermissions" ? ShieldOff : mode === "auto" ? Sparkles : mode === "acceptEdits" ? Pencil : ShieldCheck;
   return (
     <label
       title={`${cur.hint}. Shift+Tab in the message box switches modes.`}
-      className={`flex items-center gap-1 rounded-lg bg-sunken px-1.5 py-0.5 text-[0.7rem] ${mode === "bypassPermissions" ? "text-red-600" : mode === "default" ? "text-muted" : "text-accent"}`}
+      className={`items-center gap-1 rounded-lg ${header ? "hidden border border-line px-2 py-1 text-xs sm:flex" : "flex bg-sunken px-1.5 py-0.5 text-[0.7rem]"} ${mode === "bypassPermissions" ? "text-red-600" : mode === "default" ? "text-muted" : "text-accent"}`}
     >
       <Icon size={11} className="shrink-0" />
       <select value={mode} onChange={(e) => onChange(e.target.value as RootMode)} aria-label="Permission mode" className="bg-transparent outline-none">

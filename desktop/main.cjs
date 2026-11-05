@@ -125,6 +125,9 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: "Vlens",
+    // Like a Mac app: no title bar; the traffic lights sit at the top of the left rail
+    // (the page makes room for them and lets its headers drag the window).
+    ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 18 } } : {}),
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#1f1e1b" : "#faf9f5",
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });

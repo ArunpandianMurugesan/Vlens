@@ -73,6 +73,7 @@ export interface ActiveInfo {
 
 export interface SessionDetail extends SessionSummary {
   messages: ChatMessage[];
+  branch?: string | null; // its git branch, from the session file
 }
 
 // A sub-thread is a nested conversation spawned from a snippet of a message.

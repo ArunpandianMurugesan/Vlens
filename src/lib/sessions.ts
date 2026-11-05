@@ -127,12 +127,14 @@ interface Parsed {
   firstPrompt: string | null;
   messages: ChatMessage[];
   context: { used: number; model: string | null } | null; // at the last reply
+  branch: string | null; // the git branch at the last line
 }
 
 function parseJsonl(raw: string, withMessages: boolean, sessionId?: string): Parsed {
   let aiTitle: string | null = null;
   let customTitle: string | null = null;
   let cwd: string | null = null;
+  let branch: string | null = null;
   let firstPrompt: string | null = null;
   let context: Parsed["context"] = null;
   const messages: ChatMessage[] = [];
@@ -148,6 +150,7 @@ function parseJsonl(raw: string, withMessages: boolean, sessionId?: string): Par
     if (d.type === "ai-title") aiTitle = d.aiTitle;
     else if (d.type === "custom-title") customTitle = d.customTitle;
     if (!cwd && d.cwd) cwd = d.cwd;
+    if (typeof d.gitBranch === "string" && d.gitBranch) branch = d.gitBranch;
     // A slash command's printed output (e.g. /context) is its own line type.
     if (withMessages && d.type === "system" && d.subtype === "local_command" && !d.isSidechain) {
       const text = commandOutput(d.content);
@@ -201,6 +204,7 @@ function parseJsonl(raw: string, withMessages: boolean, sessionId?: string): Par
   return {
     title: customTitle ?? aiTitle,
     cwd,
+    branch,
     firstPrompt,
     context,
     messages: withMessages ? mergeAssistantTurns(messages) : [],
@@ -399,6 +403,7 @@ export async function getSession(id: string): Promise<SessionDetail | null> {
     updatedAt: stat.mtime.toISOString(),
     messageCount: p.messages.length,
     messages: p.messages,
+    branch: p.branch,
     context: p.context ? withWindow(p.context, contextWindows) : undefined,
   };
 }

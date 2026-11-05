@@ -343,3 +343,20 @@ body {
 @media (min-width: 768px) {
   header.border-b { padding-right: 3.5rem; }
 }
+
+/* The Mac app has no title bar (desktop/main.cjs): the traffic lights sit at the
+   top of the left rail, and headers move the window like a title bar would. */
+.mac-app nav[aria-label="Spaces"] {
+  width: 78px;
+  padding-top: 52px;
+  -webkit-app-region: drag;
+}
+.mac-app header,
+.mac-app [data-drag] {
+  -webkit-app-region: drag;
+}
+.mac-app nav[aria-label="Spaces"] :is(button, a),
+.mac-app header :is(button, a, input, select, textarea, label, [role="button"], [role="switch"]),
+.mac-app [data-drag] :is(button, a, input, select, label) {
+  -webkit-app-region: no-drag;
+}

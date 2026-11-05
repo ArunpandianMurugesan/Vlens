@@ -1,6 +1,6 @@
 "use client";
 
-import { BellRing, Bot, Brain, ChevronRight, CornerDownRight, ExternalLink, Sparkles, Terminal, XCircle } from "lucide-react";
+import { BellRing, Bot, Brain, Check, ChevronRight, CornerDownRight, ExternalLink, Loader2, Sparkles, Terminal, XCircle } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import type { LiveRun, ToolRun } from "@/hooks/useTreeChat";
 import { useSnippetHighlights } from "@/lib/highlight";
@@ -91,6 +91,86 @@ function ToolRow({ run }: { run: ToolRun }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// One tool call in a few words: "Read upsert.go", "Edited route.ts", "Ran npm test".
+const base = (p: unknown) => (typeof p === "string" ? p.split("/").filter(Boolean).slice(-1)[0] ?? p : "");
+function runLabel(r: ToolRun) {
+  const i = (r.input ?? {}) as Record<string, unknown>;
+  const cut = (t: string, n = 32) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
+  switch (r.name) {
+    case "Read":
+      return `Read ${base(i.file_path)}`;
+    case "Edit":
+    case "MultiEdit":
+      return `Edited ${base(i.file_path)}`;
+    case "Write":
+      return `Wrote ${base(i.file_path)}`;
+    case "NotebookEdit":
+      return `Edited ${base(i.notebook_path)}`;
+    case "Bash":
+      return `Ran ${cut(String(i.command ?? "").split("\n")[0])}`;
+    case "Grep":
+      return `Searched "${cut(String(i.pattern ?? ""), 24)}"`;
+    case "Glob":
+      return `Listed ${cut(String(i.pattern ?? ""), 24)}`;
+    case "WebFetch":
+      try {
+        return `Fetched ${new URL(String(i.url)).host}`;
+      } catch {
+        return "Fetched a page";
+      }
+    case "WebSearch":
+      return `Searched the web "${cut(String(i.query ?? ""), 24)}"`;
+    case "Task":
+    case "Agent":
+      return `Agent: ${cut(String(i.description ?? "a task"))}`;
+    case "TodoWrite":
+      return "Updated the to-do list";
+    default:
+      return r.name.startsWith("mcp__") ? r.name.split("__").slice(-1)[0].replace(/_/g, " ") : r.name;
+  }
+}
+
+// A run of tool calls as one line ("✓ Read a.ts · Read b.ts · Edited c.ts"),
+// opened to see each one. A plan or a question Claude asked shows in full.
+function ToolGroup({ runs }: { runs: ToolRun[] }) {
+  const [open, setOpen] = useState(false);
+  const special = runs.filter((r) => r.name === "ExitPlanMode" || r.name === "AskUserQuestion");
+  const plain = runs.filter((r) => !special.includes(r));
+  const pending = plain.some((r) => !r.result);
+  const failed = plain.filter((r) => r.result?.isError).length;
+  const labels = plain.map(runLabel);
+  const shown = labels.slice(0, 4).join(" · ");
+  return (
+    <div className="space-y-1.5" data-no-select>
+      {plain.length > 0 && (
+        <div>
+          <button onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex max-w-full items-center gap-2 text-left text-[0.8rem] text-muted hover:text-ink">
+            {pending ? (
+              <Loader2 size={13} className="shrink-0 animate-spin text-accent" />
+            ) : failed ? (
+              <XCircle size={13} className="shrink-0 text-red-500" />
+            ) : (
+              <Check size={13} className="shrink-0" />
+            )}
+            <span className="min-w-0 truncate">
+              {shown}
+              {labels.length > 4 && ` · +${labels.length - 4} more`}
+              {failed > 0 && <span className="text-red-500"> · {failed} failed</span>}
+            </span>
+            <ChevronRight size={12} className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
+          </button>
+          {open && (
+            <div className="mt-1.5 space-y-1.5">
+              {plain.map((r) => (FILE_TOOLS.has(r.name) ? <FileChip key={r.id} run={r} /> : <ToolRow key={r.id} run={r} />))}
+            </div>
+          )}
+        </div>
+      )}
+      {special.map((r) => (r.name === "ExitPlanMode" ? <PlanRecord key={r.id} input={r.input} result={r.result} /> : <QuestionRecord key={r.id} input={r.input} result={r.result} />))}
     </div>
   );
 }
@@ -261,7 +341,8 @@ export function MessageBubble({
   const Icon = message.role === "sub-agent" ? Sparkles : Bot;
   return (
     <div className="flex gap-3">
-      {!compact && (
+      {/* Claude's replies are plain text, like the design; a sub-agent's keep their mark. */}
+      {!compact && message.role === "sub-agent" && (
         <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
           <Icon size={15} />
         </div>
@@ -293,19 +374,7 @@ export function MessageBubble({
                 <span className="min-w-0 truncate">{p.text}</span>
               </div>
             ) : (
-              <div key={i} className="space-y-1.5" data-no-select>
-                {p.runs.map((r) =>
-                  r.name === "ExitPlanMode" ? (
-                    <PlanRecord key={r.id} input={r.input} result={r.result} />
-                  ) : r.name === "AskUserQuestion" ? (
-                    <QuestionRecord key={r.id} input={r.input} result={r.result} />
-                  ) : FILE_TOOLS.has(r.name) ? (
-                    <FileChip key={r.id} run={r} />
-                  ) : (
-                    <ToolRow key={r.id} run={r} />
-                  ),
-                )}
-              </div>
+              <ToolGroup key={i} runs={p.runs} />
             ),
           )}
           {streaming && pieces.at(-1)?.type !== "text" && <span className="caret text-sm text-muted" />}

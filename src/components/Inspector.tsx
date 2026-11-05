@@ -1,6 +1,6 @@
 "use client";
 
-import { FileCode, Loader2, Minimize2, PanelRightClose, Terminal } from "lucide-react";
+import { FileCode, Loader2, Minimize2, Terminal } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { TreeChat } from "@/hooks/useTreeChat";
 import type { LimitWindow } from "@/lib/types";
@@ -44,7 +44,6 @@ const Heading = ({ children }: { children: React.ReactNode }) => <div className=
 type Change = { path: string; add: number; del: number; state: "changed" | "new" | "edited" | "committed" };
 
 export function Inspector({ chat }: { chat: TreeChat }) {
-  const [, setOn] = useInspector();
   const files = useFiles();
   const s = chat.session;
   const id = s?.id ?? null;
@@ -93,13 +92,7 @@ export function Inspector({ chat }: { chat: TreeChat }) {
   const w = chat.limits?.windows;
 
   return (
-    <aside aria-label="Inspector" className="hidden w-72 shrink-0 flex-col gap-5 overflow-y-auto border-l border-line bg-sunken/40 px-4 py-4 scroll-thin xl:flex">
-      <div className="flex items-center pr-9">
-        <span className="text-xs font-semibold">Inspector</span>
-        <button onClick={() => setOn(false)} className="ml-auto rounded p-1 text-muted hover:bg-panel hover:text-ink" aria-label="Hide inspector" title="Hide the inspector">
-          <PanelRightClose size={14} />
-        </button>
-      </div>
+    <aside aria-label="Inspector" className="hidden w-72 shrink-0 flex-col gap-5 overflow-y-auto border-l border-line bg-sunken/40 px-4 pb-4 pt-14 scroll-thin xl:flex">
 
       <section className="space-y-2">
         <Heading>Context</Heading>

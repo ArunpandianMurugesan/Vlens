@@ -10,7 +10,7 @@ import {
   FolderTree,
   History,
   List,
-  MessagesSquare,
+  House as HomeIcon,
   PanelLeftClose,
   PanelLeftOpen,
   MoreHorizontal,
@@ -31,7 +31,6 @@ import { setCollapsed, toggleSidebar, useSidebarCollapsed } from "@/lib/sidebar"
 import type { Review } from "@/hooks/useReview";
 import type { TreeChat } from "@/hooks/useTreeChat";
 import { ReviewSidebar } from "./ReviewSidebar";
-import { ThemeToggle } from "./ThemeToggle";
 import { PlanUsage } from "./Usage";
 import type { SessionSummary } from "@/lib/types";
 
@@ -279,13 +278,12 @@ export function Sidebar({
             <div key={k}>
               <button
                 onClick={() => toggleFold(key)}
-                title={g[0].cwd ?? k}
-                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs text-muted hover:text-ink"
+                title={`${g[0].cwd ?? k}\n${open ? "Click to fold" : `${g.length} folded, click to show`}`}
+                className="group/f flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs text-muted hover:text-ink"
               >
-                <ChevronRight size={12} className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
                 <Folder size={12} className="shrink-0" />
                 <span className="truncate font-medium">{label(k, g)}</span>
-                <span className="ml-auto shrink-0 rounded-full bg-panel px-1.5 text-[0.65rem]">{g.length}</span>
+                {!open && <span className="ml-auto flex shrink-0 items-center gap-0.5 text-[0.65rem]">{g.length} <ChevronRight size={11} /></span>}
                 {!open && g.some((s) => s.active?.status === "busy") && (
                   <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500" title="Something in here is working" />
                 )}
@@ -324,34 +322,31 @@ export function Sidebar({
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="flex items-center gap-2 px-4 pb-3 pt-4">
+        {/* Like a Mac window's title area: room for the traffic lights, what needs you, hide. */}
+        <div data-drag className="lens-titlebar flex h-[52px] shrink-0 items-center gap-1 px-3">
           <button
             onClick={() => {
               onHome();
               onClose();
             }}
-            className="flex items-center gap-2 rounded-lg"
-            title="Home"
+            className="rounded-md p-1 text-muted hover:bg-panel hover:text-ink"
+            title="Home (⇧⌘H)"
+            aria-label="Home"
           >
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-white">
-              <MessagesSquare size={15} />
-            </span>
-            <span className="font-semibold">Vlens</span>
+            <HomeIcon size={15} />
           </button>
-          <span className="ml-auto flex items-center gap-1">
-            {waiting.length > 0 && (
-              <button
-                onClick={jump}
-                aria-label={`${waiting.length} session${waiting.length === 1 ? "" : "s"} need you. Jump to the next one (⌘])`}
-                title="Jump to the next session that needs you (⌘])"
-                className="relative rounded-md p-1 text-amber-600 hover:bg-panel"
-              >
-                <BellRing size={15} />
-                <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[0.55rem] text-white">{waiting.length}</span>
-              </button>
-            )}
-            <ThemeToggle />
-          </span>
+          <span className="flex-1" />
+          {waiting.length > 0 && (
+            <button
+              onClick={jump}
+              aria-label={`${waiting.length} session${waiting.length === 1 ? "" : "s"} need you. Jump to the next one (⌘])`}
+              title="Jump to the next session that needs you (⌘])"
+              className="relative rounded-md p-1 text-amber-600 hover:bg-panel"
+            >
+              <BellRing size={15} />
+              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[0.55rem] text-white">{waiting.length}</span>
+            </button>
+          )}
           <button onClick={() => setCollapsed(true)} className="hidden rounded-md p-1 text-muted hover:bg-panel hover:text-ink md:block" aria-label="Hide sidebar" title="Hide the sidebar (⌘B)">
             <PanelLeftClose size={16} />
           </button>
@@ -395,16 +390,7 @@ export function Sidebar({
           />
         ) : (
           <>
-        <div className="space-y-2 px-3">
-          <button
-            onClick={() => {
-              onNew();
-              onClose();
-            }}
-            className="flex w-full items-center gap-2 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-sm font-medium hover:border-accent hover:text-accent"
-          >
-            <Plus size={15} /> New session
-          </button>
+        <div className="px-3">
           <label className="flex items-center gap-2 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-sm">
             <Search size={14} className="text-muted" />
             <input
@@ -465,17 +451,39 @@ export function Sidebar({
           </>
         )}
 
-        <button
-          onClick={() => {
-            onHistory();
-            onClose();
-          }}
-          className={`mx-2 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm ${
-            historyOpen ? "bg-panel text-ink shadow-sm" : "text-muted hover:bg-panel/60 hover:text-ink"
-          }`}
-        >
-          <History size={14} /> History
-        </button>
+        <div className="flex items-center gap-1.5 border-t border-line px-3 py-2.5">
+          <button
+            onClick={() => {
+              onNew();
+              onClose();
+            }}
+            className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-sm hover:border-accent hover:text-accent"
+          >
+            <Plus size={14} /> New session <span className="text-[0.7rem] text-muted">⌘N</span>
+          </button>
+          <button
+            onClick={() => {
+              onHistory();
+              onClose();
+            }}
+            title="History (⌘Y)"
+            aria-label="History"
+            className={`rounded-lg p-2 ${historyOpen ? "bg-panel text-ink shadow-sm" : "text-muted hover:bg-panel/60 hover:text-ink"}`}
+          >
+            <History size={15} />
+          </button>
+          <button
+            onClick={() => {
+              onSettings();
+              onClose();
+            }}
+            title="Settings (⌘,)"
+            aria-label="Settings"
+            className={`hidden rounded-lg p-2 md:block ${settingsOpen ? "bg-panel text-ink shadow-sm" : "text-muted hover:bg-panel/60 hover:text-ink"}`}
+          >
+            <SettingsIcon size={15} />
+          </button>
+        </div>
         <button
           onClick={() => {
             onMarketplace();
