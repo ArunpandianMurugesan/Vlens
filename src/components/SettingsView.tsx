@@ -8,7 +8,6 @@ import {
   Download,
   ExternalLink,
   FileText,
-  GraduationCap,
   Info,
   Network,
   Palette,
@@ -253,39 +252,6 @@ function DiagramsSection({ settings, save }: { settings: Settings; save: (p: Par
           {settings.showWhiteboards && <WhiteboardBlock code={SAMPLE_BOARD} />}
         </div>
       )}
-    </Section>
-  );
-}
-
-// ── Coach ──────────────────────────────────────────────────────────────────
-
-function CoachSection({ settings, save }: { settings: Settings; save: (p: Partial<Settings>) => void }) {
-  return (
-    <Section icon={GraduationCap} title="Coach" hint="Learns from your sessions: spots habits that cost time or tokens, reviews sessions on request, and keeps the lessons. Everything stays on this Mac.">
-      <Row label="Coach on Home" hint="The “Fix this now” card: error streaks, corrections, huge pastes, files Claude keeps re-reading, sessions that never end.">
-        <Toggle label="Coach on Home" on={settings.coach} onChange={(v) => save({ coach: v })} />
-      </Row>
-      <Row label="Session retros" hint="A Retro button on sessions. Claude reads a short digest (your messages, corrections, errors), not the whole history, and suggests lessons.">
-        <Toggle label="Session retros" on={settings.retro} onChange={(v) => save({ retro: v })} />
-      </Row>
-      <Row label="Retro model" hint="A small model is plenty and keeps it cheap.">
-        <select className={select} value={settings.retroModel} onChange={(e) => save({ retroModel: e.target.value })} disabled={!settings.retro}>
-          {MODELS.filter((m) => m.id).map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-      </Row>
-      <Row label="Write lessons to CLAUDE.md" hint="On: Apply adds a lesson to a block Vlens owns at the end of CLAUDE.md, so the terminal and desktop app learn too. Your own lines are never touched. Off: lessons stay in Vlens only (blocks already written stay until you take them out).">
-        <Toggle label="Write lessons to CLAUDE.md" on={settings.lessonsToClaudeMd} onChange={(v) => save({ lessonsToClaudeMd: v })} />
-      </Row>
-      <Row label="Default place" hint="Which button is highlighted. This project = the repo's CLAUDE.md (your team sees it if it's committed). All projects = ~/.claude/CLAUDE.md, only you.">
-        <select className={select} value={settings.lessonsTarget} onChange={(e) => save({ lessonsTarget: e.target.value as Settings["lessonsTarget"] })} disabled={!settings.lessonsToClaudeMd}>
-          <option value="project">This project</option>
-          <option value="user">All projects</option>
-        </select>
-      </Row>
     </Section>
   );
 }
@@ -1204,7 +1170,7 @@ function AboutSection() {
 
 // ── Page ───────────────────────────────────────────────────────────────────
 
-type CardId = "appearance" | "account" | "model" | "diagrams" | "restore" | "notify" | "coach" | "skills" | "hooks" | "mcp" | "about";
+type CardId = "appearance" | "account" | "model" | "diagrams" | "restore" | "notify" | "skills" | "hooks" | "mcp" | "about";
 
 // One card per settings page. The page opens on its own, so nothing is a long scroll.
 const CARDS: { id: CardId; icon: typeof User; title: string; hint: string }[] = [
@@ -1216,7 +1182,6 @@ const CARDS: { id: CardId; icon: typeof User; title: string; hint: string }[] = 
   { id: "hooks", icon: Webhook, title: "Hooks", hint: "Commands Claude runs on events. Add, edit, pause." },
   { id: "mcp", icon: Plug, title: "Connectors (MCP)", hint: "Add servers, sign in, see their status." },
   { id: "diagrams", icon: Network, title: "Diagrams & whiteboard", hint: "Mermaid diagrams, Excalidraw sketches, their skills." },
-  { id: "coach", icon: GraduationCap, title: "Coach", hint: "Retros, lessons and where they're written." },
   { id: "restore", icon: RotateCcw, title: "Auto-restore", hint: "Bring back sessions that stopped unexpectedly." },
   { id: "about", icon: Info, title: "About & updates", hint: "Your version, and new releases." },
 ];
@@ -1250,8 +1215,6 @@ export function SettingsView({ chat, onBack, initial }: { chat: TreeChat; onBack
         return needs((s) => <RestoreSection chat={chat} settings={s} save={saveSettings} />);
       case "notify":
         return needs((s) => <NotifySection settings={s} save={saveSettings} />);
-      case "coach":
-        return needs((s) => <CoachSection settings={s} save={saveSettings} />);
       case "skills":
         return <SkillsSection chat={chat} />;
       case "hooks":

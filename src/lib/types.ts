@@ -284,11 +284,6 @@ export interface Settings {
   whiteboardSkill: boolean; // load the built-in lens:whiteboard skill into Vlens runs
   onboarded: boolean; // went through Get started once
   notifications: boolean; // desktop notifications when Claude needs you or finishes
-  coach: boolean; // the Coach card on Home: "Fix this now" signals from your sessions
-  retro: boolean; // Retro buttons: Claude reviews a session and suggests lessons
-  lessonsToClaudeMd: boolean; // Apply writes lessons into a Vlens block in CLAUDE.md
-  lessonsTarget: "project" | "user"; // default for Apply: the repo's CLAUDE.md or ~/.claude/CLAUDE.md
-  retroModel: string; // model for retros (a cheap one is plenty)
   cliMode?: PermissionMode; // read-only: the mode your terminal claude starts in (~/.claude/settings.json)
 }
 
@@ -490,46 +485,6 @@ export interface SetupStatus {
   account: Account;
   gh: { installed: boolean; user: string | null }; // optional: only Vlens Review needs it
   onboarded: boolean;
-}
-
-// ── Coach ──
-
-// Something in your recent sessions worth fixing, with a way to act on it.
-export interface CoachSignal {
-  id: string;
-  kind: "rereads" | "errors" | "corrections" | "pastes" | "longlived";
-  title: string;
-  detail: string;
-  sessionId?: string;
-  sessionTitle?: string;
-  cwd?: string | null;
-  lesson?: string; // a suggested lesson to add, editable before saving
-}
-
-// What a retro of one session found.
-export interface Retro {
-  sessionId: string;
-  title: string;
-  cwd: string | null;
-  at: string;
-  wentWell: string[];
-  mistakes: string[];
-}
-
-// A one-line lesson. Applied ones live in a Vlens block in that CLAUDE.md.
-export interface Lesson {
-  id: string;
-  text: string;
-  cwd: string | null; // the project it came from
-  sessionId?: string;
-  createdAt: string;
-  applied?: "project" | "user"; // which CLAUDE.md it's in, if any
-}
-
-export interface CoachData {
-  signals: CoachSignal[];
-  retros: Retro[];
-  lessons: Lesson[];
 }
 
 export interface UpdateInfo {

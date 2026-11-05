@@ -1,26 +1,12 @@
 "use client";
 
-import {
-  Activity,
-  ArrowRight,
-  BadgeCheck,
-  Gauge,
-  GitBranch,
-  GraduationCap,
-  Layers,
-  Lightbulb,
-  Loader2,
-  Minimize2,
-  Plus,
-  RefreshCw,
-  Sparkles,
-  Table2,
-  User,
-} from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
-import type { TreeChat } from "@/hooks/useTreeChat";
-import type { DashboardData, DayStats, HeavySession } from "@/lib/types";
-import { CoachCard, runRetro } from "./CoachCard";
+import { BellRing, FolderOpen, GitBranch, Loader2, Minimize2, Play, Sparkles } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import type { RootMode, TreeChat } from "@/hooks/useTreeChat";
+import { PERMISSION_MODES } from "@/lib/modes";
+import { MODELS } from "@/lib/models";
+import type { DashboardData, HeavySession, ImageInput, SessionSummary } from "@/lib/types";
+import { Composer } from "./Composer";
 import { Ring } from "./Usage";
 import { MenuButton } from "./Sidebar";
 
@@ -42,143 +28,10 @@ function ago(iso: string) {
   return `${Math.round(s / 86400)}d ago`;
 }
 
-function Card({ title, icon: Icon, action, children, className = "" }: { title: string; icon: typeof User; action?: ReactNode; children: ReactNode; className?: string }) {
-  return (
-    <section className={`rounded-2xl border border-line bg-panel p-4 ${className}`}>
-      <div className="mb-3 flex items-center gap-2">
-        <Icon size={15} className="text-accent" />
-        <h2 className="text-sm font-medium">{title}</h2>
-        <div className="ml-auto">{action}</div>
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="rounded-2xl border border-line bg-panel px-4 py-3">
-      <div className="text-xs text-muted">{label}</div>
-      <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
-      {sub && <div className="mt-0.5 text-xs text-muted">{sub}</div>}
-    </div>
-  );
-}
-
-// ── Activity chart (one series at a time; hover a bar for its numbers) ──
-
-type Metric = "tokensSent" | "prompts";
-const METRICS: { id: Metric; label: string; hint: string }[] = [
-  { id: "tokensSent", label: "Tokens read", hint: "context Claude read to write its replies" },
-  { id: "prompts", label: "Messages", hint: "messages you sent" },
-];
-
-function ActivityChart({ days }: { days: { date: string; stats: DayStats }[] }) {
-  const [metric, setMetric] = useState<Metric>("tokensSent");
-  const [hover, setHover] = useState<number | null>(null);
-  const [asTable, setAsTable] = useState(false);
-  const vals = days.map((d) => d.stats[metric]);
-  const max = Math.max(1, ...vals);
-  // A tidy top for the grid: 1, 2 or 5 times a power of ten.
-  const mag = 10 ** Math.floor(Math.log10(max));
-  const top = [1, 2, 5, 10].map((m) => m * mag).find((t) => t >= max)!;
-  // Wide and short, so it stays a strip on big screens.
-  const W = 1000, H = 190, L = 44, B = 22, T = 8;
-  const bw = (W - L) / days.length;
-  const y = (v: number) => T + (H - T - B) * (1 - v / top);
-  const label = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-  const short = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
-  const m = METRICS.find((x) => x.id === metric)!;
-
-  return (
-    <Card
-      title="Activity, last 14 days"
-      icon={Activity}
-      action={
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-lg bg-sunken p-0.5 text-xs" role="radiogroup" aria-label="Metric">
-            {METRICS.map((x) => (
-              <button key={x.id} role="radio" aria-checked={metric === x.id} onClick={() => setMetric(x.id)} className={`rounded-md px-2 py-0.5 ${metric === x.id ? "bg-panel text-ink shadow-sm" : "text-muted hover:text-ink"}`}>
-                {x.label}
-              </button>
-            ))}
-          </div>
-          <button onClick={() => setAsTable((t) => !t)} className="rounded-md p-1 text-muted hover:bg-sunken hover:text-ink" title={asTable ? "Show chart" : "Show as table"} aria-label="Toggle table view">
-            <Table2 size={14} />
-          </button>
-        </div>
-      }
-    >
-      <p className="-mt-1 mb-2 text-xs text-muted">{m.label}: {m.hint}, per day.</p>
-      {asTable ? (
-        <table className="w-full text-xs">
-          <thead className="text-muted">
-            <tr><th className="py-1 text-left font-normal">Day</th><th className="text-right font-normal">Messages</th><th className="text-right font-normal">Replies</th><th className="text-right font-normal">Tool calls</th><th className="text-right font-normal">Tokens read</th><th className="text-right font-normal">Tokens written</th></tr>
-          </thead>
-          <tbody className="tabular-nums">
-            {[...days].reverse().map((d) => (
-              <tr key={d.date} className="border-t border-line">
-                <td className="py-1">{label(d.date)}</td><td className="text-right">{d.stats.prompts}</td><td className="text-right">{d.stats.replies}</td><td className="text-right">{d.stats.toolCalls}</td><td className="text-right">{fmt(d.stats.tokensSent)}</td><td className="text-right">{fmt(d.stats.tokensWritten)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <div className="relative">
-          <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={`${m.label} per day for the last 14 days`} onMouseLeave={() => setHover(null)}>
-            {[0, 0.5, 1].map((f) => (
-              <g key={f}>
-                <line x1={L} x2={W} y1={y(top * f)} y2={y(top * f)} className="stroke-line" strokeWidth={1} />
-                <text x={L - 6} y={y(top * f) + 3} textAnchor="end" className="fill-muted text-[10px]">{fmt(top * f)}</text>
-              </g>
-            ))}
-            {days.map((d, i) => {
-              const v = vals[i];
-              const x = L + i * bw + 2; // 2px gap between bars
-              const w = Math.max(2, bw - 4);
-              const h = Math.max(0, y(0) - y(v));
-              const r = Math.min(4, w / 2, h);
-              return (
-                <g key={d.date} onMouseEnter={() => setHover(i)}>
-                  {/* Hit area taller and wider than the bar */}
-                  <rect x={L + i * bw} y={T} width={bw} height={H - T - B} fill="transparent" />
-                  {v > 0 && (
-                    <path
-                      d={`M${x},${y(0)} v${-(h - r)} q0,${-r} ${r},${-r} h${w - 2 * r} q${r},0 ${r},${r} v${h - r} z`}
-                      fill="var(--chart)"
-                      opacity={hover === null || hover === i ? 1 : 0.45}
-                    />
-                  )}
-                  {(i % 2 === days.length % 2 || i === days.length - 1) && (
-                    <text x={L + i * bw + bw / 2} y={H - 6} textAnchor="middle" className="fill-muted text-[10px]">
-                      {i === days.length - 1 ? "Today" : short(d.date)}
-                    </text>
-                  )}
-                </g>
-              );
-            })}
-          </svg>
-          {hover !== null && (
-            <div
-              className="pointer-events-none absolute top-0 z-10 -translate-x-1/2 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-xs shadow-lg"
-              style={{ left: `${((L + hover * bw + bw / 2) / W) * 100}%` }}
-            >
-              <div className="font-medium">{label(days[hover].date)}</div>
-              <div className="tabular-nums text-muted">
-                {days[hover].stats.prompts} messages · {fmt(days[hover].stats.tokensSent)} tokens read · {fmt(days[hover].stats.tokensWritten)} written
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </Card>
-  );
-}
-
 // ── Context health ──
 
 function HeavyRow({ h, chat, onDone }: { h: HeavySession; chat: TreeChat; onDone: () => void }) {
-  const [busy, setBusy] = useState<"compact" | "fresh" | "retro" | null>(null);
+  const [busy, setBusy] = useState<"compact" | "fresh" | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const pct = h.used / h.window;
   const blocked = h.active ? `Open in ${h.activeWhere === "desktop" ? "the desktop app" : "a terminal"}. Use /compact there, or close it first.` : null;
@@ -219,21 +72,6 @@ function HeavyRow({ h, chat, onDone }: { h: HeavySession; chat: TreeChat; onDone
           </div>
         </div>
         <div className="flex shrink-0 gap-1.5">
-          {chat.settings?.retro && chat.settings.coach && (
-            <button
-              className={btn}
-              disabled={!!busy}
-              title="Claude reviews this session: what went well, what cost time, and lessons for next time"
-              onClick={async () => {
-                setBusy("retro");
-                setErr(null);
-                await runRetro(h.id).catch((e: Error) => setErr(e.message));
-                setBusy(null);
-              }}
-            >
-              {busy === "retro" ? <Loader2 size={12} className="animate-spin" /> : <GraduationCap size={12} />} Retro
-            </button>
-          )}
           <button className={btn} disabled={!!busy || !!blocked} title={blocked ?? "Summarize this conversation in place (/compact)"} onClick={() => run("compact")}>
             {busy === "compact" ? <Loader2 size={12} className="animate-spin" /> : <Minimize2 size={12} />} Compact
           </button>
@@ -244,7 +82,7 @@ function HeavyRow({ h, chat, onDone }: { h: HeavySession; chat: TreeChat; onDone
       </div>
       {busy && (
         <p className="mt-1.5 pl-[46px] text-xs text-muted">
-          {busy === "compact" ? "Compacting… this can take a minute on a long session." : busy === "retro" ? "Reviewing this session… the lessons show up in Coach above." : "Writing a handoff note… then a new session opens."}
+          {busy === "compact" ? "Compacting… this can take a minute on a long session." : "Writing a handoff note… then a new session opens."}
         </p>
       )}
       {err && <p className="mt-1.5 pl-[46px] text-xs text-red-600">{err}</p>}
@@ -252,58 +90,49 @@ function HeavyRow({ h, chat, onDone }: { h: HeavySession; chat: TreeChat; onDone
   );
 }
 
-function ContextHealth({ data, chat, reload }: { data: DashboardData; chat: TreeChat; reload: () => void }) {
-  const today = data.days.at(-1)!.stats;
-  const ratio = today.tokensWritten ? Math.round(today.tokensSent / today.tokensWritten) : 0;
+
+// ── Page: the start screen ──
+//
+// Home inside the Sessions space: say what Claude should do and in which folder,
+// right here. Under it, what needs you, what's running and what you were in last,
+// a strip of today's numbers, and sessions getting heavy (Compact / Fresh start).
+
+const FOLDER_KEY = "lens.homeFolder";
+const home = (p: string) => p.replace(/^\/Users\/[^/]+/, "~");
+
+function Row({ s, onOpen, right }: { s: SessionSummary; onOpen: () => void; right?: ReactNode }) {
+  const dot = s.active?.waitingFor ? "bg-amber-500" : s.active?.status === "busy" ? "bg-emerald-500 animate-pulse" : s.active ? "border-[1.5px] border-emerald-500" : "bg-line";
+  const where = s.active ? (s.active.entrypoint === "desktop" ? "desktop app" : s.active.byLens ? "Vlens" : "terminal") : null;
   return (
-    <Card title="Context health" icon={Gauge} className="lg:col-span-2">
-      <div className="mb-3 rounded-xl bg-sunken px-3 py-2.5 text-sm">
-        {today.tokensSent > 0 ? (
-          <>
-            Today Claude <b>read {fmt(today.tokensSent)} tokens</b> to <b>write {fmt(today.tokensWritten)}</b>
-            {ratio > 1 && <> (about <b>{ratio}×</b> more)</>}. Almost all of that is conversation history:{" "}
-          </>
-        ) : (
-          <>Why sessions get expensive: </>
-        )}
-        every reply re-sends the <i>whole</i> session so far. A session at 300k tokens costs ~300k on every message, so the longest sessions use up your 5-hour limit fastest.
-      </div>
-      {data.heavy.length ? (
-        <ul>
-          {data.heavy.map((h) => (
-            <HeavyRow key={h.id} h={h} chat={chat} onDone={reload} />
-          ))}
-        </ul>
-      ) : (
-        <p className="text-sm text-muted">No sessions from this week yet.</p>
-      )}
-      <p className="mt-2 text-xs text-muted">
-        <b>Compact</b> squeezes a session into a summary and keeps going. <b>Fresh start</b> has Claude write a handoff note, then opens a new session in the same folder that starts from it.
-        {data.autoCompact ? " Auto-compact is on, so the CLI also compacts by itself when a window is nearly full." : " Auto-compact is off in your Claude Code settings."}
-      </p>
-    </Card>
+    <li>
+      <button onClick={onOpen} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-sunken">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-sm">{s.title}</span>
+        <span className="shrink-0 truncate text-xs text-muted">
+          {[s.projectName, where].filter(Boolean).join(" · ")}
+        </span>
+        {right ?? <span className="w-14 shrink-0 text-right text-xs text-muted">{ago(s.updatedAt).replace(" ago", "")}</span>}
+      </button>
+    </li>
   );
 }
 
-const TIPS: { icon: typeof User; title: string; body: string }[] = [
-  { icon: Layers, title: "One task, one session", body: "Start a new session for each feature or bug. Use Fresh start to carry the important bits over instead of continuing forever." },
-  { icon: Sparkles, title: "Side questions in a sub-agent", body: "Select text and Ask Sub-Agent. It runs in its own session, so the main conversation doesn't grow." },
-  { icon: Minimize2, title: "Compact at about half full", body: "Past ~50%, run /compact (or the button above) before the next big step. A small summary beats a huge history." },
-  { icon: BadgeCheck, title: "Keep lasting facts in CLAUDE.md", body: "Project rules, commands and conventions in CLAUDE.md or memory load into every new session, so a fresh start isn't starting from zero." },
-];
-
-// ── Page ──
+function Group({ title, icon, children }: { title: string; icon?: ReactNode; children: ReactNode }) {
+  return (
+    <section>
+      <h2 className="mb-1 flex items-center gap-1.5 px-2.5 text-xs font-semibold text-muted">
+        {icon}
+        {title}
+      </h2>
+      <ul>{children}</ul>
+    </section>
+  );
+}
 
 export function HomeView({ chat, onMenu, onNew, onReview }: { chat: TreeChat; onMenu: () => void; onNew: () => void; onReview: () => void }) {
   const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(false);
   const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setData(await fetch("/api/dashboard").then((r) => r.json()));
-    } finally {
-      setLoading(false);
-    }
+    setData(await fetch("/api/dashboard").then((r) => r.json()).catch(() => null));
   }, []);
   useEffect(() => {
     void load();
@@ -311,131 +140,176 @@ export function HomeView({ chat, onMenu, onNew, onReview }: { chat: TreeChat; on
     return () => clearInterval(t);
   }, [load]);
 
+  // Folders you worked in, most recent first; the one you used last here is picked.
+  const folders = useMemo(() => {
+    const seen: string[] = [];
+    for (const s of [...chat.sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))) if (s.cwd && !s.botId && !seen.includes(s.cwd)) seen.push(s.cwd);
+    return seen.slice(0, 15);
+  }, [chat.sessions]);
+  const [folder, setFolder] = useState<string>("");
+  useEffect(() => {
+    if (folder) return;
+    let saved = "";
+    try {
+      saved = localStorage.getItem(FOLDER_KEY) ?? "";
+    } catch {}
+    if (saved || folders[0]) setFolder(saved || folders[0]);
+  }, [folders, folder]);
+  const pick = (f: string) => {
+    setFolder(f);
+    try {
+      localStorage.setItem(FOLDER_KEY, f);
+    } catch {}
+  };
+  const [mode, setMode] = useState<RootMode | null>(null);
+  const curMode = mode ?? chat.settings?.cliMode ?? "default";
+  const [model, setModel] = useState<string | null>(null);
+  const curModel = model ?? chat.settings?.defaultModel ?? "";
+  const send = (text: string, images: ImageInput[]) => {
+    if (!folder || (!text.trim() && !images.length)) return;
+    void chat.sendRoot(text, curMode, curModel, images, folder);
+  };
+
+  const people = chat.sessions.filter((s) => !s.botId && !s.archivedAt);
+  const waiting = people.filter((s) => s.active?.waitingFor);
+  const running = people.filter((s) => s.active && !s.active.waitingFor);
+  const recent = people
+    .filter((s) => !s.active)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, 6);
+  const open = (id: string) => chat.selectSession(id);
   const a = data?.account;
   const w = data?.limits.windows;
   const today = data?.days.at(-1)?.stats;
+  const heavy = (data?.heavy ?? []).filter((h) => h.used / h.window >= 0.5).slice(0, 3);
   const greeting = (() => {
     const h = new Date().getHours();
     return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
   })();
+  const sel = "rounded-lg bg-sunken px-1.5 py-0.5 text-[0.7rem] text-muted outline-none hover:text-ink";
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b border-line px-4 py-3">
         <MenuButton onClick={onMenu} />
-        <h1 className="flex-1 font-medium">Home</h1>
-        <button onClick={() => void load()} disabled={loading} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs text-muted hover:border-accent hover:text-accent disabled:opacity-60">
-          <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh
+        <h1 className="flex-1 text-sm font-semibold">Home</h1>
+        <button onClick={onReview} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs text-muted hover:border-accent hover:text-accent">
+          <GitBranch size={12} /> Vlens Review
         </button>
       </header>
 
       <div className="flex-1 overflow-y-auto scroll-thin">
-        <div className="mx-auto max-w-5xl space-y-4 px-4 py-6">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="text-2xl font-semibold">{greeting}{a?.email ? `, ${a.email.split("@")[0]}` : ""}</div>
-              <p className="text-sm text-muted">Here&apos;s how your Claude Code is doing.</p>
+        <div className="mx-auto max-w-3xl space-y-7 px-6 pb-10 pt-[9vh]">
+          <div className="space-y-1 text-center">
+            <div className="text-2xl font-semibold">
+              {greeting}
+              {a?.email ? `, ${a.email.split("@")[0]}` : ""}
             </div>
-            <button onClick={onNew} className="inline-flex items-center gap-1.5 rounded-full bg-accent px-4 py-2 text-sm font-medium text-white">
-              <Plus size={15} /> New session
-            </button>
-            <button onClick={onReview} className="inline-flex items-center gap-1.5 rounded-full border border-line px-4 py-2 text-sm hover:border-accent hover:text-accent">
-              <GitBranch size={15} /> Vlens Review <ArrowRight size={13} />
-            </button>
+            <p className="text-sm text-muted">What should Claude do?</p>
           </div>
 
-          {!data ? (
-            <div className="flex items-center gap-2 py-10 text-sm text-muted">
-              <Loader2 size={16} className="animate-spin" /> Reading your sessions…
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                <Tile label="Running now" value={String(data.counts.active)} sub={`${data.counts.sessions} sessions in total`} />
-                <Tile label="Used this week" value={String(data.counts.thisWeek)} sub="sessions" />
-                <Tile label="Messages today" value={String(today?.prompts ?? 0)} sub={`${today?.toolCalls ?? 0} tool calls`} />
-                <Tile label="Tokens read today" value={fmt(today?.tokensSent ?? 0)} sub={`${fmt(today?.tokensWritten ?? 0)} written`} />
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-3">
-                <Card title="Signed in" icon={User}>
-                  {a?.loggedIn ? (
-                    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-                      <dt className="text-muted">Account</dt>
-                      <dd className="truncate">{a.email}</dd>
-                      {a.orgName && (
-                        <>
-                          <dt className="text-muted">Org</dt>
-                          <dd className="truncate">{a.orgName}</dd>
-                        </>
-                      )}
-                      {a.plan && (
-                        <>
-                          <dt className="text-muted">Plan</dt>
-                          <dd className="capitalize">{a.plan}</dd>
-                        </>
-                      )}
-                      {a.method && (
-                        <>
-                          <dt className="text-muted">Via</dt>
-                          <dd>{a.method}</dd>
-                        </>
-                      )}
-                    </dl>
-                  ) : (
-                    <p className="text-sm text-muted">Claude Code isn&apos;t signed in. Open Settings → Account to sign in.</p>
-                  )}
-                </Card>
-
-                <Card title="Usage limits" icon={Gauge} className="lg:col-span-2">
-                  {w ? (
-                    <div className="flex flex-wrap gap-8">
-                      {(
-                        [
-                          ["5-hour", w.fiveHour],
-                          ["Weekly", w.sevenDay],
-                        ] as const
-                      ).map(([label, win]) =>
-                        win ? (
-                          <div key={label} className="flex items-center gap-3">
-                            <div className="relative">
-                              <Ring pct={win.utilization} size={56} stroke={6} />
-                              <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold tabular-nums">{Math.round(win.utilization * 100)}%</span>
-                            </div>
-                            <div>
-                              <div className="text-sm font-medium">{label} limit</div>
-                              <div className="text-xs text-muted">resets in {until(win.resetsAt)}</div>
-                            </div>
-                          </div>
-                        ) : null,
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted">No usage data yet. It shows up after the first Claude run in Vlens.</p>
-                  )}
-                </Card>
-              </div>
-
-              <ActivityChart days={data.days} />
-
-              <div className="grid gap-4 lg:grid-cols-3">
-                <CoachCard chat={chat} />
-                <ContextHealth data={data} chat={chat} reload={load} />
-                <Card title="Keep sessions light" icon={Lightbulb}>
-                  <ul className="space-y-3">
-                    {TIPS.map((t) => (
-                      <li key={t.title} className="flex gap-2.5">
-                        <t.icon size={14} className="mt-0.5 shrink-0 text-accent" />
-                        <div>
-                          <div className="text-sm font-medium">{t.title}</div>
-                          <div className="text-xs text-muted">{t.body}</div>
-                        </div>
-                      </li>
+          <div className="space-y-2">
+            <Composer
+              placeholder={folder ? `What should Claude do in ${home(folder).split("/").pop()}?` : "Pick a folder first"}
+              disabled={!folder}
+              running={false}
+              cwd={folder || null}
+              onSend={send}
+              onQueue={send}
+              onShiftTab={() => setMode(PERMISSION_MODES[(PERMISSION_MODES.findIndex((m) => m.id === curMode) + 1) % PERMISSION_MODES.length].id)}
+              onStop={() => {}}
+              footer={
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-1 rounded-lg bg-sunken px-1.5 py-0.5 text-[0.7rem] text-muted">
+                    <FolderOpen size={11} className="shrink-0" />
+                    <select
+                      value={folder}
+                      onChange={(e) => (e.target.value === "__other" ? onNew() : pick(e.target.value))}
+                      aria-label="Folder"
+                      className="max-w-56 bg-transparent outline-none hover:text-ink"
+                    >
+                      {!folder && <option value="">Pick a folder</option>}
+                      {folders.map((f) => (
+                        <option key={f} value={f}>
+                          {home(f)}
+                        </option>
+                      ))}
+                      <option value="__other">Another folder…</option>
+                    </select>
+                  </label>
+                  <select value={curMode} onChange={(e) => setMode(e.target.value as RootMode)} aria-label="Permission mode" className={sel}>
+                    {PERMISSION_MODES.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
                     ))}
-                  </ul>
-                </Card>
-              </div>
-            </>
+                  </select>
+                  <select value={curModel} onChange={(e) => setModel(e.target.value)} aria-label="Model" className={sel}>
+                    {MODELS.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              }
+            />
+            <p className="px-1 text-center text-[0.7rem] text-muted">
+              ↩ to start · Shift+Tab for the mode · or <button onClick={onNew} className="underline hover:text-accent">open the full new-session page</button> for a worktree
+            </p>
+          </div>
+
+          {waiting.length > 0 && (
+            <Group title="Needs you" icon={<BellRing size={12} className="text-amber-600" />}>
+              {waiting.map((s) => (
+                <Row key={s.id} s={s} onOpen={() => open(s.id)} right={<span className="w-14 shrink-0 text-right text-xs font-semibold text-amber-700 dark:text-amber-400">{/plan/i.test(s.active!.waitingFor!) ? "plan" : "asks"}</span>} />
+              ))}
+            </Group>
+          )}
+          {running.length > 0 && (
+            <Group title="Running now" icon={<Play size={12} />}>
+              {running.map((s) => (
+                <Row key={s.id} s={s} onOpen={() => open(s.id)} right={<span className="w-14 shrink-0 text-right text-xs text-muted">{s.active!.status === "busy" ? "working" : "open"}</span>} />
+              ))}
+            </Group>
+          )}
+          {recent.length > 0 && (
+            <Group title="Recent">
+              {recent.map((s) => (
+                <Row key={s.id} s={s} onOpen={() => open(s.id)} />
+              ))}
+            </Group>
+          )}
+
+          {heavy.length > 0 && data && (
+            <section>
+              <h2 className="mb-1 flex items-center gap-1.5 px-2.5 text-xs font-semibold text-muted">
+                <Minimize2 size={12} /> Getting heavy
+                <span className="font-normal">· past half full, so every reply re-sends a lot</span>
+              </h2>
+              <ul className="rounded-xl border border-line px-3">
+                {heavy.map((h) => (
+                  <HeavyRow key={h.id} h={h} chat={chat} onDone={load} />
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {data && (
+            <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1 border-t border-line pt-4 text-xs text-muted">
+              {w?.fiveHour && <span>5 hours {Math.round(w.fiveHour.utilization * 100)}% · resets {until(w.fiveHour.resetsAt)}</span>}
+              {w?.sevenDay && <span>Week {Math.round(w.sevenDay.utilization * 100)}% · resets {until(w.sevenDay.resetsAt)}</span>}
+              <span>{today?.prompts ?? 0} messages today</span>
+              <span>{fmt(today?.tokensSent ?? 0)} tokens read today</span>
+              <span className="flex items-center gap-1">
+                <Sparkles size={11} /> {data.counts.active} running · {data.counts.thisWeek} this week
+              </span>
+            </div>
+          )}
+          {!data && (
+            <div className="flex justify-center text-muted">
+              <Loader2 size={14} className="animate-spin" />
+            </div>
           )}
         </div>
       </div>

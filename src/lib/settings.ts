@@ -15,17 +15,15 @@ export const DEFAULT_SETTINGS: Settings = {
   whiteboardSkill: true,
   onboarded: false,
   notifications: true,
-  coach: true,
-  retro: true,
-  lessonsToClaudeMd: true,
-  lessonsTarget: "project",
-  retroModel: "haiku",
 };
 
 const store = jsonStore<Partial<Settings>>("settings.json", () => ({}));
 
 export async function getSettings(): Promise<Settings> {
-  return { ...DEFAULT_SETTINGS, ...(await store.load()) };
+  // Coach (retros, lessons) was removed: drop its old settings if they're still saved.
+  const { coach: _c, retro: _r, lessonsToClaudeMd: _l, lessonsTarget: _t, retroModel: _m, ...saved } = (await store.load()) as Partial<Settings> & Record<string, unknown>;
+  void [_c, _r, _l, _t, _m];
+  return { ...DEFAULT_SETTINGS, ...saved };
 }
 
 // Applies only the fields that are valid; returns the new settings.
@@ -35,9 +33,7 @@ export async function updateSettings(patch: Partial<Settings>): Promise<Settings
     if (isModel(patch.subAgentModel)) s.subAgentModel = patch.subAgentModel;
     if (typeof patch.autoRestore === "boolean") s.autoRestore = patch.autoRestore;
     if (patch.terminalApp === "Terminal" || patch.terminalApp === "iTerm") s.terminalApp = patch.terminalApp;
-    if (patch.lessonsTarget === "project" || patch.lessonsTarget === "user") s.lessonsTarget = patch.lessonsTarget;
-    if (isModel(patch.retroModel)) s.retroModel = patch.retroModel;
-    for (const k of ["showDiagrams", "animateDiagrams", "diagramSkill", "showWhiteboards", "whiteboardSkill", "onboarded", "notifications", "coach", "retro", "lessonsToClaudeMd"] as const)
+    for (const k of ["showDiagrams", "animateDiagrams", "diagramSkill", "showWhiteboards", "whiteboardSkill", "onboarded", "notifications"] as const)
       if (typeof patch[k] === "boolean") s[k] = patch[k];
   });
   return getSettings();
