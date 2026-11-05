@@ -145,6 +145,22 @@ function createWindow() {
   win.on("closed", () => (win = null));
 }
 
+// A menu item tells the page what to do (src/lib/menu.ts): no preload script
+// needed, and the same actions work from the page's own shortcuts.
+function send(action) {
+  if (!win) {
+    if (url) createWindow();
+    return;
+  }
+  if (win.isMinimized()) win.restore();
+  win.focus();
+  win.webContents.executeJavaScript(`window.dispatchEvent(new CustomEvent("lens:menu", { detail: ${JSON.stringify(action)} }))`).catch(() => {});
+}
+// For keys the page handles itself (Enter, 1, 2, Esc, Shift+Tab): the menu shows
+// them so you can learn them, but doesn't take them from the page.
+const hint = (accelerator) => ({ accelerator, registerAccelerator: false });
+const item = (label, action, accelerator, extra = {}) => ({ label, click: () => send(action), ...(accelerator ? { accelerator } : {}), ...extra });
+
 function buildMenu() {
   const openAtLogin = app.getLoginItemSettings().openAtLogin;
   Menu.setApplicationMenu(
@@ -154,11 +170,12 @@ function buildMenu() {
         submenu: [
           { role: "about" },
           { type: "separator" },
+          item("Settings…", "settings", "CmdOrCtrl+,"),
           {
             label: "Open at Login",
             type: "checkbox",
             checked: openAtLogin,
-            click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked }),
+            click: (it) => app.setLoginItemSettings({ openAtLogin: it.checked }),
           },
           {
             label: "Show Server Log",
@@ -172,12 +189,75 @@ function buildMenu() {
           { role: "quit" },
         ],
       },
+      {
+        label: "File",
+        submenu: [
+          item("New Session", "new-session", "CmdOrCtrl+N"),
+          item("New Session in Worktree", "new-worktree", "Shift+CmdOrCtrl+N"),
+          item("Open Folder…", "open-folder", "CmdOrCtrl+O"),
+          { type: "separator" },
+          item("Archive Session", "archive", "CmdOrCtrl+Backspace"),
+          { type: "separator" },
+          { role: "close", label: "Close Window" },
+        ],
+      },
       { role: "editMenu" },
       {
+        label: "Session",
+        submenu: [
+          item("Allow", "allow", null, hint("1")),
+          item("Always Allow", "always", null, hint("2")),
+          item("Deny", "deny", null, hint("Esc")),
+          { type: "separator" },
+          item("Next Permission Mode", "next-mode", null, hint("Shift+Tab")),
+          item("Stop Claude", "stop", "CmdOrCtrl+."),
+          item("Compact Context", "compact", "Alt+CmdOrCtrl+K"),
+          { type: "separator" },
+          item("Continue in Terminal", "to-terminal", "Alt+CmdOrCtrl+T"),
+          item("Take Over Here", "take-over", "Alt+CmdOrCtrl+H"),
+        ],
+      },
+      {
+        label: "Go",
+        submenu: [
+          item("Bots", "go-bots", "CmdOrCtrl+1"),
+          item("Sessions", "go-sessions", "CmdOrCtrl+2"),
+          item("Review", "go-review", "CmdOrCtrl+3"),
+          { type: "separator" },
+          item("Home", "go-home", "Shift+CmdOrCtrl+H"),
+          item("History", "go-history", "CmdOrCtrl+Y"),
+          item("Marketplace", "go-marketplace"),
+          { type: "separator" },
+          item("Quick Switcher…", "switcher", "CmdOrCtrl+K"),
+          item("Next Waiting Session", "next-waiting", "CmdOrCtrl+]"),
+        ],
+      },
+      {
         label: "View",
-        submenu: [{ role: "reload" }, { role: "forceReload" }, { role: "toggleDevTools" }, { type: "separator" }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }],
+        submenu: [
+          item("Toggle Sidebar", "toggle-sidebar", "Ctrl+CmdOrCtrl+S"),
+          item("Toggle Inspector", "toggle-inspector", "Alt+CmdOrCtrl+I"),
+          item("Toggle Terminal", "toggle-terminal", "Ctrl+`"),
+          { type: "separator" },
+          { role: "reload" },
+          { role: "forceReload" },
+          { role: "toggleDevTools", accelerator: "Alt+CmdOrCtrl+J" },
+          { type: "separator" },
+          { role: "resetZoom" },
+          { role: "zoomIn" },
+          { role: "zoomOut" },
+          { type: "separator" },
+          { role: "togglefullscreen" },
+        ],
       },
       { role: "windowMenu" },
+      {
+        role: "help",
+        submenu: [
+          { label: "Vlens on GitHub", click: () => shell.openExternal("https://github.com/ArunpandianMurugesan/Vlens") },
+          { label: "Claude Code docs", click: () => shell.openExternal("https://docs.claude.com/en/docs/claude-code/overview") },
+        ],
+      },
     ]),
   );
 }

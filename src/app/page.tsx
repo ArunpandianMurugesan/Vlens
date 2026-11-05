@@ -22,6 +22,7 @@ import { BotsView } from "@/components/BotsView";
 import { SpaceRail } from "@/components/SpaceRail";
 import { BotBell } from "@/components/BotBell";
 import { type Go, QuickSwitcher } from "@/components/QuickSwitcher";
+import { useMenu } from "@/lib/menu";
 import { Inspector, useInspector } from "@/components/Inspector";
 import { LensSettingsContext } from "@/components/LensSettings";
 import { useReview } from "@/hooks/useReview";
@@ -145,6 +146,41 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the chat and review hooks' functions are stable
     [chat.selectSession, chat.goHome, chat.newSession, review.select],
   );
+
+  // The Mac menus (desktop/main.cjs).
+  const [inspectorOn, setInspectorOn] = useInspector();
+  const here = chat.session?.cwd ?? chat.draft?.cwd ?? "";
+  useMenu({
+    "new-session": () => go.newIn(here),
+    "new-worktree": () => {
+      go.newIn(here);
+      if (here) chat.setDraft({ cwd: here, worktree: true });
+    },
+    "open-folder": () => go.newIn(""),
+    archive: () => {
+      const id = chat.activeId;
+      if (id && window.confirm("Archive this session? You can open it again from Archived.")) void chat.archiveSession(id, true).then(() => chat.goHome());
+    },
+    "go-bots": () => setView("bots"),
+    "go-sessions": () => {
+      setTab("sessions");
+      setView("chat");
+    },
+    "go-review": () => go.page("review"),
+    "go-home": () => go.page("home"),
+    "go-history": () => go.page("history"),
+    "go-marketplace": () => go.page("marketplace"),
+    settings: () => go.page("settings"),
+    switcher: () => window.dispatchEvent(new Event("lens:switcher")),
+    "next-waiting": () => {
+      const waiting = chat.sessions.filter((x) => !x.botId && x.active?.waitingFor).sort((a, b) => a.active!.startedAt - b.active!.startedAt);
+      if (!waiting.length) return;
+      const i = waiting.findIndex((x) => x.id === chat.activeId);
+      go.session(waiting[(i + 1) % waiting.length].id);
+    },
+    "toggle-sidebar": () => toggleSidebar(),
+    "toggle-inspector": () => setInspectorOn(!inspectorOn),
+  });
 
   return (
     <LensSettingsContext.Provider value={chat.settings}>
@@ -320,6 +356,7 @@ function ChatWithFiles({ chat, onMenu, botMode }: { chat: ReturnType<typeof useT
     window.addEventListener("lens:terminal-claude", run);
     return () => window.removeEventListener("lens:terminal-claude", run);
   }, [chat.activeId, cwd, files]);
+  useMenu({ "toggle-terminal": () => files.setTerminal((t) => !t) });
   // Ctrl+` shows or hides the terminal, like VS Code.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

@@ -11,6 +11,7 @@ import { Composer } from "./Composer";
 import { CwdContext, useFiles } from "./FileContext";
 import { FolderPicker } from "./FolderPicker";
 import { useInspector } from "./Inspector";
+import { useMenu } from "@/lib/menu";
 import { liveMessage, MessageBubble } from "./MessageBubble";
 import { PermissionCard } from "./PermissionCard";
 import { RunActivity } from "./RunActivity";
@@ -133,6 +134,24 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
     const res = await fetch(`/api/sessions/${session.id}/terminal`, { method: "POST" });
     if (!res.ok) setHandoffErr((await res.json().catch(() => null))?.error ?? "Couldn't open the terminal.");
   };
+
+  // The Mac menus' Session items (bot chats too, except the ones about terminals).
+  useMenu({
+    "next-mode": () => botMode === undefined && cycleMode(),
+    stop: () => {
+      if (rootPending) chat.stop(rootPending.runId);
+      else if (chat.liveState?.busy) void chat.stopLive();
+    },
+    compact: () => {
+      if (!session) return;
+      if (elsewhere) return window.alert(`This session is open in ${elsewhere}. Use /compact there.`);
+      void fetch(`/api/sessions/${session.id}/context`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "compact" }) })
+        .then((r) => r.json())
+        .then((d) => d.error && window.alert(d.error));
+    },
+    "to-terminal": () => botMode === undefined && !elsewhere && void toTerminal(),
+    "take-over": () => elsewhere && void takeOver(),
+  });
 
   return (
     <CwdContext.Provider value={session?.cwd ?? newDraft?.cwd ?? null}>

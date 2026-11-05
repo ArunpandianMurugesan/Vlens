@@ -3,6 +3,7 @@
 import { Loader2, ShieldQuestion } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { answerPermission, type PermissionAsk } from "@/hooks/useTreeChat";
+import { useMenu } from "@/lib/menu";
 import type { PermissionMode } from "@/lib/modes";
 import { toolSummary } from "./MessageBubble";
 import { PlanCard } from "./PlanCard";
@@ -54,6 +55,13 @@ function ToolPermission({ ask }: { ask: PermissionAsk }) {
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, [ask.always]);
+
+  // The Mac menu's Allow / Always Allow / Deny: the oldest open prompt answers.
+  useMenu({
+    allow: () => document.querySelector("[data-perm-card]") === cardRef.current && answerRef.current("allow"),
+    always: () => document.querySelector("[data-perm-card]") === cardRef.current && ask.always && answerRef.current("always"),
+    deny: () => document.querySelector("[data-perm-card]") === cardRef.current && answerRef.current("deny"),
+  });
 
   const command = ask.preview ?? toolSummary(ask.tool, ask.input);
   const reason = ask.reason && !PLAIN_REASON.test(ask.reason.trim()) ? ask.reason : null;
