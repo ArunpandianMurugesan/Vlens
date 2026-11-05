@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { trackRun } from "./lensRuns";
 import { recordEvent } from "./limits";
-import { settle, waitForDecision } from "./permissions";
+import { noteAsk, settle, waitForDecision } from "./permissions";
 import type { AgentEvent, Block, ChatMessage, ImageInput, LiveState, RunStatus, TaskInfo } from "./types";
 
 // What "always allow" would save, worded like the terminal's option. The CLI only
@@ -344,6 +344,7 @@ export class ClaudeProc {
     const id: string = ev.request_id;
     const ask = (e: Extract<AgentEvent, { type: "permission" }>) => {
       this.asks.set(id, e);
+      noteAsk({ id, tool: e.tool, input: e.input, always: !!e.always, sessionId: this.sessionId });
       this.emit(e);
     };
     const reply = (response: unknown, done: Extract<AgentEvent, { type: "permission_done" }>) => {

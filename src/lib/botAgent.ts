@@ -11,7 +11,7 @@ import { ensureIssue, getIssue, isIssueKey, listIssues, SECTIONS, updateIssue } 
 import { hasSessionAccess, listSessionsText, readMemoryText, readSessionText, searchSessionsText } from "./botSessions";
 import { trackRun } from "./lensRuns";
 import { recordEvent } from "./limits";
-import { settle, waitForDecision } from "./permissions";
+import { noteAsk, settle, waitForDecision } from "./permissions";
 import { alwaysLabel } from "./runClaude";
 import type { AgentEvent, Block, Bot, RunStatus } from "./types";
 
@@ -87,6 +87,7 @@ export class BotRun {
     const ask = async (e: Omit<Ask, "type" | "id">) => {
       const id = randomUUID();
       asks.add(id);
+      noteAsk({ id, tool: e.tool, input: e.input, preview: e.preview, always: !!e.always, botId: this.bot.id, key: this.o.issue, sessionId: this.sessionId });
       listen({ type: "permission", id, ...e });
       const got = await waitForDecision(id, this.o.askTimeoutMs);
       asks.delete(id);

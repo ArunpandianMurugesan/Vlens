@@ -178,6 +178,8 @@ export default function Home() {
       const i = waiting.findIndex((x) => x.id === chat.activeId);
       go.session(waiting[(i + 1) % waiting.length].id);
     },
+    "open-session": (id) => id && go.session(id),
+    "open-bot": (id) => id && go.bot(id),
     "toggle-sidebar": () => toggleSidebar(),
     "toggle-inspector": () => setInspectorOn(!inspectorOn),
   });

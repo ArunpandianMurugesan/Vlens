@@ -18,7 +18,7 @@
     "appId": "io.github.arunpandianmurugesan.vlens",
     "productName": "Vlens",
     "directories": { "output": "dist", "buildResources": "build" },
-    "files": ["main.cjs", "package.json"],
+    "files": ["main.cjs", "package.json", "build/trayTemplate.png", "build/trayTemplate@2x.png"],
     "afterPack": "scripts/after-pack.cjs",
     "extraResources": [
       { "from": "../lens-plugin", "to": "lens-plugin", "filter": ["**/*"] }

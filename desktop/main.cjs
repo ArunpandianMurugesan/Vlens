@@ -1,6 +1,6 @@
 // Vlens for Mac: starts the Vlens server that ships inside the app, then
 // shows it in a window. Quitting the app stops the server.
-const { app, BrowserWindow, Menu, dialog, nativeTheme, shell } = require("electron");
+const { app, BrowserWindow, Menu, Tray, dialog, nativeImage, nativeTheme, shell } = require("electron");
 const { execFileSync, spawn } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -262,6 +262,113 @@ function buildMenu() {
   );
 }
 
+// ── Menu bar ───────────────────────────────────────────────────────────────
+// A "V" in the menu bar: what waits on you (answer Vlens's own prompts right
+// there), what's working, your bots and plan usage. Its number is how many
+// things need you. Reads the page's server (/api/tray) every few seconds.
+let tray = null;
+let trayKey = "";
+
+function api(pathname, method = "GET", body) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(pathname, url);
+    const data = body ? JSON.stringify(body) : null;
+    const req = http.request(u, { method, headers: data ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) } : {}, timeout: 8000 }, (res) => {
+      let out = "";
+      res.on("data", (c) => (out += c));
+      res.on("end", () => {
+        try {
+          resolve(JSON.parse(out));
+        } catch {
+          reject(new Error("bad response"));
+        }
+      });
+    });
+    req.on("error", reject);
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+const cut = (t, n = 48) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
+
+async function answer(id, decision) {
+  await api("/api/permission", "POST", { id, decision }).catch(() => {});
+  trayKey = "";
+  void refreshTray();
+}
+
+function trayMenu(d) {
+  const items = [];
+  const u = d.usage;
+  items.push({ label: u ? `Vlens · 5h ${u.fiveHour ?? "–"}% · Week ${u.week ?? "–"}%` : "Vlens", enabled: false });
+  const news = d.bots.filter((b) => b.unread);
+  if (d.asks.length || d.waiting.length || news.length) {
+    items.push({ type: "separator" }, { label: "Waiting for you", enabled: false });
+    for (const a of d.asks) {
+      const open = () => send(a.bot ? `open-bot:${a.bot}` : `open-session:${a.session}`);
+      items.push({
+        label: `${cut(a.title, 40)} · ${a.where}`,
+        sublabel: cut(a.kind === "tool" ? `${a.tool} ${a.summary}`.trim() : a.summary, 60),
+        submenu:
+          a.kind === "tool"
+            ? [
+                { label: "Allow", click: () => answer(a.id, "allow") },
+                ...(a.always ? [{ label: "Always Allow", click: () => answer(a.id, "always") }] : []),
+                { label: "Deny", click: () => answer(a.id, "deny") },
+                { type: "separator" },
+                { label: "Open in Vlens", click: open },
+              ]
+            : [{ label: a.kind === "plan" ? "Review the plan in Vlens" : "Answer in Vlens", click: open }],
+      });
+    }
+    for (const w of d.waiting) items.push({ label: `${cut(w.title, 40)} · ${w.where}`, sublabel: cut(`${w.why}, answer it there`, 60), click: () => send(`open-session:${w.id}`) });
+    for (const b of news) items.push({ label: `${b.name}: ${cut(b.news ?? "news", 40)}`, sublabel: b.unread > 1 ? `${b.unread} updates` : undefined, click: () => send(`open-bot:${b.id}`) });
+  }
+  if (d.working.length) {
+    items.push({ type: "separator" }, { label: "Working", enabled: false });
+    for (const w of d.working.slice(0, 8)) items.push({ label: cut(w.title), sublabel: w.where, click: () => send(`open-session:${w.id}`) });
+  }
+  if (d.bots.length) items.push({ type: "separator" }, { label: "Bots", submenu: d.bots.map((b) => ({ label: b.unread ? `${b.name} · ${b.unread} new` : b.name, click: () => send(`open-bot:${b.id}`) })) });
+  items.push(
+    { type: "separator" },
+    { label: "New Session…", click: () => send("new-session") },
+    { label: "Quick Switcher…", click: () => send("switcher") },
+    { label: "Open Vlens", click: () => (win ? (win.show(), win.focus()) : url && createWindow()) },
+    { type: "separator" },
+    { role: "quit", label: "Quit Vlens" },
+  );
+  return Menu.buildFromTemplate(items);
+}
+
+async function refreshTray() {
+  if (!tray || !url) return;
+  let d;
+  try {
+    d = await api("/api/tray");
+  } catch {
+    return;
+  }
+  const key = JSON.stringify(d);
+  if (key === trayKey) return; // rebuilding the menu closes it if it's open
+  trayKey = key;
+  const n = d.asks.length + d.waiting.length;
+  tray.setTitle(n ? ` ${n}` : "");
+  tray.setToolTip(n ? `Vlens: ${n} waiting for you` : "Vlens");
+  tray.setContextMenu(trayMenu(d));
+}
+
+function startTray() {
+  const icon = nativeImage.createFromPath(path.join(__dirname, "build", "trayTemplate.png"));
+  icon.setTemplateImage(true);
+  tray = new Tray(icon);
+  tray.setToolTip("Vlens");
+  tray.setContextMenu(Menu.buildFromTemplate([{ label: "Vlens", enabled: false }, { role: "quit", label: "Quit Vlens" }]));
+  void refreshTray();
+  setInterval(() => void refreshTray(), 5000);
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit(); // already running: the first copy shows its window instead
 } else {
@@ -284,6 +391,7 @@ if (!app.requestSingleInstanceLock()) {
       return;
     }
     createWindow();
+    startTray();
   });
 
   // On a Mac, closing the window keeps the app running; clicking the Dock icon reopens it.
