@@ -30,31 +30,41 @@ export function ago(iso: string) {
   return `${Math.round(s / 604800)}w`;
 }
 
-type Filter = "all" | "needsYou" | "mine";
+// Whose move is it? The sidebar's sections, from each PR's lane and reason.
+export type Group = "yours" | "waiting" | "ready" | "radar";
+export const GROUPS: { id: Group; label: string; tone: string }[] = [
+  { id: "yours", label: "Your move", tone: "text-amber-700 dark:text-amber-400" },
+  { id: "waiting", label: "Waiting on others", tone: "text-muted" },
+  { id: "ready", label: "Ready to merge", tone: "text-emerald-700 dark:text-emerald-400" },
+  { id: "radar", label: "On your radar", tone: "text-muted" },
+];
+export function groupOf(p: PrSummary): Group {
+  if (p.lane === "needsYou") return "yours";
+  if (p.lane === "mine") return /ready to merge/.test(p.why) ? "ready" : /waiting for review/.test(p.why) ? "waiting" : "yours";
+  if (p.lane === "done") return "ready";
+  if (p.lane === "waiting") return "waiting";
+  return "radar"; // team, fyi
+}
+// The line under a PR's title: why it's in its section, plus CI when that's the news.
+export function statusLine(p: PrSummary) {
+  const bits = [p.why];
+  if (p.ci === "pending" && !/CI/.test(p.why)) bits.push("checks running");
+  if (p.ci === "failing" && !/CI/.test(p.why)) bits.push("CI failing");
+  if (p.lane !== "mine" && p.author) bits.push(`@${p.author}`);
+  return bits.join(" · ");
+}
 
-// The Vlens Review side tab: your open PRs, grouped by repo.
+// The Vlens Review side tab: your open PRs, by whose move it is.
 export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url: string) => void }) {
   const { board, prs, loading, refresh, selected } = review;
-  const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
-  const [opened, setOpened] = useState<Set<string>>(new Set()); // repos start collapsed
+  const [radar, setRadar] = useState(false); // "On your radar" starts folded
 
-  const shown = prs.filter(
-    (p) =>
-      (filter === "all" || p.lane === filter) &&
-      (!q || `${p.title} ${p.repo} #${p.number} ${p.author}`.toLowerCase().includes(q.toLowerCase())),
-  );
-  // Repos that need you float to the top; inside a repo, most urgent lane first, then newest.
-  const repos = useMemo(() => {
-    const m = new Map<string, PrSummary[]>();
-    for (const p of shown) m.set(p.repo, [...(m.get(p.repo) ?? []), p]);
+  const shown = prs.filter((p) => !q || `${p.title} ${p.repo} #${p.number} ${p.author}`.toLowerCase().includes(q.toLowerCase()));
+  const groups = useMemo(() => {
     const rank = (p: PrSummary) => LANE_ORDER.indexOf(p.lane);
-    return [...m.entries()]
-      .map(([repo, list]) => ({ repo, list: list.sort((a, b) => rank(a) - rank(b) || b.updatedAt.localeCompare(a.updatedAt)) }))
-      .sort((a, b) => rank(a.list[0]) - rank(b.list[0]) || b.list.length - a.list.length || a.repo.localeCompare(b.repo));
+    return GROUPS.map((g) => ({ ...g, list: shown.filter((p) => groupOf(p) === g.id).sort((a, b) => rank(a) - rank(b) || b.updatedAt.localeCompare(a.updatedAt)) }));
   }, [shown]);
-
-  const count = (f: Filter) => (f === "all" ? prs.length : prs.filter((p) => p.lane === f).length);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -73,21 +83,11 @@ export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url
           <button
             onClick={() => void refresh()}
             disabled={loading}
+            aria-label="Get the latest from GitHub"
             className="inline-flex items-center gap-1 rounded-md border border-line bg-panel px-2 py-0.5 text-xs text-ink hover:border-accent hover:text-accent disabled:opacity-60"
           >
             <RefreshCw size={11} className={loading ? "animate-spin" : ""} /> Refresh
           </button>
-        </div>
-        <div className="flex rounded-lg bg-panel p-0.5 text-xs">
-          {(["all", "needsYou", "mine"] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`flex-1 rounded-md py-1 transition ${filter === f ? "bg-sunken font-medium text-ink" : "text-muted hover:text-ink"}`}
-            >
-              {f === "all" ? "All" : f === "needsYou" ? "Needs you" : "Mine"} {count(f)}
-            </button>
-          ))}
         </div>
         <label className="flex items-center gap-2 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-sm">
           <Search size={14} className="text-muted" />
@@ -95,48 +95,41 @@ export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url
         </label>
       </div>
 
-      <nav className="mt-2 flex-1 overflow-y-auto px-2 pb-3 scroll-thin">
+      <nav className="mt-1 flex-1 overflow-y-auto px-2 pb-3 scroll-thin" aria-label="Your pull requests">
         {board?.error && <p className="m-1 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600">{board.error}</p>}
         {!board && <p className="px-3 py-4 text-center text-xs text-muted">Loading PRs from GitHub…</p>}
-        {board && !repos.length && !board.error && (
-          <p className="px-3 py-4 text-center text-xs text-muted">{q || filter !== "all" ? "No PRs match." : "No open PRs need you. Nice."}</p>
-        )}
-        {repos.map(({ repo, list }) => {
-          const open = opened.has(repo) || !!q; // a search shows its matches
+        {board && !shown.length && !board.error && <p className="px-3 py-4 text-center text-xs text-muted">{q ? "No PRs match." : "No open PRs need you. Nice."}</p>}
+        {groups.map((g) => {
+          if (!g.list.length) return null;
+          const folded = g.id === "radar" && !radar && !q;
           return (
-            <div key={repo} className="mb-1">
+            <div key={g.id} className="pt-2">
               <button
-                onClick={() => setOpened((c) => (c.has(repo) ? new Set([...c].filter((r) => r !== repo)) : new Set(c).add(repo)))}
-                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs text-muted hover:text-ink"
-                title={repo}
+                onClick={() => g.id === "radar" && setRadar((v) => !v)}
+                className={`flex w-full items-center gap-1.5 px-2 pb-1 text-left text-[0.7rem] font-semibold text-muted ${g.id === "radar" ? "hover:text-ink" : "cursor-default"}`}
               >
-                <ChevronRight size={13} className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
-                <span className="truncate font-medium text-ink">{repo.split("/")[1]}</span>
-                <span className="truncate opacity-70">{repo.split("/")[0]}</span>
-                <span className="ml-auto shrink-0 rounded-full bg-panel px-1.5">{list.length}</span>
+                {g.id === "radar" && <ChevronRight size={12} className={`transition-transform ${folded ? "" : "rotate-90"}`} />}
+                {g.label}
+                <span className="font-normal">{g.list.length}</span>
               </button>
-              {open && (
-                <div className="space-y-0.5 pl-2">
-                  {list.map((p) => (
+              {!folded && (
+                <div className="space-y-1">
+                  {g.list.map((p) => (
                     <button
                       key={p.url}
                       onClick={() => onPick(p.url)}
-                      className={`w-full rounded-lg px-2.5 py-2 text-left transition ${p.url === selected ? "bg-panel shadow-sm" : "hover:bg-panel/60"}`}
+                      aria-current={p.url === selected}
+                      className={`flex w-full flex-col gap-1 rounded-lg border px-2.5 py-2 text-left transition ${p.url === selected ? "border-accent/40 bg-panel shadow-sm" : "border-transparent hover:bg-panel/60"}`}
                     >
-                      <div className="flex items-start gap-2">
-                        <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${LANES[p.lane].dot}`} title={LANES[p.lane].label} />
-                        <span className="line-clamp-2 text-sm leading-snug">{p.title}</span>
-                      </div>
-                      <div className="mt-1 flex items-center gap-1.5 pl-4 text-[0.7rem] text-muted">
-                        <span className={`shrink-0 whitespace-nowrap ${LANES[p.lane].text}`}>{LANES[p.lane].label}</span>
-                        <span>·</span>
-                        <span className="shrink-0">#{p.number}</span>
-                        {p.lane !== "mine" && <span className="truncate">@{p.author}</span>}
-                        <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                          {p.ci !== "none" && <span className={`h-1.5 w-1.5 rounded-full ${CI_DOT[p.ci]}`} title={`CI ${p.ci}`} />}
-                          {ago(p.updatedAt)}
+                      <span className="line-clamp-2 w-full text-sm font-medium leading-snug">{p.title}</span>
+                      <span className="flex w-full items-center gap-1.5 text-[0.7rem]">
+                        <span className="shrink-0 text-muted">
+                          {p.repo.split("/")[1]} #{p.number}
                         </span>
-                      </div>
+                        <span className={`min-w-0 flex-1 truncate ${g.id === "radar" ? "text-muted" : g.tone}`}>{statusLine(p)}</span>
+                        {p.ci !== "none" && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${CI_DOT[p.ci]}`} title={`CI ${p.ci}`} />}
+                        <span className="shrink-0 text-muted">{ago(p.updatedAt)}</span>
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -145,7 +138,6 @@ export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url
           );
         })}
       </nav>
-
     </div>
   );
 }

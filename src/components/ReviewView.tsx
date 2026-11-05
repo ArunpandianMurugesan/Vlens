@@ -9,6 +9,7 @@ import {
   FileCode,
   FolderGit2,
   GitBranch,
+  GitMerge,
   GitPullRequest,
   Loader2,
   MessageSquare,
@@ -23,7 +24,7 @@ import type { TreeChat } from "@/hooks/useTreeChat";
 import { addPrSession, usePrSessions } from "@/lib/prSessions";
 import type { PrSummary } from "@/lib/types";
 import { Markdown } from "./Markdown";
-import { ago, CI_DOT, LANES } from "./ReviewSidebar";
+import { ago, GROUPS, groupOf } from "./ReviewSidebar";
 import { MenuButton } from "./Sidebar";
 
 // What Claude is asked to do. Reviews run read-only; addressing your own PR may edit files.
@@ -55,15 +56,6 @@ function checkTone(state: string) {
   if (["SUCCESS", "NEUTRAL", "SKIPPED"].includes(state)) return "bg-emerald-500";
   if (["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"].includes(state)) return "bg-red-500";
   return "bg-amber-500";
-}
-
-function Stat({ label, children, tone }: { label: string; children: ReactNode; tone?: string }) {
-  return (
-    <div className="rounded-xl border border-line bg-panel px-3 py-2">
-      <div className="text-[0.65rem] uppercase tracking-wide text-muted">{label}</div>
-      <div className={`mt-0.5 text-sm ${tone ?? ""}`}>{children}</div>
-    </div>
-  );
 }
 
 function Fold({ title, count, open: start = false, children }: { title: string; count?: number; open?: boolean; children: ReactNode }) {
@@ -140,9 +132,32 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
     </button>
   );
   const [confirmHide, setConfirmHide] = useState(false);
+  const [merging, setMerging] = useState<{ method: "squash" | "merge" | "rebase"; busy: boolean; error: string | null } | null>(null);
+  const [allFiles, setAllFiles] = useState(false);
+  const [bots, setBots] = useState<BotCard[]>([]);
+  // Nothing picked yet: open the first PR whose move is yours (else the first one).
+  const picked = useRef(false);
+  useEffect(() => {
+    if (picked.current || pr || !prs.length) return;
+    picked.current = true;
+    const first = prs.find((p) => groupOf(p) === "yours") ?? prs[0];
+    void review.select(first.url);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the list first loads
+  }, [prs.length, pr]);
+  // Your bots' cards about this PR (like PR Reviewer's draft review).
+  useEffect(() => {
+    setBots([]);
+    setMerging(null);
+    setAllFiles(false);
+    if (!pr) return;
+    void fetch(`/api/review/bot-cards?url=${encodeURIComponent(pr.url)}`)
+      .then((r) => r.json())
+      .then((d) => setBots(d.cards ?? []))
+      .catch(() => {});
+  }, [pr?.url]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!pr) {
-    const needs = prs.filter((p) => p.lane === "needsYou").length;
+    const needs = prs.filter((p) => groupOf(p) === "yours").length;
     return (
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center gap-3 border-b border-line px-4 py-3">
@@ -152,42 +167,113 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
         </header>
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
           <GitPullRequest size={28} className="text-accent" />
-          <div className="text-xl font-semibold">{needs ? `${needs} PR${needs === 1 ? "" : "s"} need${needs === 1 ? "s" : ""} your review` : "Your pull requests"}</div>
-          <p className="max-w-md text-sm text-muted">
-            Pick a PR on the left. You can have Claude review it in its repo, or fix the feedback on your own PRs.
-          </p>
+          <div className="text-xl font-semibold">{needs ? `${needs} PR${needs === 1 ? "" : "s"} wait${needs === 1 ? "s" : ""} on you` : "Your pull requests"}</div>
+          <p className="max-w-md text-sm text-muted">Pick a PR on the left. You can have Claude review it in its repo, or fix the feedback on your own PRs.</p>
         </div>
       </main>
     );
   }
 
   const clone = cloneFor(pr);
-  const lane = LANES[pr.lane];
+  const group = GROUPS.find((g) => g.id === groupOf(pr))!;
   const mine = pr.lane === "mine";
   const d = detail?.url === pr.url ? detail : null;
   const shortPath = (p: string) => (p.startsWith(home) ? `~${p.slice(home.length)}` : p);
   const need = pr.requiredApprovals;
+  const approved = pr.reviewDecision === "APPROVED" || (pr.reviewDecision === null && pr.approvals > 0);
+  const mergeBlock = !mine
+    ? "Only your own PRs merge from here."
+    : pr.isDraft
+      ? "It's a draft."
+      : !approved
+        ? "It isn't approved yet."
+        : pr.ci === "failing"
+          ? "CI is failing."
+          : pr.mergeable === "CONFLICTING"
+            ? "It has merge conflicts."
+            : null;
+  const doMerge = async () => {
+    if (!merging) return;
+    setMerging({ ...merging, busy: true, error: null });
+    const r = await fetch("/api/review/merge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: pr.url, method: merging.method }) })
+      .then((x) => x.json())
+      .catch(() => ({ error: "Couldn't reach Vlens." }));
+    if (r.error) setMerging({ ...merging, busy: false, error: r.error });
+    else {
+      setMerging(null);
+      void refresh();
+    }
+  };
+  const primaryBtn = "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50";
+  const secondaryBtn = "inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent disabled:opacity-50";
+  const files = d?.data?.files ?? [];
+  const changes = d?.data?.reviews.filter((r) => r.state === "CHANGES_REQUESTED").length ?? 0;
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <header className="flex items-start gap-3 border-b border-line px-4 py-3">
+      <header className="flex items-start gap-3 border-b border-line px-5 py-3.5">
         <MenuButton onClick={onMenu} className="mt-1" />
         <div className="min-w-0 flex-1">
-          <h1 className="font-medium leading-snug">{pr.title}</h1>
+          <h1 className="text-lg font-semibold leading-snug">{pr.title}</h1>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted">
             <a href={pr.url} target="_blank" rel="noreferrer" className="hover:text-accent hover:underline">
-              {pr.repo} #{pr.number}
+              {pr.repo.split("/")[1]} #{pr.number}
             </a>
-            <span>@{pr.author}</span>
+            {!mine && <span>@{pr.author}</span>}
             <span className="flex items-center gap-1 font-mono">
               <GitBranch size={11} /> {pr.head} → {pr.base}
+            </span>
+            <span>
+              <span className="text-emerald-600">+{pr.additions}</span> <span className="text-red-500">−{pr.deletions}</span>
             </span>
             <span>updated {ago(pr.updatedAt)} ago</span>
           </div>
         </div>
-        <span className={`shrink-0 rounded-full border border-line px-2 py-0.5 text-xs ${lane.text}`}>{lane.label}</span>
-        {refreshBtn}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          {mine ? (
+            <>
+              <button onClick={() => clone && start("Address feedback", addressPrompt(pr), "acceptEdits", clone)} disabled={!clone || busy} title={clone ? (busy ? busyHint : undefined) : "Clone this repo on your Mac first, so Claude can work on the branch."} className={primaryBtn}>
+                <Wrench size={14} /> Address feedback
+              </button>
+              <button onClick={() => start("Self-review", reviewPrompt(pr, !!clone), "plan", clone ?? home)} disabled={busy} title={busy ? busyHint : undefined} className={secondaryBtn}>
+                <Sparkles size={14} /> Review with Claude
+              </button>
+              <button onClick={() => setMerging({ method: "squash", busy: false, error: null })} disabled={!!mergeBlock} title={mergeBlock ?? "Merge it on GitHub"} className={secondaryBtn}>
+                <GitMerge size={14} /> Merge
+              </button>
+            </>
+          ) : (
+            <button onClick={() => start("Review", reviewPrompt(pr, !!clone), "plan", clone ?? home)} disabled={busy} title={busy ? busyHint : undefined} className={primaryBtn}>
+              <Sparkles size={14} /> Review with Claude
+            </button>
+          )}
+          <a href={pr.url} target="_blank" rel="noreferrer" title="Open on GitHub" aria-label="Open on GitHub" className="rounded-lg border border-line p-2 text-muted hover:border-accent hover:text-accent">
+            <ExternalLink size={14} />
+          </a>
+          {refreshBtn}
+        </div>
       </header>
+
+      {merging && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-line bg-sunken/60 px-5 py-2 text-sm">
+          <GitMerge size={14} className="text-accent" />
+          <span>
+            Merge {pr.repo.split("/")[1]} #{pr.number} into <span className="font-mono">{pr.base}</span>?
+          </span>
+          <select value={merging.method} onChange={(e) => setMerging({ ...merging, method: e.target.value as "squash" | "merge" | "rebase" })} className="rounded-lg border border-line bg-bg px-2 py-1 text-xs" aria-label="Merge method">
+            <option value="squash">Squash and merge</option>
+            <option value="merge">Merge commit</option>
+            <option value="rebase">Rebase and merge</option>
+          </select>
+          <button onClick={() => void doMerge()} disabled={merging.busy} className={primaryBtn}>
+            {merging.busy ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Merge
+          </button>
+          <button onClick={() => setMerging(null)} disabled={merging.busy} className="rounded-lg px-2 py-1 text-xs text-muted hover:text-ink">
+            Cancel
+          </button>
+          {merging.error && <span className="w-full text-xs text-red-600">{merging.error}</span>}
+        </div>
+      )}
 
       {(prSessions.length > 0 || tab === "new") && (
         <nav className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-3 py-1.5 scroll-thin" aria-label="This PR's sessions">
@@ -211,178 +297,201 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
       {tab !== "overview" ? (
         <div className="flex min-h-0 flex-1">{renderChat()}</div>
       ) : (
-      <div className="flex-1 overflow-y-auto scroll-thin">
-        <div className="mx-auto max-w-3xl space-y-4 px-4 py-5">
-          <div className={`rounded-xl px-3 py-2 text-sm ${pr.lane === "needsYou" ? "bg-amber-500/10" : "bg-sunken"}`}>
-            <span className={`font-medium ${lane.text}`}>{lane.label}:</span> {pr.why}
-            {pr.isDraft && <span className="ml-2 rounded bg-panel px-1.5 text-xs text-muted">draft</span>}
-            {pr.labels.map((l) => (
-              <span key={l} className="ml-2 rounded bg-panel px-1.5 text-xs text-muted">{l}</span>
-            ))}
-          </div>
-
-          {/* Actions */}
-          <div className="flex flex-wrap items-center gap-2">
-            {!mine && (
-              <button
-                onClick={() => start("Review", reviewPrompt(pr, !!clone), "plan", clone ?? home)}
-                disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-              >
-                <Sparkles size={14} /> Review with Claude
-              </button>
-            )}
-            {mine && (
-              <button
-                onClick={() => clone && start("Address feedback", addressPrompt(pr), "acceptEdits", clone)}
-                disabled={!clone || busy}
-                title={clone ? (busy ? busyHint : undefined) : "Clone this repo on your Mac first, so Claude can work on the branch."}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-              >
-                <Wrench size={14} /> Address feedback
-              </button>
-            )}
-            {mine && (
-              <button
-                onClick={() => start("Self-review", reviewPrompt(pr, !!clone), "plan", clone ?? home)}
-                disabled={busy}
-                title={busy ? busyHint : undefined}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent disabled:opacity-50"
-              >
-                <Sparkles size={14} /> Self-review
-              </button>
-            )}
-            <a
-              href={pr.url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent"
-            >
-              <ExternalLink size={14} /> Open on GitHub
-            </a>
-            {confirmHide ? (
-              <span className="flex items-center gap-1.5 text-xs text-muted">
-                Hide this PR from Vlens Review?
-                <button onClick={() => dismiss(pr.url)} className="rounded-md border border-line px-2 py-1 hover:text-ink">Hide</button>
-                <button onClick={() => setConfirmHide(false)} className="rounded-md px-1 py-1" aria-label="Cancel">
-                  <X size={12} />
+        <div className="flex-1 overflow-y-auto scroll-thin">
+          <div className="mx-auto max-w-5xl space-y-4 px-6 py-5">
+            <div className={`flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 text-sm ${group.id === "yours" ? "bg-amber-500/10" : group.id === "ready" ? "bg-emerald-500/10" : "bg-sunken"}`}>
+              <span className={`font-medium ${group.tone}`}>{group.label}:</span> {pr.why}
+              {pr.isDraft && <span className="rounded bg-panel px-1.5 text-xs text-muted">draft</span>}
+              {pr.labels.map((l) => (
+                <span key={l} className="rounded bg-panel px-1.5 text-xs text-muted">
+                  {l}
+                </span>
+              ))}
+              <span className="flex-1" />
+              {confirmHide ? (
+                <span className="flex items-center gap-1.5 text-xs text-muted">
+                  Hide this PR from Vlens Review?
+                  <button onClick={() => dismiss(pr.url)} className="rounded-md border border-line px-2 py-0.5 hover:text-ink">
+                    Hide
+                  </button>
+                  <button onClick={() => setConfirmHide(false)} className="rounded-md px-1" aria-label="Cancel">
+                    <X size={12} />
+                  </button>
+                </span>
+              ) : (
+                <button onClick={() => setConfirmHide(true)} className="inline-flex items-center gap-1 text-xs text-muted hover:text-ink">
+                  <EyeOff size={12} /> Hide
                 </button>
-              </span>
-            ) : (
-              <button onClick={() => setConfirmHide(true)} className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-muted hover:text-ink">
-                <EyeOff size={14} /> Hide
-              </button>
-            )}
-          </div>
-          <p className="flex items-center gap-1.5 text-xs text-muted">
-            <FolderGit2 size={12} />
-            {clone ? (
-              <>Claude runs in your clone at <span className="font-mono">{shortPath(clone)}</span>.</>
-            ) : (
-              <>No local clone of {pr.repo} found, so Claude reads the PR with gh from your home folder.</>
-            )}
-            {!mine && " Reviews are read-only and nothing is posted to GitHub."}
-          </p>
-
-          {/* Status */}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Stat label="Approvals" tone={pr.reviewDecision === "APPROVED" ? "text-emerald-600" : undefined}>
-              {pr.approvals}
-              {need ? ` of ${need}` : ""}
-              {pr.reviewDecision === "CHANGES_REQUESTED" && <span className="ml-1 text-xs text-red-500">changes requested</span>}
-            </Stat>
-            <Stat label="CI">
-              <span className="flex items-center gap-1.5">
-                {pr.ci !== "none" && <span className={`h-2 w-2 rounded-full ${CI_DOT[pr.ci]}`} />}
-                {pr.ci === "none" ? "no checks" : pr.ci}
-              </span>
-            </Stat>
-            <Stat label="Merge" tone={pr.mergeable === "CONFLICTING" ? "text-red-500" : undefined}>
-              {pr.mergeable === "MERGEABLE" ? "no conflicts" : pr.mergeable === "CONFLICTING" ? "has conflicts" : "checking"}
-            </Stat>
-            <Stat label="Changes">
-              <span className="text-emerald-600">+{pr.additions}</span> <span className="text-red-500">−{pr.deletions}</span>
-              <span className="ml-1 text-xs text-muted">{pr.changedFiles} files</span>
-            </Stat>
-          </div>
-
-          {!d?.data && !d?.error && (
-            <div className="flex items-center gap-2 text-xs text-muted">
-              <Loader2 size={14} className="animate-spin" /> Loading details…
+              )}
             </div>
-          )}
-          {d?.error && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600">{d.error}</p>}
-          {d?.data && (
-            <>
-              <section className="rounded-2xl border border-line bg-panel px-4 py-3">
-                {d.data.body.trim() ? <Markdown text={d.data.body} /> : <p className="text-sm text-muted">No description.</p>}
-              </section>
 
-              <Fold title="Checks" count={d.data.checks.length} open={pr.ci === "failing"}>
-                {d.data.checks.length ? (
+            {!d?.data && !d?.error && (
+              <div className="flex items-center gap-2 text-xs text-muted">
+                <Loader2 size={14} className="animate-spin" /> Loading details…
+              </div>
+            )}
+            {d?.error && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600">{d.error}</p>}
+            {d?.data && (
+              <>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Card title="Checks" note={pr.mergeable === "CONFLICTING" ? <span className="text-red-500">has conflicts</span> : pr.mergeable === "MERGEABLE" ? "no conflicts" : "checking conflicts"}>
+                    {d.data.checks.length ? (
+                      <ul className="space-y-1.5">
+                        {d.data.checks.map((c, i) => (
+                          <li key={i} className="flex items-center gap-2 text-sm">
+                            <CheckMark state={c.state} />
+                            <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                            <span className={`text-xs ${checkTone(c.state) === "bg-red-500" ? "text-red-500" : "text-muted"}`}>{checkWord(c.state)}</span>
+                            {c.url && (
+                              <a href={c.url} target="_blank" rel="noreferrer" className="text-muted hover:text-accent" aria-label={`Open ${c.name}`}>
+                                <ExternalLink size={12} />
+                              </a>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-muted">No checks on this PR.</p>
+                    )}
+                  </Card>
+
+                  <Card
+                    title="Reviews"
+                    note={
+                      <>
+                        {pr.approvals}
+                        {need ? ` of ${need}` : ""} approval{pr.approvals === 1 && !need ? "" : "s"}
+                        {changes > 0 && <span className="text-amber-600"> · changes requested</span>}
+                      </>
+                    }
+                  >
+                    {d.data.reviews.length ? (
+                      <ul className="space-y-3">
+                        {d.data.reviews.map((r, i) => (
+                          <li key={i} className="text-sm">
+                            <div className="flex items-center gap-1.5">
+                              {r.state === "APPROVED" ? <Check size={13} className="text-emerald-500" /> : r.state === "CHANGES_REQUESTED" ? <CircleDot size={13} className="text-amber-600" /> : <MessageSquare size={13} className="text-muted" />}
+                              <span className="font-medium">@{r.author}</span>
+                              <span className={r.state === "CHANGES_REQUESTED" ? "text-amber-700 dark:text-amber-400" : "text-muted"}>{REVIEW_STATE[r.state] ?? r.state.toLowerCase()}</span>
+                              {r.at && <span className="ml-auto text-xs text-muted">{ago(r.at)} ago</span>}
+                            </div>
+                            {r.body.trim() && (
+                              <div className="mt-1 line-clamp-4 border-l-2 border-line pl-3 text-muted">
+                                <Markdown text={r.body} />
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-muted">No reviews yet.</p>
+                    )}
+                    {d.data.comments > 0 && <p className="mt-3 text-xs text-muted">Plus {d.data.comments} comment{d.data.comments === 1 ? "" : "s"} on GitHub.</p>}
+                  </Card>
+                </div>
+
+                <Card title="Files changed" note={`${files.length} file${files.length === 1 ? "" : "s"}`}>
                   <ul className="space-y-1">
-                    {d.data.checks.map((c, i) => (
-                      <li key={i} className="flex items-center gap-2 text-sm">
-                        <span className={`h-2 w-2 shrink-0 rounded-full ${checkTone(c.state)}`} />
-                        <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                        <span className="text-xs lowercase text-muted">{c.state.replace(/_/g, " ")}</span>
-                        {c.url && (
-                          <a href={c.url} target="_blank" rel="noreferrer" className="text-muted hover:text-accent" aria-label={`Open ${c.name}`}>
-                            <ExternalLink size={12} />
-                          </a>
-                        )}
+                    {(allFiles ? files : files.slice(0, 12)).map((f) => (
+                      <li key={f.path} className="flex items-center gap-2 font-mono text-xs">
+                        <FileCode size={12} className="shrink-0 text-muted" />
+                        <span className="min-w-0 flex-1 truncate" title={f.path}>
+                          {f.path}
+                        </span>
+                        {f.additions > 0 && <span className="text-emerald-600">+{f.additions}</span>}
+                        {f.deletions > 0 && <span className="text-red-500">−{f.deletions}</span>}
                       </li>
                     ))}
                   </ul>
-                ) : (
-                  <p className="text-sm text-muted">No checks on this PR.</p>
-                )}
-              </Fold>
+                  {files.length > 12 && (
+                    <button onClick={() => setAllFiles((v) => !v)} className="mt-2 text-xs text-muted hover:text-accent">
+                      {allFiles ? "Show fewer" : `Show all ${files.length}`}
+                    </button>
+                  )}
+                </Card>
 
-              <Fold title="Reviews" count={d.data.reviews.length} open={mine && d.data.reviews.length > 0}>
-                {d.data.reviews.length ? (
-                  <ul className="space-y-3">
-                    {d.data.reviews.map((r, i) => (
-                      <li key={i} className="text-sm">
-                        <div className="flex items-center gap-1.5">
-                          {r.state === "APPROVED" ? <Check size={13} className="text-emerald-500" /> : r.state === "CHANGES_REQUESTED" ? <CircleDot size={13} className="text-red-500" /> : <MessageSquare size={13} className="text-muted" />}
-                          <span className="font-medium">@{r.author}</span>
-                          <span className="text-muted">{REVIEW_STATE[r.state] ?? r.state.toLowerCase()}</span>
-                          {r.at && <span className="ml-auto text-xs text-muted">{ago(r.at)} ago</span>}
-                        </div>
-                        {r.body.trim() && (
-                          <div className="mt-1 border-l-2 border-line pl-3 text-muted">
-                            <Markdown text={r.body} />
-                          </div>
-                        )}
+                <Card title="This PR's sessions">
+                  <ul className="space-y-1.5">
+                    {prSessions.map((s) => (
+                      <li key={s.id} className="flex items-center gap-2 text-sm">
+                        <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
+                        <span className="min-w-0 flex-1 truncate">{s.kind}</span>
+                        <span className="text-xs text-muted">{ago(new Date(s.at).toISOString())} ago</span>
+                        <button onClick={() => setTab(pr.url, s.id)} className="rounded-md border border-line px-2 py-0.5 text-xs hover:border-accent hover:text-accent">
+                          Open
+                        </button>
                       </li>
                     ))}
+                    {bots.map((b) => (
+                      <li key={`${b.bot}:${b.key}`} className="flex items-center gap-2 text-sm">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-accent-soft text-[0.65rem] text-accent" aria-hidden>
+                          {b.avatar}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">
+                          {b.botName}: {b.draft ? "draft review" : "card"} <span className="text-muted">· {b.status}</span>
+                        </span>
+                        <button onClick={() => window.dispatchEvent(new CustomEvent("lens:open-bot", { detail: { bot: b.bot, target: { kind: "issue", key: b.key } } }))} className="rounded-md border border-line px-2 py-0.5 text-xs hover:border-accent hover:text-accent">
+                          Open card
+                        </button>
+                      </li>
+                    ))}
+                    {!prSessions.length && !bots.length && <li className="text-sm text-muted">None yet. Review with Claude starts one here.</li>}
                   </ul>
-                ) : (
-                  <p className="text-sm text-muted">No reviews yet.</p>
-                )}
-                {d.data.comments > 0 && <p className="mt-3 text-xs text-muted">Plus {d.data.comments} comment{d.data.comments === 1 ? "" : "s"} on GitHub.</p>}
-              </Fold>
+                  <p className="mt-2.5 flex items-center gap-1.5 text-xs text-muted">
+                    <FolderGit2 size={12} />
+                    {clone ? (
+                      <>
+                        Claude runs in your clone at <span className="font-mono">{shortPath(clone)}</span>.
+                      </>
+                    ) : (
+                      <>No local clone of {pr.repo} found, so Claude reads the PR with gh from your home folder.</>
+                    )}
+                    {!mine && " Reviews are read-only; nothing is posted to GitHub."}
+                  </p>
+                </Card>
 
-              <Fold title="Files changed" count={d.data.files.length}>
-                <ul className="space-y-1">
-                  {d.data.files.map((f) => (
-                    <li key={f.path} className="flex items-center gap-2 font-mono text-xs">
-                      <FileCode size={12} className="shrink-0 text-muted" />
-                      <span className="min-w-0 flex-1 truncate" title={f.path}>{f.path}</span>
-                      <span className="text-emerald-600">+{f.additions}</span>
-                      <span className="text-red-500">−{f.deletions}</span>
-                    </li>
-                  ))}
-                </ul>
-              </Fold>
-            </>
-          )}
+                <Fold title="Description">{d.data.body.trim() ? <Markdown text={d.data.body} /> : <p className="text-sm text-muted">No description.</p>}</Fold>
+              </>
+            )}
+          </div>
         </div>
-      </div>
       )}
     </main>
   );
+}
+
+interface BotCard {
+  bot: string;
+  botName: string;
+  avatar: string;
+  key: string;
+  status: string;
+  updated: string;
+  draft: boolean;
+}
+
+function Card({ title, note, children }: { title: string; note?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-line bg-panel px-4 py-3.5">
+      <div className="mb-2.5 flex items-baseline gap-2">
+        <h2 className="text-sm font-semibold">{title}</h2>
+        {note && <span className="ml-auto text-xs text-muted">{note}</span>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function checkWord(state: string) {
+  const t = checkTone(state);
+  return t === "bg-emerald-500" ? (state === "SUCCESS" ? "Success" : state.toLowerCase()) : t === "bg-red-500" ? "Failure" : "Running";
+}
+
+function CheckMark({ state }: { state: string }) {
+  const t = checkTone(state);
+  if (t === "bg-emerald-500") return <Check size={13} className="shrink-0 text-emerald-600" aria-label="passed" />;
+  if (t === "bg-red-500") return <X size={13} className="shrink-0 text-red-500" aria-label="failed" />;
+  return <Loader2 size={13} className="shrink-0 animate-spin text-amber-500" aria-label="running" />;
 }
 
 const busyHint = "Claude is still starting the last one. Wait a moment.";

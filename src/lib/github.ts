@@ -212,3 +212,12 @@ export async function localClones(): Promise<Record<string, string>> {
   clonesCache = { at: Date.now(), clones };
   return clones;
 }
+
+// Merge one of your PRs (the Merge button, after you confirm). Only through gh, as you.
+export async function mergePr(url: string, method: "squash" | "merge" | "rebase") {
+  if (!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/.test(url)) throw new Error("That isn't a GitHub PR link.");
+  const r = await gh(["pr", "merge", url, `--${method}`], 60_000);
+  if (!r.ok) throw new Error(r.err.trim().slice(0, 400) || "GitHub didn't merge it.");
+  boardCache = null;
+  return { ok: true };
+}
