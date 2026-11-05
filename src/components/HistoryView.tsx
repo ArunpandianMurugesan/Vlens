@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderOpen, History, Loader2, MessageSquare, Pin, PinOff, Play, Search, SquareTerminal } from "lucide-react";
+import { FolderOpen, History, Loader2, MessageSquare, Pin, PinOff, Play, RotateCcw, Search, SquareTerminal } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { TreeChat } from "@/hooks/useTreeChat";
 import type { SessionSummary } from "@/lib/types";
@@ -39,6 +39,7 @@ export function HistoryView({ chat, onMenu, onOpen }: { chat: TreeChat; onMenu: 
     const byDay = new Map<string, { s: SessionSummary; count: number }[]>();
     const seen = new Set<string>();
     for (const s of chat.sessions) {
+      if (s.botId) continue; // bot chats and their cards live in Bots
       if (needle && !`${s.title} ${s.cwd ?? s.projectName}`.toLowerCase().includes(needle)) continue;
       for (const [key, count] of Object.entries(s.days ?? {})) {
         if (key < since) continue;
@@ -99,12 +100,14 @@ export function HistoryView({ chat, onMenu, onOpen }: { chat: TreeChat; onMenu: 
                   {list.map(({ s, count }) => {
                     const pinned = s.pinOrder !== undefined;
                     const running = !!s.active && !s.active.byLens;
+                    const crash = chat.crashed.find((c) => c.sessionId === s.id);
                     return (
-                      <li key={`${key}-${s.id}`} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                      <li key={`${key}-${s.id}`} className={`flex flex-wrap items-center gap-3 px-4 py-3 ${crash ? "bg-amber-500/10" : ""}`}>
                         <button onClick={() => onOpen(s.id)} className="min-w-0 flex-1 text-left">
                           <div className="flex items-center gap-2">
                             <span className="truncate text-sm font-medium hover:text-accent">{s.title}</span>
-                            {running && <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[0.65rem] font-medium text-emerald-600">running in {s.active!.entrypoint === "desktop" ? "desktop app" : "terminal"}</span>}
+                            {running && <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[0.65rem] font-medium text-emerald-600">already open in the {s.active!.entrypoint === "desktop" ? "desktop app" : "terminal"}</span>}
+                            {crash && <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[0.65rem] font-medium text-amber-700 dark:text-amber-400">stopped unexpectedly at {time(new Date(crash.stoppedAt))}</span>}
                           </div>
                           <div className="mt-0.5 flex items-center gap-3 truncate text-xs text-muted">
                             <span className="flex min-w-0 items-center gap-1 truncate" title={s.cwd ?? undefined}>
@@ -118,6 +121,20 @@ export function HistoryView({ chat, onMenu, onOpen }: { chat: TreeChat; onMenu: 
                         </button>
                         <ContextBadge ctx={s.context} compact />
                         <div className="flex shrink-0 items-center gap-1.5">
+                          {crash && (
+                            <button
+                              className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
+                              disabled={busy === s.id}
+                              onClick={async () => {
+                                setBusy(s.id);
+                                await chat.handleCrashed(crash.key, "restore").catch((e: Error) => setErr(e.message));
+                                setBusy(null);
+                              }}
+                              title="Start it again where it was, in its folder"
+                            >
+                              {busy === s.id ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />} Restore
+                            </button>
+                          )}
                           <button className={`${btn} border-accent/50 text-accent`} onClick={() => onOpen(s.id)}>
                             <Play size={11} /> {running ? "Open" : "Resume here"}
                           </button>

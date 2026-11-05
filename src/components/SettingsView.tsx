@@ -1208,16 +1208,16 @@ type CardId = "appearance" | "account" | "model" | "diagrams" | "restore" | "not
 
 // One card per settings page. The page opens on its own, so nothing is a long scroll.
 const CARDS: { id: CardId; icon: typeof User; title: string; hint: string }[] = [
-  { id: "appearance", icon: Palette, title: "Appearance", hint: "Light or dark, and the accent colour." },
   { id: "account", icon: User, title: "Account", hint: "Who Claude is signed in as. Switch or sign out." },
   { id: "model", icon: Cpu, title: "Model", hint: "The default model for replies and new sessions." },
-  { id: "diagrams", icon: Network, title: "Diagrams & whiteboard", hint: "Mermaid diagrams, Excalidraw sketches, their skills." },
+  { id: "appearance", icon: Palette, title: "Appearance", hint: "Light or dark, and the accent colour." },
   { id: "notify", icon: Bell, title: "Notifications", hint: "When Claude needs you or finishes." },
-  { id: "coach", icon: GraduationCap, title: "Coach", hint: "Retros, lessons and where they're written." },
-  { id: "restore", icon: RotateCcw, title: "Auto-restore", hint: "Bring back sessions that stopped unexpectedly." },
   { id: "skills", icon: Wand2, title: "Skills", hint: "Your skills and each project's. Create, edit, switch off." },
   { id: "hooks", icon: Webhook, title: "Hooks", hint: "Commands Claude runs on events. Add, edit, pause." },
-  { id: "mcp", icon: Plug, title: "MCP servers & connectors", hint: "Add servers, sign in, see their status." },
+  { id: "mcp", icon: Plug, title: "Connectors (MCP)", hint: "Add servers, sign in, see their status." },
+  { id: "diagrams", icon: Network, title: "Diagrams & whiteboard", hint: "Mermaid diagrams, Excalidraw sketches, their skills." },
+  { id: "coach", icon: GraduationCap, title: "Coach", hint: "Retros, lessons and where they're written." },
+  { id: "restore", icon: RotateCcw, title: "Auto-restore", hint: "Bring back sessions that stopped unexpectedly." },
   { id: "about", icon: Info, title: "About & updates", hint: "Your version, and new releases." },
 ];
 
@@ -1263,54 +1263,76 @@ export function SettingsView({ chat, onBack, initial }: { chat: TreeChat; onBack
     }
   };
 
+  // A wide window: the sections on the left, the one you picked beside them.
+  // A narrow one: the sections as cards, then one at a time.
+  const sel = card?.id ?? "account";
   return (
     <main className="flex min-w-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b border-line px-4 py-3">
         <button
           // Opened right at a page (from /mcp or /hooks): back goes back to the chat.
-          onClick={() => (open && !initial ? setOpen(null) : onBack())}
+          onClick={() => (open && !initial && window.matchMedia("(max-width: 767px)").matches ? setOpen(null) : onBack())}
           className="rounded-md p-1 text-muted hover:bg-sunken hover:text-ink"
-          aria-label={open ? "Back to all settings" : "Back to chat"}
+          aria-label="Back"
         >
           <ArrowLeft size={18} />
         </button>
         <h1 className="font-medium">
-          {card ? (
-            <>
-              <button onClick={() => setOpen(null)} className="text-muted hover:text-ink">
-                Settings
-              </button>
-              <ChevronRight size={14} className="mx-1 inline text-muted" />
-              {card.title}
-            </>
-          ) : (
-            "Settings"
-          )}
+          <span className="md:hidden">
+            {card ? (
+              <>
+                <button onClick={() => setOpen(null)} className="text-muted hover:text-ink">
+                  Settings
+                </button>
+                <ChevronRight size={14} className="mx-1 inline text-muted" />
+                {card.title}
+              </>
+            ) : (
+              "Settings"
+            )}
+          </span>
+          <span className="hidden md:inline">Settings</span>
         </h1>
       </header>
-      <div className="flex-1 overflow-y-auto scroll-thin">
-        {card ? (
-          <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">{page(card.id)}</div>
-        ) : (
-          <div className="mx-auto grid max-w-4xl grid-cols-1 gap-3 px-4 py-6 sm:grid-cols-2 lg:grid-cols-3">
-            {CARDS.map(({ id, icon: Icon, title, hint }) => (
-              <button
-                key={id}
-                onClick={() => setOpen(id)}
-                className="group flex items-start gap-3 rounded-2xl border border-line bg-panel p-4 text-left transition hover:border-accent hover:shadow-sm"
-              >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
-                  <Icon size={17} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium group-hover:text-accent">{title}</div>
-                  <div className="text-xs text-muted">{hint}</div>
-                </div>
-                <ChevronRight size={15} className="mt-1 shrink-0 text-muted group-hover:text-accent" />
-              </button>
-            ))}
+      <div className="flex min-h-0 flex-1">
+        <nav aria-label="Settings sections" className="hidden w-60 shrink-0 space-y-0.5 overflow-y-auto border-r border-line bg-sunken/40 p-2 scroll-thin md:block">
+          {CARDS.map(({ id, icon: Icon, title }) => (
+            <button
+              key={id}
+              onClick={() => setOpen(id)}
+              aria-current={sel === id}
+              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm ${sel === id ? "bg-accent-soft font-medium text-accent" : "text-ink hover:bg-panel/70"}`}
+            >
+              <Icon size={15} className={sel === id ? "" : "text-muted"} />
+              {title}
+            </button>
+          ))}
+        </nav>
+        <div className="min-w-0 flex-1 overflow-y-auto scroll-thin">
+          <div className={`mx-auto max-w-3xl space-y-4 px-6 py-6 ${card ? "" : "hidden md:block"}`}>
+            {page(sel)}
           </div>
-        )}
+          {!card && (
+            <div className="mx-auto grid max-w-4xl grid-cols-1 gap-3 px-4 py-6 sm:grid-cols-2 md:hidden">
+              {CARDS.map(({ id, icon: Icon, title, hint }) => (
+                <button
+                  key={id}
+                  onClick={() => setOpen(id)}
+                  className="group flex items-start gap-3 rounded-2xl border border-line bg-panel p-4 text-left transition hover:border-accent hover:shadow-sm"
+                >
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
+                    <Icon size={17} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium group-hover:text-accent">{title}</div>
+                    <div className="text-xs text-muted">{hint}</div>
+                  </div>
+                  <ChevronRight size={15} className="mt-1 shrink-0 text-muted group-hover:text-accent" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </main>
   );
