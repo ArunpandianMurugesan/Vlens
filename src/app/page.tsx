@@ -205,7 +205,8 @@ export default function Home() {
             setView(s === "review" ? "review" : "chat");
           }}
         />
-        {view !== "bots" && (
+        {/* Pages with their own navigation (like the design) don't get the sessions list beside it. */}
+        {view !== "bots" && view !== "settings" && view !== "marketplace" && view !== "history" && (
         <Sidebar
           sessions={chat.sessions}
           activeId={chat.activeId}
@@ -219,15 +220,15 @@ export default function Home() {
           }}
           onSettings={() => setView("settings")}
         onMarketplace={() => setView("marketplace")}
-        marketplaceOpen={view === "marketplace"}
+        marketplaceOpen={false}
         onHistory={() => setView("history")}
-        historyOpen={view === "history"}
+        historyOpen={false}
         onHome={() => {
           setTab("sessions");
           setView("chat");
           chat.goHome();
         }}
-          settingsOpen={view === "settings"}
+          settingsOpen={false}
           tab={tab}
           onTab={(t) => {
             setTab(t);
@@ -248,7 +249,7 @@ export default function Home() {
         ) : view === "history" ? (
           <HistoryView
             chat={chat}
-            onMenu={showSidebar}
+            onMenu={() => setView(back)}
             onOpen={(id) => {
               setTab("sessions");
               setView("chat");
@@ -256,7 +257,7 @@ export default function Home() {
             }}
           />
         ) : view === "marketplace" ? (
-          <MarketplaceView chat={chat} onMenu={showSidebar} />
+          <MarketplaceView chat={chat} onMenu={() => setView(back)} />
         ) : view === "settings" ? (
           <SettingsView
             key={settingsCard ?? "all"}

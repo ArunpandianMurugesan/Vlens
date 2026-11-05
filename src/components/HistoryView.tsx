@@ -1,11 +1,10 @@
 "use client";
 
-import { FolderOpen, History, Loader2, MessageSquare, Pin, PinOff, Play, RotateCcw, Search, SquareTerminal } from "lucide-react";
+import { ArrowLeft, FolderOpen, History, Loader2, MessageSquare, Pin, PinOff, Play, RotateCcw, Search, SquareTerminal } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { TreeChat } from "@/hooks/useTreeChat";
 import type { SessionSummary } from "@/lib/types";
 import { ContextBadge } from "./Usage";
-import { MenuButton } from "./Sidebar";
 
 const DAYS = 15;
 const DAY = 24 * 60 * 60 * 1000;
@@ -65,7 +64,9 @@ export function HistoryView({ chat, onMenu, onOpen }: { chat: TreeChat; onMenu: 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b border-line px-4 py-3">
-        <MenuButton onClick={onMenu} />
+        <button onClick={onMenu} className="rounded-md p-1 text-muted hover:bg-sunken hover:text-ink" aria-label="Back" title="Back">
+          <ArrowLeft size={18} />
+        </button>
         <h1 className="flex-1 font-medium">History</h1>
         <span className="text-xs text-muted">{total} sessions in the last {DAYS} days</span>
       </header>

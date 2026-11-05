@@ -479,7 +479,7 @@ export function Sidebar({
             }}
             title="Settings (⌘,)"
             aria-label="Settings"
-            className={`hidden rounded-lg p-2 md:block ${settingsOpen ? "bg-panel text-ink shadow-sm" : "text-muted hover:bg-panel/60 hover:text-ink"}`}
+            className={`rounded-lg p-2 md:hidden ${settingsOpen ? "bg-panel text-ink shadow-sm" : "text-muted hover:bg-panel/60 hover:text-ink"}`}
           >
             <SettingsIcon size={15} />
           </button>
@@ -494,17 +494,6 @@ export function Sidebar({
           }`}
         >
           <Store size={14} /> Marketplace
-        </button>
-        <button
-          onClick={() => {
-            onSettings();
-            onClose();
-          }}
-          className={`md:hidden mx-2 mb-1 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm ${
-            settingsOpen ? "bg-panel text-ink shadow-sm" : "text-muted hover:bg-panel/60 hover:text-ink"
-          }`}
-        >
-          <SettingsIcon size={14} /> Settings
         </button>
         {/* On a wide window these live at the bottom of the left rail (SpaceRail). */}
         <div className="md:hidden">
