@@ -139,7 +139,8 @@ export function Sidebar({
   // Archived sessions sit in their own list at the bottom, unless one is running
   // in a terminal or the desktop app (that can't hide).
   const isArchived = (s: SessionSummary) => !!s.archivedAt && !(s.active && !s.active.byLens);
-  const shown = sessions.filter((s) => !isArchived(s));
+  // Chats with your bots live in the Bots space.
+  const shown = sessions.filter((s) => !isArchived(s) && !s.botId);
   // Stable order, so items don't jump around while you use them.
   const pinned = shown
     .filter((s) => s.pinOrder !== undefined && matches(s))
@@ -152,7 +153,7 @@ export function Sidebar({
   const recent = shown
     .filter((s) => s.pinOrder === undefined && !s.active && s.id !== activeId && s.recentAt && matches(s))
     .sort((a, b) => b.recentAt!.localeCompare(a.recentAt!));
-  const archived = sessions.filter((s) => isArchived(s) && matches(s)).sort((a, b) => b.archivedAt!.localeCompare(a.archivedAt!));
+  const archived = sessions.filter((s) => isArchived(s) && !s.botId && matches(s)).sort((a, b) => b.archivedAt!.localeCompare(a.archivedAt!));
   // Folded until you open it (remembered), or while you search or have one open.
   const [showArchived, setShowArchived] = useState(false);
   useEffect(() => {
@@ -428,7 +429,7 @@ export function Sidebar({
             onMarketplace();
             onClose();
           }}
-          className={`mx-2 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm ${
+          className={`md:hidden mx-2 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm ${
             marketplaceOpen ? "bg-panel text-ink shadow-sm" : "text-muted hover:bg-panel/60 hover:text-ink"
           }`}
         >
@@ -439,13 +440,16 @@ export function Sidebar({
             onSettings();
             onClose();
           }}
-          className={`mx-2 mb-1 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm ${
+          className={`md:hidden mx-2 mb-1 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm ${
             settingsOpen ? "bg-panel text-ink shadow-sm" : "text-muted hover:bg-panel/60 hover:text-ink"
           }`}
         >
           <SettingsIcon size={14} /> Settings
         </button>
-        <PlanUsage limits={actions.limits} refreshing={actions.refreshingLimits} onRefresh={actions.refreshLimits} />
+        {/* On a wide window these live at the bottom of the left rail (SpaceRail). */}
+        <div className="md:hidden">
+          <PlanUsage limits={actions.limits} refreshing={actions.refreshingLimits} onRefresh={actions.refreshLimits} />
+        </div>
 
         {error && (
           <div className="m-2 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-600">

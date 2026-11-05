@@ -37,6 +37,7 @@ export interface PermissionAsk {
   always: string | null;
   questions?: Question[];
   plan?: string;
+  preview?: string; // what a bot's setup change would do, shown as is
 }
 
 export interface LiveRun {
@@ -152,7 +153,7 @@ async function readRun(
           break;
         }
         case "permission": {
-          const ask: PermissionAsk = { id: ev.id, tool: ev.tool, input: ev.input, description: ev.description, reason: ev.reason, always: ev.always, questions: ev.questions, plan: ev.plan };
+          const ask: PermissionAsk = { id: ev.id, tool: ev.tool, input: ev.input, description: ev.description, reason: ev.reason, always: ev.always, questions: ev.questions, plan: ev.plan, preview: ev.preview };
           // Claude is waiting on you: say so if you're looking at another window.
           if (ev.plan !== undefined) notify("Claude's plan is ready", "Open Vlens to approve it or keep planning.", { tag: `ask-${ev.id}` });
           else if (ev.questions) notify("Claude has a question", ev.questions[0]?.question ?? "Open Vlens to answer.", { tag: `ask-${ev.id}` });

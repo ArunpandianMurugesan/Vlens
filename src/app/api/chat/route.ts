@@ -12,6 +12,10 @@ import { isPermissionMode } from "@/lib/modes";
 import { getSettings } from "@/lib/settings";
 import { worktreeArgs } from "@/lib/worktree";
 import { setArchived } from "@/lib/archive";
+import { BotRun } from "@/lib/botAgent";
+import { issueByThread } from "@/lib/botIssues";
+import { threadState } from "@/lib/botThreads";
+import { botIdForCwd, getBot } from "@/lib/bots";
 import type { ChatMessage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -43,12 +47,20 @@ export async function POST(req: Request) {
   if (body.model !== undefined && !isModel(body.model)) return Response.json({ error: "bad model" }, { status: 400 });
   const settings = await getSettings();
   const model = body.model ?? settings.defaultModel;
+  const mode = body.mode;
   const extra = await lensPluginArgs(settings);
+  // A chat with a bot (in its folder) runs with the Agent SDK instead, as the
+  // bot: its model, mode, connectors and setup tools (botAgent.ts).
+  const botFor = (cwd: string | null) => getBot(botIdForCwd(cwd) ?? "");
+  const reply = (parentId: string | null) => async (blocks: ChatMessage["blocks"]) =>
+    ({ id: randomUUID(), parentId, role: "assistant", blocks, timestamp: new Date().toISOString() }) satisfies ChatMessage;
   const content = userContent(body.prompt, images);
 
   if (!body.sessionId) {
     const cwd = await resolveDir(body.cwd ?? "");
     if (!cwd) return Response.json({ error: "That folder doesn't exist" }, { status: 400 });
+    const bot = await botFor(cwd);
+    if (bot) return turnResponse(new BotRun(bot, null, (id) => void markRecent(id)), content, req.signal, reply(null));
     let wt: string[] = [];
     if (body.worktree) {
       try {
@@ -58,14 +70,8 @@ export async function POST(req: Request) {
       }
     }
     // Keep it on the sidebar after the reply, when its process has exited.
-    const proc = await procFor({ sessionId: null, cwd, mode: body.mode, model, extra: [...extra, ...wt], onSession: (id) => void markRecent(id) });
-    return turnResponse(proc, content, req.signal, async (blocks) => ({
-      id: randomUUID(),
-      parentId: null,
-      role: "assistant",
-      blocks,
-      timestamp: new Date().toISOString(),
-    }));
+    const proc = await procFor({ sessionId: null, cwd, mode, model, extra: [...extra, ...wt], onSession: (id) => void markRecent(id) });
+    return turnResponse(proc, content, req.signal, reply(null));
   }
 
   const session = await getSession(body.sessionId);
@@ -82,14 +88,14 @@ export async function POST(req: Request) {
   await markRecent(session.id);
   await setArchived(session.id, false); // writing in an archived session brings it back
 
-  const proc = await procFor({ sessionId: session.id, cwd: session.cwd, mode: body.mode, model, extra });
-  return turnResponse(proc, content, req.signal, async (blocks) =>
-    ({
-      id: randomUUID(),
-      parentId: session.messages.at(-1)?.id ?? null,
-      role: "assistant",
-      blocks,
-      timestamp: new Date().toISOString(),
-    }) satisfies ChatMessage,
-  );
+  const bot = await botFor(session.cwd);
+  if (bot) {
+    // An issue's thread, opened in full (Fork): it stays that issue's thread.
+    const issue = await issueByThread(bot.id, session.id);
+    if (issue && threadState(bot.id, issue.key).running)
+      return Response.json({ error: `${issue.key} is still working on its card. Wait for it, or stop it there.` }, { status: 409 });
+    return turnResponse(new BotRun(bot, session.id, undefined, issue ? { issue: issue.key } : {}), content, req.signal, reply(session.messages.at(-1)?.id ?? null));
+  }
+  const proc = await procFor({ sessionId: session.id, cwd: session.cwd, mode, model, extra });
+  return turnResponse(proc, content, req.signal, reply(session.messages.at(-1)?.id ?? null));
 }

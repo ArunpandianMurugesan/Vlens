@@ -1,17 +1,6 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { THEME_BOOT_SCRIPT } from "@/lib/themeScript";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Vlens",
@@ -31,9 +20,8 @@ export default function RootLayout({
         {/* Snippets that spawned a sub-thread (CSS Custom Highlight API). */}
         <style>{`::highlight(subthread){background-color:var(--hl)}::highlight(subthread-active){background-color:var(--hl-active)}`}</style>
       </head>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      {/* Fonts: SF Pro and SF Mono, from the system (see --font-sans in globals.css). */}
+      <body className="antialiased">
         {children}
       </body>
     </html>

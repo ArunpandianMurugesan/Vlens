@@ -148,8 +148,10 @@
   --color-user: var(--user-bubble);
   --color-term: var(--term-bg);
   --color-term-ink: var(--term-text);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* SF Pro and SF Mono, the Mac's own fonts (not bundled: Apple doesn't allow
+     it). -apple-system picks SF Pro Text or Display by size. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
 }
 
 html,
@@ -191,7 +193,7 @@ body {
 .md strong { font-weight: 600; }
 .md blockquote { border-left: 3px solid var(--border); padding-left: 0.9em; color: var(--muted); }
 .md code {
-  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.85em;
   background: var(--sunken);
   border: 1px solid var(--border);
@@ -279,7 +281,7 @@ body {
   background: transparent !important;
   margin: 0;
   padding: 10px 0 24px;
-  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 12.5px;
   line-height: 1.65;
 }
@@ -335,4 +337,9 @@ body {
 .lens-wb-inline .disable-zen-mode,
 .lens-wb-inline .exit-view-mode {
   display: none !important;
+}
+
+/* Room for the bell at the top right (BotBell). */
+@media (min-width: 768px) {
+  header.border-b { padding-right: 3.5rem; }
 }

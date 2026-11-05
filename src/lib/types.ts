@@ -31,6 +31,7 @@ export interface SessionSummary {
   pinOrder?: number; // set when pinned: position in pin order
   recentAt?: string; // when Vlens last started or replied in it (within the Recent window)
   archivedAt?: string; // set when you archived it (lib/archive.ts)
+  botId?: string; // a chat with one of your bots (lib/bots.ts), shown in Bots, not in the sidebar
   days?: Record<string, number>; // local date (YYYY-MM-DD) → messages that day, for the last few weeks (History)
   context?: ContextUsage;
 }
@@ -130,6 +131,7 @@ export type AgentEvent =
       always: string | null; // what "always allow" would save, when the CLI offers it
       questions?: Question[]; // set when Claude is asking you something (AskUserQuestion)
       plan?: string; // set when Claude wants to leave plan mode (ExitPlanMode)
+      preview?: string; // a bot's setup change, line breaks kept (botAgent.ts)
     }
   | { type: "permission_done"; id: string; decision: "allow" | "always" | "deny"; mode?: PermissionMode } // mode: the plan was approved in this mode
   | { type: "done"; message: ChatMessage }
@@ -143,6 +145,130 @@ export interface LiveState {
   status: RunStatus | null;
   tasks: TaskInfo[];
   asks: Extract<AgentEvent, { type: "permission" }>[];
+}
+
+// A bot you set up in Vlens (lib/bots.ts).
+export interface Bot {
+  id: string;
+  name: string;
+  avatar: string; // a letter or emoji
+  about: string; // one line, shown in the list
+  role: string; // its instructions (goes into its CLAUDE.md)
+  mode: string; // permission mode for its chats; "" = the same as your Claude Code (its defaultMode)
+  model: string; // "" = CLI default
+  mcp: string[]; // the MCP servers it may use; every other one is off for it
+  style: string; // how it writes (its output style)
+  sources: { sessionFolders: string[] }; // what "Digest" learns from
+  // May it read your Claude sessions (terminal, desktop, Vlens) and their memory files? Only you set this.
+  sessionAccess?: { all: boolean; folders: string[] };
+  // Only you set these (its Settings), never the bot:
+  allowTools?: string[]; // tools and commands it runs without asking, as Claude Code allow rules ("Bash(gh pr diff:*)")
+  askTools?: string[]; // ones that always ask you first, whatever its mode (posting, pushing…)
+  autoSaveIssues?: boolean; // save its issue notes without asking (drafts, status); publishing still asks
+  watch?: BotWatch; // older single trigger; read as triggers[0] (lib/botWatch.ts)
+  triggers?: BotTrigger[]; // what wakes it up (its Settings, Triggers)
+  effort?: "" | "low" | "medium" | "high" | "xhigh" | "max"; // "" = the model's default
+  knowledge?: { confluence: { id: string; title: string }[] }; // pages it reads fresh at the start of each chat
+  skills?: string[] | null; // the skills it may use; null = all of yours
+  plugins?: Record<string, boolean>; // plugin id -> on/off for this bot; unset = as in your Claude Code
+  hooks?: BotHook[]; // scripts Claude Code runs at a hook event (only you add these)
+  notify: { digestDone: boolean; digestFailed: boolean; needsYou?: boolean; finished?: boolean; failed?: boolean; mac?: boolean };
+  rules: { allowed: string[]; lookAt: string[]; dontLookAt: string[] }; // set in its setup (see lib/bots.ts)
+  cursor: { sessions?: string }; // how far the last digest got
+  lastDigest?: { at: string; ok: boolean; summary: string };
+  createdAt: string;
+  dir: string; // its folder
+  notes?: number; // how many concepts its knowledge has (in lists)
+  automation?: boolean; // its bot.yaml triggers run on their own while Vlens is open
+  specTriggers?: { id: string; title: string; on: string; run: string; output: string }[]; // from an older bot.yaml (in lists)
+  specError?: string; // what's wrong with its bot.yaml or values.yaml (in lists)
+}
+
+
+// What wakes a bot up (lib/botWatch.ts). No AI until something is worth working on:
+//   schedule  every N minutes, `list` (a command) prints items as JSON {key, title, url?, version?, kind?}
+//   session   one of your Claude sessions in `folders` started, ended or went idle; `match`
+//             (a regex) must be found in its title or recent text, and its first match is the card's key
+// For each new or changed item, `gate` (optional command) decides: exit 10 skips it,
+// 75 tries again next check, 0 goes on with its output added to the brief.
+export interface BotTrigger {
+  id: string;
+  name: string;
+  on: boolean;
+  kind: "schedule" | "session";
+  everyMinutes: number;
+  list: string;
+  gate: string;
+  event: "ended" | "started" | "idle";
+  idleMinutes: number;
+  folders: string[];
+  match: string;
+  brief: string; // {key} {title} {url} {version} {kind} {session} {folder}
+  updateBrief: string;
+  maxNew: number;
+}
+
+export interface BotHook {
+  id: string;
+  on: boolean;
+  event: string; // PreToolUse, PostToolUse, Stop…
+  matcher: string; // tool name pattern, like Bash or mcp__github__.*
+  command: string;
+}
+
+// A bot's automation (lib/botWatch.ts): every `everyMinutes`, run `command` (no AI;
+// it prints items as JSON, one per line or an array: {key, title, url?, version?, kind?}).
+// A new item opens a card with `brief`; a changed `version` sends `updateBrief` to its card.
+// In the briefs, {key} {title} {url} {version} {kind} are filled in.
+export interface BotWatch {
+  on: boolean;
+  everyMinutes: number;
+  command: string;
+  brief: string;
+  updateBrief: string;
+  maxNew: number; // at most this many new cards per check
+}
+
+// One line in the bell at the top right: a bot telling you something.
+export interface BotNotification {
+  id: string;
+  bot: string;
+  botName: string;
+  avatar: string;
+  at: string;
+  title: string;
+  body: string;
+  target?: { kind: "item" | "issue"; key: string }; // what it's about (an issue: its card); none: the bot itself
+  read: boolean;
+}
+
+// Something a bot's trigger produced for you (everything but PR reviews).
+export interface InboxItem {
+  key: string;
+  trigger: string; // its bot.yaml trigger id
+  triggerTitle: string;
+  kind: "draft" | "notes" | "notify"; // draft: a text for you; notes: written into its knowledge; notify: just news
+  title: string;
+  url?: string;
+  context: string; // what the playbook was given
+  version: string;
+  status: "asked" | "running" | "ready" | "done" | "skipped" | "error";
+  output?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+
+
+
+// One concept file in a bot's knowledge (OKF).
+export interface BotConcept {
+  path: string; // inside knowledge/, e.g. "decisions/kb-batching.md"
+  title: string;
+  type: string | null;
+  updated: string;
+  size: number;
 }
 
 export interface Settings {

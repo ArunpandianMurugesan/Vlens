@@ -12,7 +12,7 @@ import type { AgentEvent, Block, ChatMessage, ImageInput, LiveState, RunStatus, 
 // What "always allow" would save, worded like the terminal's option. The CLI only
 // offers this for some prompts; for safety checks (like `cd` before `git`) it
 // doesn't, and the terminal then shows just Yes / No too.
-function alwaysLabel(suggestions: unknown): string | null {
+export function alwaysLabel(suggestions: unknown): string | null {
   if (!Array.isArray(suggestions) || !suggestions.length) return null;
   const where = (d?: string) =>
     d === "session" ? " this session" : d === "userSettings" ? " in every project" : d === "projectSettings" ? " in this project (shared)" : " in this project";
@@ -418,7 +418,7 @@ export class ClaudeProc {
 // A turn's events as the NDJSON response the browser reads, ending with
 // "done" (or "error") once Claude has answered.
 export function turnResponse(
-  proc: ClaudeProc,
+  proc: Pick<ClaudeProc, "sessionId" | "runTurn">, // a bot's SDK run works the same way (botAgent.ts)
   content: unknown[],
   signal: AbortSignal,
   onFinish: (blocks: Block[], sessionId: string | null) => Promise<ChatMessage>,

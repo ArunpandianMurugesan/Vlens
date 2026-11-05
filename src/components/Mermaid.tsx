@@ -48,7 +48,7 @@ export function MermaidBlock({ code }: { code: string }) {
         startOnLoad: false,
         securityLevel: "strict", // no scripts or click handlers from diagram code
         theme: dark ? "dark" : "neutral",
-        fontFamily: "var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif",
+        fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
         suppressErrorRendering: true,
         flowchart: { curve: "basis", htmlLabels: true },
       });

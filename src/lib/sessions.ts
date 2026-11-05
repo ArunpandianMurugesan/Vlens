@@ -6,6 +6,7 @@ import path from "node:path";
 import { withoutPastes } from "./pasted";
 import { parseWorktree } from "./worktree";
 import { archivedSessions } from "./archive";
+import { botIdForCwd } from "./bots";
 import type { Block, ChatMessage, ContextUsage, SessionDetail, SessionSummary } from "./types";
 import { activeSessions } from "./active";
 import { contextWindowFor, getLimits } from "./limits";
@@ -335,6 +336,7 @@ export async function listSessions(): Promise<SessionSummary[]> {
         pinOrder: pins.includes(s.id) ? pins.indexOf(s.id) : undefined,
         recentAt: recent.get(s.id),
         archivedAt: archived[s.id],
+        botId: botIdForCwd(s.cwd) ?? undefined,
         context: s.context && withWindow(s.context, limits.contextWindows),
       };
     })

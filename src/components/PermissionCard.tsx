@@ -55,7 +55,7 @@ function ToolPermission({ ask }: { ask: PermissionAsk }) {
     return () => window.removeEventListener("keydown", key);
   }, [ask.always]);
 
-  const command = toolSummary(ask.tool, ask.input);
+  const command = ask.preview ?? toolSummary(ask.tool, ask.input);
   const reason = ask.reason && !PLAIN_REASON.test(ask.reason.trim()) ? ask.reason : null;
   const opt = "flex w-full items-center gap-2 rounded-lg border px-3 py-1.5 text-left text-xs disabled:opacity-50";
   const num = (n: number) => <span className="w-3 shrink-0 text-center font-mono text-[0.7rem] text-muted">{n}</span>;

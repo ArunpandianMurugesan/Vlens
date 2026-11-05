@@ -22,9 +22,10 @@ const pending = (g.lensPermissions ??= new Map());
 // Nobody answering shouldn't hang a run forever.
 const TIMEOUT_MS = 10 * 60_000;
 
-export function waitForDecision(id: string): Promise<Reply> {
+// timeoutMs: a bot's issue thread waits longer, since nobody may be watching its card.
+export function waitForDecision(id: string, timeoutMs = TIMEOUT_MS): Promise<Reply> {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => settle(id, "deny"), TIMEOUT_MS);
+    const timer = setTimeout(() => settle(id, "deny"), timeoutMs);
     pending.set(id, { answer: resolve, timer });
   });
 }

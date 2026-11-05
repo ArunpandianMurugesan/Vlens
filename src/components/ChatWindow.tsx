@@ -18,7 +18,8 @@ import { lastWorktree, rememberWorktree, WorktreeToggle } from "./WorktreeToggle
 import { ContextBadge } from "./Usage";
 import { MenuButton } from "./Sidebar";
 
-export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => void }) {
+// botMode: this is a chat with a bot, which always runs in its own mode (set in its settings).
+export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: () => void; botMode?: RootMode | "" }) {
   const { session, loadingSession, stack, threadsFrom, openThread, rootPending, draft } = chat;
   const newDraft = !session ? draft : null; // starting a new session, not yet created
   const files = useFiles();
@@ -29,7 +30,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
   );
   // Starts in the mode your terminal claude starts in (permissions.defaultMode), until you pick one.
   const [pickedMode, setMode] = useState<RootMode | null>(null);
-  const mode = pickedMode ?? chat.settings?.cliMode ?? "default";
+  const mode = (botMode || null) ?? pickedMode ?? chat.settings?.cliMode ?? "default";
   const cycleMode = () => setMode(PERMISSION_MODES[(PERMISSION_MODES.findIndex((m) => m.id === mode) + 1) % PERMISSION_MODES.length].id);
   // Per-message model; null = use the default from Settings.
   const [model, setModel] = useState<string | null>(null);
@@ -134,6 +135,9 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
   return (
     <CwdContext.Provider value={session?.cwd ?? newDraft?.cwd ?? null}>
     <main className="flex min-w-0 flex-1 flex-col">
+      {/* A bot chat has the bot's own header instead (BotsView). Its terminal buttons would
+          also run it as plain claude, without its setup tools or connector blocks. */}
+      {botMode === undefined && (
       <header className="flex items-center gap-3 border-b border-line bg-bg/80 px-4 py-3 backdrop-blur">
         <MenuButton onClick={onMenu} />
         {session ? (
@@ -202,6 +206,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
           </button>
         )}
       </header>
+      )}
 
       <div
         ref={scroller}
@@ -389,7 +394,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
                       }}
                     />
                   )}
-                  <ModePicker mode={mode} cliMode={chat.settings?.cliMode} onChange={setMode} />
+                  {botMode !== undefined ? <BotMode mode={botMode} /> : <ModePicker mode={mode} cliMode={chat.settings?.cliMode} onChange={setMode} />}
                   <select
                     value={currentModel}
                     onChange={(e) => setModel(e.target.value)}
@@ -413,6 +418,17 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
       )}
     </main>
     </CwdContext.Provider>
+  );
+}
+
+// A bot's mode, shown but not picked here: the bot's settings decide it.
+function BotMode({ mode }: { mode: RootMode | "" }) {
+  const cur = PERMISSION_MODES.find((m) => m.id === mode) ?? { label: "Same as my Claude Code", hint: "Your Claude Code's default mode and allow rules" };
+  return (
+    <span title={`${cur.hint}. This bot always runs in this mode; change it in the bot's settings.`} className="flex items-center gap-1 rounded-lg bg-sunken px-1.5 py-0.5 text-[0.7rem] text-muted">
+      <ShieldCheck size={11} className="shrink-0" />
+      {cur.label}
+    </span>
   );
 }
 
