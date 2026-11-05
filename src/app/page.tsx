@@ -21,6 +21,7 @@ import { HistoryView } from "@/components/HistoryView";
 import { BotsView } from "@/components/BotsView";
 import { SpaceRail } from "@/components/SpaceRail";
 import { BotBell } from "@/components/BotBell";
+import { Inspector, useInspector } from "@/components/Inspector";
 import { LensSettingsContext } from "@/components/LensSettings";
 import { useReview } from "@/hooks/useReview";
 import { type RootMode, useTreeChat } from "@/hooks/useTreeChat";
@@ -266,6 +267,7 @@ function ChatWithFiles({ chat, onMenu, botMode }: { chat: ReturnType<typeof useT
   const files = useFiles()!;
   const showFiles = files.tabs.length > 0;
   const open = showFiles || files.terminal;
+  const [inspector] = useInspector();
   const cwd = chat.session?.cwd ?? chat.draft?.cwd ?? null;
   // A command only the CLI's own screen can run (/permissions, /rewind…): hand
   // the session to the real interactive `claude` in its terminal, with the
@@ -299,6 +301,8 @@ function ChatWithFiles({ chat, onMenu, botMode }: { chat: ReturnType<typeof useT
       <div className={`min-w-0 flex-1 ${showFiles && files.maximized ? "hidden" : "flex"}`}>
         <ChatWindow chat={chat} onMenu={onMenu} botMode={botMode} />
       </div>
+      {/* Its inspector, when nothing else is open beside the chat (not in bot chats). */}
+      {!open && inspector && botMode === undefined && chat.session && <Inspector chat={chat} />}
       {open && (
         <div
           className={`fixed inset-0 z-40 flex flex-col border-l border-line md:static md:z-auto ${

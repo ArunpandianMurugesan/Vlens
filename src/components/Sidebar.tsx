@@ -4,12 +4,12 @@ import {
   AlertTriangle,
   Archive,
   ArchiveRestore,
+  BellRing,
   ChevronRight,
   Folder,
   FolderTree,
   History,
   List,
-  FolderOpen,
   MessagesSquare,
   PanelLeftClose,
   PanelLeftOpen,
@@ -26,13 +26,13 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { setCollapsed, toggleSidebar, useSidebarCollapsed } from "@/lib/sidebar";
 import type { Review } from "@/hooks/useReview";
 import type { TreeChat } from "@/hooks/useTreeChat";
 import { ReviewSidebar } from "./ReviewSidebar";
 import { ThemeToggle } from "./ThemeToggle";
-import { ContextBadge, PlanUsage } from "./Usage";
+import { PlanUsage } from "./Usage";
 import type { SessionSummary } from "@/lib/types";
 
 function ago(iso: string) {
@@ -46,12 +46,21 @@ function ago(iso: string) {
 
 function StatusDot({ s }: { s: SessionSummary }) {
   if (!s.active) return null;
-  const where = s.active.entrypoint === "desktop" ? "desktop app" : "terminal";
+  const where = s.active.entrypoint === "desktop" ? "desktop app" : s.active.byLens ? "Vlens" : "terminal";
+  if (s.active.waitingFor) return <span title={`Needs you: ${s.active.waitingFor} (${where})`} className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />;
   return s.active.status === "busy" ? (
     <span title={`Working (${where})`} className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-emerald-500" />
   ) : (
-    <span title={`Open, waiting for you (${where})`} className="h-2 w-2 shrink-0 rounded-full border border-emerald-500" />
+    <span title={`Open, waiting for you (${where})`} className="h-2 w-2 shrink-0 rounded-full border-[1.5px] border-emerald-500" />
   );
+}
+
+// The word at the end of a row: what it needs from you, "now" while it works, or when it last moved.
+function Status({ s }: { s: SessionSummary }) {
+  const w = s.active?.waitingFor;
+  if (w) return <span className="shrink-0 text-[0.7rem] font-semibold text-amber-700 dark:text-amber-400">{/plan/i.test(w) ? "plan" : "asks"}</span>;
+  if (s.active?.status === "busy") return <span className="shrink-0 text-[0.7rem] text-emerald-700 dark:text-emerald-400">now</span>;
+  return <span className="shrink-0 text-[0.7rem] text-muted">{ago(s.updatedAt)}</span>;
 }
 
 type Actions = Pick<
@@ -153,6 +162,42 @@ export function Sidebar({
   const recent = shown
     .filter((s) => s.pinOrder === undefined && !s.active && s.id !== activeId && s.recentAt && matches(s))
     .sort((a, b) => b.recentAt!.localeCompare(a.recentAt!));
+  // Running ones first, then the ones Vlens touched lately: one list, by folder.
+  const current = [...active, ...recent];
+  // Sections you folded (remembered).
+  const [folded, setFolded] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    try {
+      setFolded(new Set(JSON.parse(localStorage.getItem(SECTIONS_KEY) || "[]")));
+    } catch {}
+  }, []);
+  const toggleSection = (k: string) =>
+    setFolded((f) => {
+      const n = new Set(f);
+      if (n.has(k)) n.delete(k);
+      else n.add(k);
+      try {
+        localStorage.setItem(SECTIONS_KEY, JSON.stringify([...n]));
+      } catch {}
+      return n;
+    });
+  // Sessions that need you (a question, a permission, a plan), for the jump button and ⌘].
+  const waiting = shown.filter((x) => x.active?.waitingFor).sort((a, b) => (a.active!.startedAt ?? 0) - (b.active!.startedAt ?? 0));
+  const jump = useCallback(() => {
+    if (!waiting.length) return;
+    const i = waiting.findIndex((x) => x.id === activeId);
+    onSelect(waiting[(i + 1) % waiting.length].id);
+  }, [waiting, activeId, onSelect]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "]") {
+        e.preventDefault();
+        jump();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [jump]);
   const archived = sessions.filter((s) => isArchived(s) && !s.botId && matches(s)).sort((a, b) => b.archivedAt!.localeCompare(a.archivedAt!));
   // Folded until you open it (remembered), or while you search or have one open.
   const [showArchived, setShowArchived] = useState(false);
@@ -229,7 +274,7 @@ export function Sidebar({
           const key = `${section}:${k}`;
           // Active folders start open, Pinned and Recent ones closed; a click flips that
           // (remembered). The folder of the session you have open always shows it.
-          const open = (section === "active") !== flipped.has(key) || g.some((s) => s.id === activeId) || !!q;
+          const open = (section === "sessions") !== flipped.has(key) || g.some((s) => s.id === activeId) || !!q;
           return (
             <div key={k}>
               <button
@@ -293,7 +338,18 @@ export function Sidebar({
             </span>
             <span className="font-semibold">Vlens</span>
           </button>
-          <span className="ml-auto">
+          <span className="ml-auto flex items-center gap-1">
+            {waiting.length > 0 && (
+              <button
+                onClick={jump}
+                aria-label={`${waiting.length} session${waiting.length === 1 ? "" : "s"} need you. Jump to the next one (⌘])`}
+                title="Jump to the next session that needs you (⌘])"
+                className="relative rounded-md p-1 text-amber-600 hover:bg-panel"
+              >
+                <BellRing size={15} />
+                <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[0.55rem] text-white">{waiting.length}</span>
+              </button>
+            )}
             <ThemeToggle />
           </span>
           <button onClick={() => setCollapsed(true)} className="hidden rounded-md p-1 text-muted hover:bg-panel hover:text-ink md:block" aria-label="Hide sidebar" title="Hide the sidebar (⌘B)">
@@ -305,7 +361,7 @@ export function Sidebar({
         </div>
 
         {/* Sessions | Vlens Review */}
-        <div className="mx-3 mb-2 flex rounded-lg bg-panel p-0.5 text-xs">
+        <div className="mx-3 mb-2 flex rounded-lg bg-panel p-0.5 text-xs md:hidden">
           {(
             [
               ["sessions", "Sessions"],
@@ -364,11 +420,15 @@ export function Sidebar({
           <CrashedBanner actions={actions} run={run} />
           {pinned.length > 0 && (
             <>
-              <Heading>Pinned</Heading>
-              <div className="mb-3">{list("pinned", pinned)}</div>
+              <Section label="Pinned" count={pinned.length} open={!folded.has("pinned") || !!q} onToggle={() => toggleSection("pinned")} />
+              {(!folded.has("pinned") || !!q) && <div className="mb-3">{list("pinned", pinned)}</div>}
             </>
           )}
-          <Heading
+          <Section
+            label="Sessions"
+            count={current.length}
+            open={!folded.has("sessions") || !!q}
+            onToggle={() => toggleSection("sessions")}
             action={
               <button
                 onClick={toggleGrouped}
@@ -379,33 +439,17 @@ export function Sidebar({
                 {grouped ? <List size={12} /> : <FolderTree size={12} />}
               </button>
             }
-          >
-            Active
-          </Heading>
-          {list("active", active)}
-          {active.length === 0 && (
-            <p className="px-3 py-4 text-center text-xs text-muted">
-              {q ? "No matches" : "No running sessions. Start one in a terminal or with New session."}
-            </p>
-          )}
-          {recent.length > 0 && (
+          />
+          {(!folded.has("sessions") || !!q) && (
             <>
-              <div className="mt-3" />
-              <Heading>Recent</Heading>
-              {list("recent", recent)}
+              {list("sessions", current)}
+              {current.length === 0 && <p className="px-3 py-4 text-center text-xs text-muted">{q ? "No matches" : "No sessions yet. Start one in a terminal or with New session."}</p>}
             </>
           )}
           {archived.length > 0 && (
             <>
               <div className="mt-3" />
-              <button
-                onClick={toggleArchived}
-                className="flex w-full items-center gap-1.5 px-2 pb-1 text-left text-[0.65rem] font-semibold uppercase tracking-wider text-muted hover:text-ink"
-              >
-                <ChevronRight size={11} className={`transition-transform ${archivedOpen ? "rotate-90" : ""}`} />
-                <Archive size={11} /> Archived
-                <span className="ml-auto rounded-full bg-panel px-1.5 text-[0.65rem] font-normal normal-case tracking-normal">{archived.length}</span>
-              </button>
+              <Section label="Archived" count={archived.length} open={archivedOpen} onToggle={toggleArchived} />
               {archivedOpen && list("archived", archived)}
             </>
           )}
@@ -519,11 +563,16 @@ function CrashedBanner({ actions, run }: { actions: Actions; run: (fn: () => Pro
 const GROUP_KEY = "lens.sidebarGrouping";
 const FLIPPED_KEY = "lens.flippedFolders"; // folders flipped from their default (Active open, others closed)
 const ARCHIVED_KEY = "lens.archivedOpen"; // the Archived list is folded or open
+const SECTIONS_KEY = "lens.foldedSections"; // Pinned or Sessions folded
 
-function Heading({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
+function Section({ label, count, open, onToggle, action }: { label: string; count: number; open: boolean; onToggle: () => void; action?: React.ReactNode }) {
   return (
-    <div className="flex items-center px-2.5 pb-1 text-[0.68rem] font-medium uppercase tracking-wide text-muted">
-      <span className="flex-1">{children}</span>
+    <div className="flex items-center gap-1 px-2 pb-1">
+      <button onClick={onToggle} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-semibold text-muted hover:text-ink">
+        <ChevronRight size={12} className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
+        {label}
+        <span className="font-normal">{count}</span>
+      </button>
       {action}
     </div>
   );
@@ -613,27 +662,18 @@ function SessionItem({
       ) : (
         <button
           onClick={onSelect}
-          className={`w-full rounded-lg px-2.5 py-2 pr-8 text-left transition ${selected ? "bg-panel shadow-sm" : "hover:bg-panel/60"}`}
+          title={s.cwd ? `${s.title}\n${s.cwd}` : s.title}
+          aria-current={selected}
+          className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 pr-8 text-left transition ${selected ? "bg-panel shadow-sm" : "hover:bg-panel/60"}`}
         >
-          <div className="flex items-start gap-2">
-            <div className="line-clamp-2 flex-1 text-sm leading-snug">{s.title}</div>
-            <span className="mt-1.5 flex">
-              <StatusDot s={s} />
-            </span>
-          </div>
-          <div className="mt-1 flex items-center gap-1.5 text-[0.7rem] text-muted">
-            {!inFolder && (
-              <>
-                <FolderOpen size={11} />
-                <span className="truncate">{s.projectName}</span>
-              </>
-            )}
-            {!s.active && <span className="shrink-0 rounded bg-sunken px-1">stopped</span>}
-            <span className="ml-auto flex shrink-0 items-center gap-2">
-              <ContextBadge ctx={s.context} compact />
-              {ago(s.updatedAt)}
-            </span>
-          </div>
+          <span className="flex w-2 shrink-0 justify-center">
+            <StatusDot s={s} />
+          </span>
+          <span className="min-w-0 flex-1 truncate text-sm">
+            {s.title}
+            {!inFolder && <span className="ml-1.5 text-[0.7rem] text-muted">{s.projectName}</span>}
+          </span>
+          <Status s={s} />
         </button>
       )}
 

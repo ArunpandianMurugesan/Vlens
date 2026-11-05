@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Check, Clock, Copy, Eye, FolderOpen, Loader2, Pencil, Power, ShieldCheck, ShieldOff, Sparkles, SquareTerminal, Terminal, X } from "lucide-react";
+import { Archive, Check, Clock, Copy, Eye, FolderOpen, Loader2, PanelRight, Pencil, Power, ShieldCheck, ShieldOff, Sparkles, SquareTerminal, Terminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type LiveRun, type RootMode, type TreeChat } from "@/hooks/useTreeChat";
 import { PERMISSION_MODES } from "@/lib/modes";
@@ -10,6 +10,7 @@ import type { ImageInput } from "@/lib/types";
 import { Composer } from "./Composer";
 import { CwdContext, useFiles } from "./FileContext";
 import { FolderPicker } from "./FolderPicker";
+import { useInspector } from "./Inspector";
 import { liveMessage, MessageBubble } from "./MessageBubble";
 import { PermissionCard } from "./PermissionCard";
 import { RunActivity } from "./RunActivity";
@@ -23,6 +24,7 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
   const { session, loadingSession, stack, threadsFrom, openThread, rootPending, draft } = chat;
   const newDraft = !session ? draft : null; // starting a new session, not yet created
   const files = useFiles();
+  const [inspector, setInspector] = useInspector();
   // Folders of existing sessions, most recent first, for the folder picker.
   const recent = useMemo(
     () => [...new Set(chat.sessions.map((s) => s.cwd).filter((c): c is string => !!c))],
@@ -179,6 +181,17 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
             }`}
           >
             <Terminal size={12} /> <span className="hidden sm:inline">Terminal</span>
+          </button>
+        )}
+        {session && botMode === undefined && !files?.tabs.length && !files?.terminal && (
+          <button
+            onClick={() => setInspector(!inspector)}
+            aria-pressed={inspector}
+            aria-label="Toggle inspector"
+            title="Context, files changed, plan usage and terminal, beside the chat"
+            className={`hidden shrink-0 rounded-lg border p-1.5 xl:block ${inspector ? "border-accent bg-accent-soft text-accent" : "border-line text-muted hover:text-ink"}`}
+          >
+            <PanelRight size={13} />
           </button>
         )}
         {session && !elsewhere && (
