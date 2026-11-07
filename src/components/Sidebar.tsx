@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Archive,
   ArchiveRestore,
+  GitFork,
   BellRing,
   ChevronRight,
   Folder,
@@ -27,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { forkSession } from "@/lib/fork";
 import { setCollapsed, toggleSidebar, useSidebarCollapsed } from "@/lib/sidebar";
 import type { Review } from "@/hooks/useReview";
 import type { TreeChat } from "@/hooks/useTreeChat";
@@ -308,6 +310,10 @@ export function Sidebar({
       }}
       actions={actions}
       run={run}
+      onOpen={(id) => {
+        onSelect(id);
+        onClose();
+      }}
     />
   );
 
@@ -592,6 +598,7 @@ function SessionItem({
   onSelect,
   actions,
   run,
+  onOpen,
 }: {
   s: SessionSummary;
   inFolder?: boolean; // under a folder header, so the folder name is already shown
@@ -599,6 +606,7 @@ function SessionItem({
   onSelect: () => void;
   actions: Actions;
   run: (fn: () => Promise<void>) => Promise<void>;
+  onOpen: (id: string) => void; // open another session (its fork)
 }) {
   const [menu, setMenu] = useState(false);
   const [confirm, setConfirm] = useState<Confirm>(null);
@@ -730,6 +738,22 @@ function SessionItem({
                 }}
               >
                 <Pencil size={13} /> Rename
+              </button>
+              <button
+                className={menuItem}
+                disabled={!s.messageCount}
+                title="A copy with its whole history, in the same folder; the original stays as it is"
+                onClick={() =>
+                  act(async () => {
+                    const r = await forkSession(s.id);
+                    if (r.id) onOpen(r.id);
+                  })
+                }
+              >
+                <GitFork size={13} /> Fork
+              </button>
+              <button className={menuItem} disabled={!s.messageCount} title="claude --resume … --fork-session, in Terminal" onClick={() => act(() => forkSession(s.id, true).then(() => {}))}>
+                <SquareTerminal size={13} /> Fork in Terminal
               </button>
               <button className={menuItem} onClick={() => act(() => actions.pinSession(s.id, s.pinOrder === undefined))}>
                 {s.pinOrder !== undefined ? <PinOff size={13} /> : <Pin size={13} />}{" "}

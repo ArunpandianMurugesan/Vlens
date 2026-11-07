@@ -6,7 +6,7 @@ import { useEffect, useRef } from "react";
 // "lens:menu" event. Each part of the page handles the ones it knows:
 //   page.tsx       new-session, new-worktree, open-folder, archive, go-*, switcher,
 //                  next-waiting, settings, toggle-sidebar, toggle-inspector
-//   ChatWindow     next-mode, stop, compact, to-terminal, take-over
+//   ChatWindow     next-mode, stop, compact, to-terminal, take-over, fork, fork-terminal
 //   ChatWithFiles  toggle-terminal
 //   PermissionCard allow, always, deny (only the oldest open prompt)
 //   page.tsx also: open-session:<id>, open-bot:<id> (from the menu bar)

@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Check, Clock, Copy, Eye, Loader2, PanelRight, Pencil, Power, ShieldCheck, ShieldOff, Sparkles, SquareTerminal, Terminal, X } from "lucide-react";
+import { Archive, Check, ChevronDown, Clock, Copy, Eye, GitFork, Loader2, PanelRight, Pencil, Power, ShieldCheck, ShieldOff, Sparkles, SquareTerminal, Terminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type LiveRun, type RootMode, type TreeChat } from "@/hooks/useTreeChat";
 import { PERMISSION_MODES } from "@/lib/modes";
@@ -11,6 +11,7 @@ import { Composer } from "./Composer";
 import { CwdContext, useFiles } from "./FileContext";
 import { FolderPicker } from "./FolderPicker";
 import { useInspector } from "./Inspector";
+import { forkSession, justForked } from "@/lib/fork";
 import { useMenu } from "@/lib/menu";
 import { liveMessage, MessageBubble } from "./MessageBubble";
 import { PermissionCard } from "./PermissionCard";
@@ -76,7 +77,8 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
   const archivedAt = chat.sessions.find((s) => s.id === session?.id)?.archivedAt;
   // Changed by something else just now. Vlens's own Claude writes between replies
   // too (when background work reports back), and that's not "something else".
-  const live = session && !rootPending && !ours && !chat.liveState && !proc?.byLens && Date.now() - updated < 60_000;
+  // A fork you just made was written by Vlens, not by something else.
+  const live = session && !justForked(session.id) && !rootPending && !ours && !chat.liveState && !proc?.byLens && Date.now() - updated < 60_000;
   const resumeCmd = session ? `claude --resume ${session.id}` : "";
   // Messages you send while Claude works wait here and go out together when it's
   // done, like typing ahead in the terminal. Stopping (or an error) pauses them.
@@ -137,8 +139,25 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
     if (!res.ok) setHandoffErr((await res.json().catch(() => null))?.error ?? "Couldn't open the terminal.");
   };
 
+  // Fork: a copy of this session with its whole history (the original stays as it is).
+  const [forking, setForking] = useState<"menu" | "busy" | null>(null);
+  const fork = async (terminal: boolean) => {
+    if (!session) return;
+    setForking("busy");
+    setHandoffErr(null);
+    try {
+      const r = await forkSession(session.id, terminal);
+      if (r.id) chat.selectSession(r.id);
+    } catch (e) {
+      setHandoffErr((e as Error).message);
+    }
+    setForking(null);
+  };
+
   // The Mac menus' Session items (bot chats too, except the ones about terminals).
   useMenu({
+    fork: () => botMode === undefined && void fork(false),
+    "fork-terminal": () => botMode === undefined && void fork(true),
     "next-mode": () => botMode === undefined && cycleMode(),
     stop: () => {
       if (rootPending) chat.stop(rootPending.runId);
@@ -175,7 +194,7 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
             </div>
             {/* folder · branch · model, like the design */}
             <div className="truncate text-[0.7rem] text-muted" title={session.cwd ?? undefined}>
-              {[session.projectName, session.branch, prettyModel(session.context?.model ?? null)].filter(Boolean).join(" · ")}
+              {[session.projectName, session.branch !== "HEAD" ? session.branch : null, prettyModel(session.context?.model ?? null)].filter(Boolean).join(" · ")}
             </div>
           </div>
         ) : newDraft ? (
@@ -214,6 +233,38 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
           >
             <SquareTerminal size={12} /> Continue in terminal
           </button>
+        )}
+        {session && session.messages.length > 0 && (
+          <div className="relative hidden sm:block">
+            <button
+              onClick={() => setForking((f) => (f === "menu" ? null : "menu"))}
+              disabled={forking === "busy"}
+              title="Fork: a copy of this conversation to try another way (the original stays as it is)"
+              aria-haspopup="menu"
+              aria-expanded={forking === "menu"}
+              className="flex shrink-0 items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-xs text-muted hover:text-ink disabled:opacity-50"
+            >
+              {forking === "busy" ? <Loader2 size={12} className="animate-spin" /> : <GitFork size={12} />} Fork <ChevronDown size={11} />
+            </button>
+            {forking === "menu" && (
+              <div role="menu" className="absolute right-0 top-8 z-40 w-60 rounded-xl border border-line bg-panel py-1 text-sm shadow-xl" onMouseLeave={() => setForking(null)}>
+                <button role="menuitem" onClick={() => void fork(false)} className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-sunken">
+                  <GitFork size={13} className="mt-0.5 shrink-0" />
+                  <span>
+                    Fork here <span className="text-[0.7rem] text-muted">⇧⌘F</span>
+                    <span className="block text-xs text-muted">A copy opens in Vlens: &ldquo;{session.title.slice(0, 28)} ↳&rdquo;</span>
+                  </span>
+                </button>
+                <button role="menuitem" onClick={() => void fork(true)} className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-sunken">
+                  <SquareTerminal size={13} className="mt-0.5 shrink-0" />
+                  <span>
+                    Fork in Terminal
+                    <span className="block text-xs text-muted">claude --resume … --fork-session</span>
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
         )}
         {session && (
           <button

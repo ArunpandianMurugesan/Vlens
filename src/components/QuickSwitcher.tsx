@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot as BotIcon, GitPullRequest, History, Home, MessageSquare, Plus, Search, Settings, SquareTerminal, Store } from "lucide-react";
+import { Bot as BotIcon, GitFork, GitPullRequest, History, Home, MessageSquare, Plus, Search, Settings, SquareTerminal, Store } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { Review } from "@/hooks/useReview";
 import type { TreeChat } from "@/hooks/useTreeChat";
@@ -131,6 +131,12 @@ export function QuickSwitcher({ chat, review, go }: { chat: TreeChat; review: Re
         rank: 0,
       });
     const page = (id: Parameters<Go["page"]>[0], title: string, icon: ReactNode, meta = ""): Item => ({ id: `a:${id}`, group: "Actions", title, meta, icon, run: () => go.page(id), rank: 1 });
+    const cur = chat.session;
+    if (cur && !cur.botId && cur.messages.length)
+      out.push(
+        { id: "a:fork", group: "Actions", title: "Fork this session", meta: `"${cur.title.slice(0, 30)} ↳" · ⇧⌘F`, icon: <GitFork size={14} className="text-muted" />, run: () => window.dispatchEvent(new CustomEvent("lens:menu", { detail: "fork" })), rank: 0 },
+        { id: "a:fork-t", group: "Actions", title: "Fork this session in Terminal", meta: "claude --resume … --fork-session", icon: <SquareTerminal size={14} className="text-muted" />, run: () => window.dispatchEvent(new CustomEvent("lens:menu", { detail: "fork-terminal" })), rank: 1 },
+      );
     out.push(
       { id: "a:new", group: "Actions", title: "New session", meta: here ? `in ${home(here)}` : "", icon: <Plus size={14} className="text-muted" />, cwd: here, run: () => go.newIn(here ?? ""), rank: 0 },
       page("home", "Home", <Home size={14} className="text-muted" />),
@@ -141,7 +147,7 @@ export function QuickSwitcher({ chat, review, go }: { chat: TreeChat; review: Re
       page("settings", "Settings", <Settings size={14} className="text-muted" />, "⌘,"),
     );
     return out;
-  }, [chat.sessions, review, bots, go, here]);
+  }, [chat.sessions, chat.session, review, bots, go, here]);
 
   const shown = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
