@@ -33,10 +33,26 @@ export interface TriggerState {
   lastRun?: string;
   lastResult?: string;
   lastError?: string;
+  lastOk?: string; // the last check that worked
+  failSince?: string; // when it started failing (cleared when a check works)
+  failures?: number; // failed checks in a row
   seen: Record<string, string>; // key -> the version it last worked on
   sessions?: Record<string, { active: boolean; updatedAt: string; fired?: string }>; // session triggers
 }
 type State = { triggers: Record<string, TriggerState> };
+
+// Its health, for the bot's page: how long it has been failing, and when it last worked.
+function failed(s: TriggerState, error: string) {
+  s.lastError = error;
+  s.failures = (s.failures ?? 0) + 1;
+  s.failSince ??= s.lastRun ?? new Date().toISOString();
+}
+function worked(s: TriggerState) {
+  delete s.lastError;
+  delete s.failSince;
+  s.failures = 0;
+  s.lastOk = s.lastRun ?? new Date().toISOString();
+}
 
 
 const statePath = (id: string) => path.join(botDir(id), "watch-state.json");
@@ -91,6 +107,14 @@ function parse(out: string): Item[] {
 }
 
 const fill = (t: string, i: Item) => t.replace(/\{(key|title|url|version|kind|session|folder)\}/g, (_, k: keyof Item) => i[k]);
+
+// A trigger's list command run once, as a test: how many items it finds, a few titles.
+export async function tryList(command: string, cwd: string): Promise<{ ok: true; found: number; sample: string[] } | { ok: false; error: string }> {
+  const r = await sh(command, cwd, {}, 30_000);
+  if (r.code !== 0) return { ok: false, error: r.err || `It stopped (exit ${r.code}).` };
+  const items = parse(r.out);
+  return { ok: true, found: items.length, sample: items.slice(0, 3).map((i) => i.title || i.key) };
+}
 
 function sh(command: string, cwd: string, env: Record<string, string> = {}, timeout = 120_000): Promise<{ code: number; out: string; err: string }> {
   return new Promise((resolve) =>
@@ -244,12 +268,12 @@ export async function checkTrigger(id: string, triggerId: string): Promise<{ ok:
       }
     }
     state.lastResult = `Found ${items.length}. ${opened} new card${opened === 1 ? "" : "s"}, ${updated} updated${skipped ? `, ${skipped} skipped by the gate` : ""}${later ? `, ${later} for the next check` : ""}.`;
-    if (errors.length) state.lastError = errors[0];
-    else delete state.lastError;
+    if (errors.length) failed(state, errors[0]);
+    else worked(state);
     return { ok: !errors.length, summary: errors[0] ?? state.lastResult };
   } catch (e) {
-    state.lastError = (e as Error).message;
-    return { ok: false, summary: state.lastError };
+    failed(state, (e as Error).message);
+    return { ok: false, summary: state.lastError! };
   } finally {
     // Say so once when it starts failing, not every check.
     if (state.lastError && state.lastError !== hadError) void alertBot(bot, "failed", { title: `${t.name} failed`, body: state.lastError });
@@ -271,7 +295,7 @@ export function startWatches() {
   g.lensBotWatches = setInterval(async () => {
     for (const b of await listBots().catch(() => [] as Bot[])) {
       const ts = triggersOf(b).filter((t) => t.on);
-      if (!ts.length) continue;
+      if (!ts.length || b.paused) continue; // paused from its page: triggers stay set up, nothing runs
       const st = await readState(b.id);
       for (const t of ts) {
         if (running.has(`${b.id}:${t.id}`)) continue;

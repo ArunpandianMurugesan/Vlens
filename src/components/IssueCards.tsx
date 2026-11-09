@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, ChevronDown, FileText, Loader2, Split, Square, Ticket } from "lucide-react";
+import { ArrowUp, ChevronDown, ChevronRight, FileText, Loader2, Split, Square, Ticket } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { Bot } from "@/lib/types";
 import { Markdown } from "./Markdown";
@@ -68,8 +68,25 @@ export function useIssues(botId: string) {
   return { cards, reload: load };
 }
 
+const SHOWN = "lens.botCardsShown";
+
 export function IssueCards({ bot, cards, reload, focus, onFork }: { bot: Bot; cards: Card[]; reload: () => Promise<void>; focus: string | null; onFork: (key: string) => void }) {
   const [open, setOpen] = useState<Set<string>>(new Set());
+  // The cards are listed on the left too, so here they're folded unless you open them
+  // (remembered), a card has a question for you, or the bell points at one.
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    try {
+      setShown(localStorage.getItem(SHOWN) === "open");
+    } catch {}
+  }, []);
+  const toggleShown = () =>
+    setShown((v) => {
+      try {
+        localStorage.setItem(SHOWN, v ? "closed" : "open");
+      } catch {}
+      return !v;
+    });
   const base = `/api/bots/${bot.id}/issues`;
   // The bell points at a card: open it.
   useEffect(() => {
@@ -78,13 +95,15 @@ export function IssueCards({ bot, cards, reload, focus, onFork }: { bot: Bot; ca
 
   if (!cards.length) return null;
   const waiting = cards.reduce((n, c) => n + c.live.asks.length, 0);
+  const visible = shown || waiting > 0 || !!focus;
   return (
-    <div className="max-h-[55%] shrink-0 space-y-2 overflow-y-auto border-b border-line px-4 py-3 scroll-thin">
-      <div className="flex items-center gap-2 text-[0.7rem] font-semibold text-muted">
+    <div className={`shrink-0 space-y-2 border-b border-line px-4 scroll-thin ${visible ? "max-h-[55%] overflow-y-auto py-3" : "py-2"}`}>
+      <button onClick={toggleShown} aria-expanded={visible} className="flex items-center gap-2 text-[0.7rem] font-semibold text-muted hover:text-ink">
+        <ChevronRight size={12} className={`transition-transform ${visible ? "rotate-90" : ""}`} />
         Issue cards · {cards.length}
         {waiting > 0 && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-700 dark:text-amber-400">{waiting} need you</span>}
-      </div>
-      {cards.map((c) => (
+      </button>
+      {visible && cards.map((c) => (
         <IssueCard
           key={c.key}
           card={c}

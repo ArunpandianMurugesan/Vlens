@@ -81,7 +81,13 @@ export function cleanConfig(body: Record<string, any>): Partial<Bot> { // eslint
   const rules = (xs: unknown[]) => xs.map((x) => String(x).trim()).filter((x) => RULE.test(x)).slice(0, 100);
   if (Array.isArray(body.allowTools)) p.allowTools = rules(body.allowTools);
   if (Array.isArray(body.askTools)) p.askTools = rules(body.askTools);
+  if (Array.isArray(body.denyTools)) p.denyTools = rules(body.denyTools);
   if (typeof body.autoSaveIssues === "boolean") p.autoSaveIssues = body.autoSaveIssues;
+  if (typeof body.paused === "boolean") p.paused = body.paused;
+  if (body.brain === "off" || body.brain === "read" || body.brain === "remember") p.brain = body.brain;
+  // Its job in plain words (a recipe fills it in; the bot rewrites it with set_job).
+  if (body.job && typeof body.job === "object" && [body.job.when, body.job.think, body.job.act].every((x) => typeof x === "string" && x.trim()))
+    p.job = { when: str(body.job.when, 300), think: str(body.job.think, 300), act: str(body.job.act, 300), updatedAt: new Date().toISOString() };
   return p;
 }
 
@@ -100,7 +106,7 @@ export function configYaml(b: Bot): string {
     ),
     knowledge: { confluence: b.knowledge?.confluence ?? [], sessions: b.sessionAccess ?? { all: false, folders: [] } },
     powers: { connectors: b.mcp, skills: b.skills ?? "all", plugins: b.plugins ?? {}, hooks: b.hooks ?? [] },
-    permissions: { mode: b.mode || "same as my Claude Code", allow: b.allowTools ?? [], ask: b.askTools ?? [], autoSaveNotes: !!b.autoSaveIssues },
+    permissions: { mode: b.mode || "same as my Claude Code", allow: b.allowTools ?? [], ask: b.askTools ?? [], deny: b.denyTools ?? [], autoSaveNotes: !!b.autoSaveIssues },
     notify: { needsYou: b.notify?.needsYou !== false, finished: b.notify?.finished !== false, failed: b.notify?.failed !== false, mac: !!b.notify?.mac },
   };
   return HEADER + yaml.dump(doc, { lineWidth: 120, noRefs: true });
@@ -131,6 +137,7 @@ export function parseConfigYaml(text: string): { body: Record<string, unknown> }
       ...(pm.mode !== undefined ? { mode: pm.mode === "same as my Claude Code" ? "" : pm.mode } : {}),
       allowTools: pm.allow,
       askTools: pm.ask,
+      ...(pm.deny !== undefined ? { denyTools: pm.deny } : {}),
       autoSaveIssues: pm.autoSaveNotes,
       notify: d.notify,
     },

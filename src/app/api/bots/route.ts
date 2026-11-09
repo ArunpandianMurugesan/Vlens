@@ -1,6 +1,6 @@
 import { listIssues } from "@/lib/botIssues";
 import { threadState } from "@/lib/botThreads";
-import { readWatchState } from "@/lib/botWatch";
+import { readWatchState, type TriggerState } from "@/lib/botWatch";
 import { createBot, listBots, stylePresets, triggersOf } from "@/lib/bots";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +35,29 @@ export async function GET() {
           every: on.length ? Math.min(...on.map((t) => (t.kind === "session" ? 1 : t.everyMinutes))) : null,
           lastCheck: runs.at(-1) ?? null,
           lastCard: issues.map((i) => i.updated).sort().at(-1) ?? null,
+          // Its health: the first trigger that's failing, how long, and when checks last worked.
+          health: (() => {
+            const bad = on.map((t) => ({ t, s: (watch as Record<string, TriggerState>)[t.id] })).find((x) => x.s?.lastError);
+            const oks = Object.values(watch as Record<string, TriggerState>).map((s) => s.lastOk ?? (!s.lastError ? (s.lastRun ?? "") : "")).filter(Boolean).sort();
+            return {
+              ok: !bad,
+              trigger: bad?.t.name ?? null,
+              error: bad?.s.lastError ?? null,
+              since: bad?.s.failSince ?? null,
+              failures: bad?.s.failures ?? 0,
+              lastOk: oks.at(-1) ?? null,
+            };
+          })(),
+          // When the next scheduled check is due (the soonest one).
+          nextCheck:
+            on
+              .filter((t) => t.kind === "schedule")
+              .map((t) => {
+                const last = (watch as Record<string, TriggerState>)[t.id]?.lastRun;
+                return last ? new Date(new Date(last).getTime() + t.everyMinutes * 60_000).toISOString() : null;
+              })
+              .filter((x): x is string => !!x)
+              .sort()[0] ?? null,
         },
       };
     }),

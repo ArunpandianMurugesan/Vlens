@@ -99,15 +99,18 @@ const SECTIONS = [
   ["notifications", "Notifications"],
 ] as const;
 
-export function BotSettings({ bot, save, onBack, onNotes, onDeleted }: { bot: Bot; save: Save; onBack: () => void; onNotes: () => void; onDeleted: () => void }) {
+// embedded: shown inside Configuration's "Under the hood" (BotSetup.tsx), without its own back button.
+export function BotSettings({ bot, save, onBack, onNotes, onDeleted, embedded }: { bot: Bot; save: Save; onBack: () => void; onNotes: () => void; onDeleted: () => void; embedded?: boolean }) {
   const [file, setFile] = useState(false);
   const [more, setMore] = useState(false);
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto scroll-thin">
-      <div className="mx-auto max-w-4xl space-y-4 px-6 py-6 pr-16 md:pr-6">
-        <button onClick={onBack} className="inline-flex items-center gap-1 rounded-lg bg-sunken px-2.5 py-1 text-xs hover:text-accent">
-          <ArrowLeft size={13} /> Back to bot
-        </button>
+    <div className={embedded ? "" : "min-h-0 flex-1 overflow-y-auto scroll-thin"}>
+      <div className={embedded ? "space-y-4 p-4" : "mx-auto max-w-4xl space-y-4 px-6 py-6 pr-16 md:pr-6"}>
+        {!embedded && (
+          <button onClick={onBack} className="inline-flex items-center gap-1 rounded-lg bg-sunken px-2.5 py-1 text-xs hover:text-accent">
+            <ArrowLeft size={13} /> Back to bot
+          </button>
+        )}
         <header className="flex items-center gap-3">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-lg text-accent">{bot.avatar || bot.name[0]}</span>
           <div className="min-w-0 flex-1">

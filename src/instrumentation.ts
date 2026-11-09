@@ -7,4 +7,7 @@ export async function register() {
   // Bots whose watch is on check it at their own pace (lib/botWatch.ts).
   const { startWatches } = await import("./lib/botWatch");
   startWatches();
+  // The brain learns from the sessions in folders you picked, and tidies itself (lib/brain).
+  const { startBrain } = await import("./lib/brain/learn");
+  startBrain();
 }

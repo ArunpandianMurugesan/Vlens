@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import os from "node:os";
+import { writeBotFile } from "./botFile";
 import { DATA_DIR } from "./paths";
 import type { Bot, BotConcept, BotTrigger } from "./types";
 
@@ -119,12 +121,12 @@ const claudeMd = async (b: Bot) => `# ${b.name}\n\n${b.role.trim()}\n${rulesSect
 // Its own Claude Code settings (.claude/settings.json in its folder), from what you set:
 // output style, permissions, hooks, and which plugins are on for it.
 function settingsJson(b: Bot) {
-  const deny = denyRules(b);
+  const deny = [...denyRules(b), ...(b.denyTools ?? [])];
   const hooks: Record<string, { matcher?: string; hooks: { type: "command"; command: string }[] }[]> = {};
   for (const h of b.hooks ?? []) if (h.on && h.command.trim()) (hooks[h.event] ??= []).push({ ...(h.matcher ? { matcher: h.matcher } : {}), hooks: [{ type: "command", command: h.command }] });
   return {
     outputStyle: "Bot style",
-    ...(deny.length || b.allowTools?.length || b.askTools?.length ? { permissions: { ...(b.allowTools?.length ? { allow: b.allowTools } : {}), ...(b.askTools?.length ? { ask: b.askTools } : {}), deny } } : {}),
+    ...(deny.length || b.allowTools?.length || b.askTools?.length || b.denyTools?.length ? { permissions: { ...(b.allowTools?.length ? { allow: b.allowTools } : {}), ...(b.askTools?.length ? { ask: b.askTools } : {}), deny } } : {}),
     ...(Object.keys(hooks).length ? { hooks } : {}),
     ...(b.plugins && Object.keys(b.plugins).length ? { enabledPlugins: b.plugins } : {}),
   };
@@ -182,6 +184,8 @@ async function writeFiles(b: Bot) {
     `---\nname: Bot style\ndescription: How ${b.name.replace(/\n/g, " ")} writes\nkeep-coding-instructions: true\n---\n\n${b.style.trim()}\n`,
   );
   await fs.writeFile(path.join(dir, ".claude", "settings.json"), JSON.stringify(settingsJson(b), null, 2));
+  // The bot as one readable file (lib/botFile.ts): what you read and edit on its Configuration page.
+  await fs.writeFile(path.join(dir, "bot.md"), writeBotFile({ ...b, dir }, os.homedir()));
 }
 
 const IGNORED = ["inbox/", "inbox-items/", "state.json", ".spec-check/", "watch-state.json"];

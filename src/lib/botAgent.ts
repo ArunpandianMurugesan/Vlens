@@ -14,6 +14,9 @@ import { recordEvent } from "./limits";
 import { noteAsk, settle, waitForDecision } from "./permissions";
 import { alwaysLabel } from "./runClaude";
 import type { AgentEvent, Block, Bot, RunStatus } from "./types";
+import { abilitiesFor, type ChangeInfo, levelLabel, levelOf, widens, withLevel } from "./botAbilities";
+
+const appName = (n: string) => n.replace(/^claude\.ai /, "");
 
 // A chat with a bot, run with the Claude Agent SDK instead of a `claude -p`
 // process (your own sessions still use that, see runClaude.ts). Same engine and
@@ -44,9 +47,22 @@ You are a bot in Vlens. You can change your own setup with the mcp__bot__* tools
 - When you are new (no instructions or rules yet), interview the user briefly: what you are for, what you may do, where to look, what is off limits. Then propose the changes, one tool call each.
 - Every change asks the user for Allow or Deny in the chat. If they deny, ask what to change instead; don't retry the same thing.
 - Changes take effect from the user's next message.
-- You can't change your own permission mode or model; the user does that in your settings.`;
+- You can't change your own permission mode or model; the user does that in your settings.
+- Your whole setup is the file bot.md in your folder (When, Think, Act, May do, Knows, Off limits, Operations). To change triggers or several things at once, read it and call update_setup_file with the complete new file.
+- When the user wants you to do more or less on your own ("let it comment on my PRs", "never merge"), use set_permission. Each change shows the user a card and waits for their OK; never claim a change happened until it's approved.
+- Keep "your job, in your own words" current: after any setup change (or if get_setup shows no job), call set_job with when / think / act in plain first-person words.`;
 
 // When you let it read your Claude sessions (its Settings).
+// The shared Vlens brain (lib/brain), when its bot.md switches it on.
+const BRAIN_GUIDE = (level: "read" | "remember") => `
+# The Vlens brain
+You can use the shared Vlens brain: long-term memory of the user's work across their Claude sessions and all bots. Search it by meaning with brain_search before you start on something (past decisions, how-tos, who owns what), and read a memory in full with brain_read. Say which memory you used.${
+  level === "remember"
+    ? `
+You may also change it. brain_remember saves something worth keeping for later work: a decision and why, a fact, a how-to, the state of a ticket or PR. One idea per memory, in plain words, with a short title. If a close memory already exists, update it (update_id) instead of adding a near-copy. brain_forget removes a memory that is wrong or no longer true. Don't save chit-chat, secrets or passwords.`
+    : ""
+}`;
+
 const SESSIONS_GUIDE = `
 # Your user's Claude sessions
 You may read the user's Claude Code sessions (terminal, desktop app, Vlens), running or ended, in the folders they allowed, with list_sessions, search_sessions and read_session, and each project's Claude memory files with read_memory. Use them to find what was decided or done before. Read-only. Say which session you got something from (title and id), and cite it as session:<id> in notes.`;
@@ -120,8 +136,9 @@ export class BotRun {
 
     // The bot's own setup tools. Reading is free; each change asks first.
     const id = this.bot.id;
-    const change = async (label: string, preview: string, apply: () => Promise<void>) => {
-      const { decision, feedback } = await ask({ tool: label, input: {}, preview, description: null, reason: null, always: null });
+    // card: what the change card in the chat shows (before → after, whether it gives it more access).
+    const change = async (label: string, preview: string, apply: () => Promise<void>, card?: ChangeInfo) => {
+      const { decision, feedback } = await ask({ tool: label, input: { change: { title: label, ...card } }, preview, description: null, reason: null, always: null });
       if (decision === "deny") return text(no(feedback));
       await apply();
       return text(`Done: ${label.toLowerCase()}. It takes effect from the user's next message.`);
@@ -174,7 +191,7 @@ export class BotRun {
           const { listMcp } = await import("./mcp");
           const available = [...new Set((await listMcp().catch(() => [])).map((s) => s.name))];
           const notes = (await listConcepts(id)).map((c) => ({ path: c.path, title: c.title, type: c.type }));
-          return text(JSON.stringify({ name: b.name, avatar: b.avatar, about: b.about, instructions: b.role, rules: b.rules, connectors: { on: b.mcp, available }, style: b.style, mode: b.mode, notes }, null, 2));
+          return text(JSON.stringify({ name: b.name, avatar: b.avatar, about: b.about, job: b.job ?? null, abilities: abilitiesFor(b).map((x) => ({ id: x.id, what: x.label, level: levelOf(b, x) })), instructions: b.role, rules: b.rules, connectors: { on: b.mcp, available }, style: b.style, mode: b.mode, notes }, null, 2));
         }),
         tool(
           "update_profile",
@@ -218,8 +235,62 @@ export class BotRun {
           const add = a.on.filter((n) => !was.includes(n));
           const drop = was.filter((n) => !a.on.includes(n));
           if (!add.length && !drop.length) return text("Nothing to change.");
-          return change("Change connectors", [add.length && `Turn on: ${add.join(", ")}`, drop.length && `Turn off: ${drop.join(", ")}`].filter(Boolean).join("\n"), () => updateBot(id, { mcp: a.on }).then(() => {}));
+          return change("Change connectors", [add.length && `Turn on: ${add.join(", ")}`, drop.length && `Turn off: ${drop.join(", ")}`].filter(Boolean).join("\n"), () => updateBot(id, { mcp: a.on }).then(() => {}), {
+            title: "Change the apps it uses",
+            before: was.map(appName).join(", ") || "None",
+            after: a.on.map(appName).join(", ") || "None",
+            widens: add.length > 0,
+          });
         }),
+        tool(
+          "set_permission",
+          "Change what you may do, when the user asks in plain words (\"let it comment on my PRs without asking\", \"never merge\"). ability: an id from get_setup's abilities. level: on (do it on your own), ask (ask the user each time), never. why: one short sentence in plain words, including any limit you'll keep (\"I'll still ask before commenting on others' PRs\").",
+          { ability: z.string(), level: z.enum(["on", "ask", "never"]), why: z.string().max(300) },
+          async (a) => {
+            const b = await current();
+            const ab = abilitiesFor(b).find((x) => x.id === a.ability);
+            if (!ab) return text(`No ability "${a.ability}". Call get_setup for the list.`);
+            const from = levelOf(b, ab);
+            if (from === a.level) return text(`"${ab.label}" is already ${levelLabel(from)}.`);
+            return change(
+              "Change what it may do",
+              `${ab.label}: ${levelLabel(from)} → ${levelLabel(a.level)}\n${a.why}`,
+              async () => {
+                const now = await current();
+                await updateBot(id, withLevel(now, ab, a.level));
+              },
+              { title: "Change what it may do", what: ab.label, before: levelLabel(from), after: levelLabel(a.level), widens: widens(from, a.level), why: a.why, rules: ab.rules },
+            );
+          },
+        ),
+        tool(
+          "update_setup_file",
+          "Change your setup by rewriting your whole setup file (bot.md in your folder: When, Think, Act, May do, Knows, Off limits, Operations). Use it for triggers (what wakes you up and the check command) or several changes at once. Read bot.md first, change only what the user asked, and pass the complete new file. Vlens checks it, tries new check commands once, and shows the user each change to approve.",
+          { text: z.string().min(20).max(60_000), why: z.string().max(300) },
+          async (a) => {
+            const { checkBotFile, applyBotFile } = await import("./botFileOps");
+            const c = await checkBotFile(a.text, id);
+            if (c.errors.length) return text(`The file has problems; fix them and try again:\n${c.errors.map((e) => `${e.line ? `line ${e.line}: ` : ""}${e.message}`).join("\n")}`);
+            if (!c.changes.length) return text("Nothing would change.");
+            const tried = c.runs.map((r) => (r.ok ? `"${r.trigger}" found ${r.found}` : `"${r.trigger}" failed: ${r.error}`)).join("; ");
+            return change(
+              "Change its setup file",
+              [...c.changes.map((x) => `${x.text}${x.widens ? " (more access)" : ""}`), tried && `Checks tried once: ${tried}`].filter(Boolean).join("\n"),
+              async () => void (await applyBotFile(a.text, id)),
+              { title: "Change its setup", why: [a.why, tried && `Tried once: ${tried}.`].filter(Boolean).join(" "), items: c.changes, widens: c.changes.some((x) => x.widens) },
+            );
+          },
+        ),
+        tool(
+          "set_job",
+          "Describe your job in your own words, in three short first-person sentences the user sees on your page: when (what wakes you up), think (what you look at), act (what you do, and what you ask first). Plain words; no commands or rule syntax. Call it after any setup change, and when it's missing.",
+          { when: z.string().min(1).max(300), think: z.string().min(1).max(300), act: z.string().min(1).max(300) },
+          async (a) => {
+            // Only a description of itself: it saves without asking.
+            await updateBot(id, { job: { ...a, updatedAt: new Date().toISOString() } });
+            return text("Saved your job summary.");
+          },
+        ),
         tool("set_style", "Set how you write (your output style), as plain instructions.", { style: z.string().max(20_000) }, async (a) =>
           change("Change writing style", a.style, () => updateBot(id, { style: a.style }).then(() => {})),
         ),
@@ -241,6 +312,7 @@ export class BotRun {
         }),
         ...issueTools,
         ...(hasSessionAccess(this.bot) ? sessionTools(this.bot) : []),
+        ...brainTools(this.bot),
       ],
     });
 
@@ -266,7 +338,7 @@ export class BotRun {
         ...(this.bot.mode ? { permissionMode: this.bot.mode as any } : {}), // none: your Claude Code's own default mode
         pathToClaudeCodeExecutable: claudePath(),
         settingSources: ["user", "project", "local"], // its CLAUDE.md, rules and output style, like a session in its folder
-        systemPrompt: { type: "preset", preset: "claude_code", append: SETUP_GUIDE + (hasSessionAccess(this.bot) ? SESSIONS_GUIDE : "") + (issue ? issueGuide(issue, (await getIssue(id, issue))?.file ?? `issues/${issue}.md`) : MAIN_GUIDE) },
+        systemPrompt: { type: "preset", preset: "claude_code", append: SETUP_GUIDE + (hasSessionAccess(this.bot) ? SESSIONS_GUIDE : "") + (this.bot.brain && this.bot.brain !== "off" ? BRAIN_GUIDE(this.bot.brain) : "") + (issue ? issueGuide(issue, (await getIssue(id, issue))?.file ?? `issues/${issue}.md`) : MAIN_GUIDE) },
         includePartialMessages: true,
         mcpServers: { bot: setup },
         allowedTools: ["mcp__bot__*"], // they ask in the chat themselves
@@ -362,3 +434,59 @@ const sessionTools = (b: Bot) => [
   ),
   tool("read_memory", "Claude Code's memory files for a project folder you may read. No folder: list which folders have them.", { folder: z.string().optional() }, async (a) => text(await readMemoryText(b, a))),
 ];
+
+// Its brain tools: search and read with "read only", plus remember and forget with
+// "read and remember" (its bot.md). Only bots get these; your sessions never do.
+function brainTools(bot: Bot) {
+  const level = bot.brain ?? "off";
+  if (level === "off") return [];
+  const by = `bot:${bot.id}`;
+  const kinds = ["decision", "fact", "howto", "work", "person", "project"] as const;
+  const read = [
+    tool(
+      "brain_search",
+      "Search the Vlens brain by meaning (not exact words): past decisions, facts, how-tos, work items, people, projects from the user's Claude sessions and other bots. Returns the closest memories with their ids.",
+      { query: z.string().min(2).max(500), kind: z.enum(kinds).optional(), limit: z.number().int().min(1).max(15).optional() },
+      async (a) => {
+        const { searchMemories } = await import("./brain/store");
+        const hits = await searchMemories(a.query, { kind: a.kind, limit: a.limit ?? 6 });
+        const good = hits.filter((h) => h.match > 0.35);
+        if (!good.length) return text("Nothing in the brain about that yet.");
+        return text(good.map((h) => `[${h.id}] (${h.kind}, match ${h.match.toFixed(2)}) ${h.title}\n${h.text.slice(0, 400)}${h.text.length > 400 ? "…" : ""}`).join("\n\n"));
+      },
+    ),
+    tool("brain_read", "Read one memory from the Vlens brain in full: its text, where it came from, and earlier versions.", { id: z.string() }, async (a) => {
+      const { getMemory } = await import("./brain/store");
+      const m = await getMemory(a.id, { use: true });
+      if (!m) return text("No memory with that id.");
+      const src = m.sources.map((x) => `${x.type}${x.id ? ` ${x.id}` : ""}${x.note ? ` (${x.note})` : ""} on ${x.at.slice(0, 10)}`).join("; ");
+      return text(`${m.title} (${m.kind}, importance ${m.importance})\n${m.text}\n\nFrom: ${src}${m.history.length ? `\nEarlier versions: ${m.history.length}` : ""}`);
+    }),
+  ];
+  if (level !== "remember") return read;
+  return [
+    ...read,
+    tool(
+      "brain_remember",
+      "Save to the Vlens brain, or update a memory (update_id). One idea per memory: title (short) and text (plain words, with the why). kind: decision, fact, howto, work, person, project. importance 0..1 (0.8+ for decisions that matter later).",
+      { title: z.string().min(3).max(200), text: z.string().min(5).max(4000), kind: z.enum(kinds), importance: z.number().min(0).max(1).optional(), tags: z.array(z.string().max(40)).max(8).optional(), update_id: z.string().optional(), note: z.string().max(200).optional() },
+      async (a) => {
+        const { addMemory, similarTo, updateMemory } = await import("./brain/store");
+        const source = { type: "bot" as const, id: bot.id, note: a.note };
+        if (a.update_id) {
+          const m = await updateMemory(a.update_id, { title: a.title, text: a.text, kind: a.kind, importance: a.importance, tags: a.tags, by, source });
+          return text(`Updated [${m.id}] ${m.title}.`);
+        }
+        const near = (await similarTo(`${a.title}\n${a.text}`, 1))[0];
+        if (near && near.match > 0.9) return text(`A very similar memory exists: [${near.id}] ${near.title}. Update it with update_id instead of adding a copy.`);
+        const m = await addMemory({ title: a.title, text: a.text, kind: a.kind, importance: a.importance, tags: a.tags, source });
+        return text(`Saved [${m.id}] ${m.title}.`);
+      },
+    ),
+    tool("brain_forget", "Remove a memory from the Vlens brain that is wrong or no longer true. The user can bring it back.", { id: z.string(), why: z.string().max(300) }, async (a) => {
+      const { forgetMemory } = await import("./brain/store");
+      await forgetMemory(a.id, `${by}: ${a.why}`);
+      return text("Forgotten.");
+    }),
+  ];
+}
