@@ -160,11 +160,11 @@ export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url
             <div key={g.id} className="pt-2">
               <button
                 onClick={() => g.folded && setOpen((o) => ({ ...o, [g.id]: !o[g.id] }))}
-                className={`flex w-full items-center gap-1.5 px-2 pb-1 text-left text-[0.7rem] font-semibold text-muted ${g.folded ? "hover:text-ink" : "cursor-default"}`}
+                className={`flex w-full items-center gap-1.5 px-2 pb-1 text-left text-[0.75rem] font-bold ${g.tone === "text-muted" ? "text-ink/85" : g.tone} ${g.folded ? "hover:text-ink" : "cursor-default"}`}
               >
                 {g.folded && <ChevronRight size={12} className={`transition-transform ${folded ? "" : "rotate-90"}`} />}
                 {g.label}
-                <span className="font-normal">{g.list.length}</span>
+                <span className="font-normal text-muted">{g.list.length}</span>
               </button>
               {!folded && (
                 <div className="space-y-1">
