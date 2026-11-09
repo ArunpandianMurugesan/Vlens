@@ -5,6 +5,7 @@ import type { IncomingMessage } from "node:http";
 import os from "node:os";
 import { spawn as spawnPty, type IPty } from "node-pty";
 import { WebSocketServer, type WebSocket } from "ws";
+import { getProvider } from "./providers";
 
 // Shells for the terminal panel. Each one is a real pty (like Terminal.app), so
 // colours, prompts, vim and `claude` itself all work.
@@ -98,7 +99,9 @@ export async function openTerminal(o: { id?: string | null; cwd: string | null; 
   delete env.CLAUDECODE; // a `claude` started here is a normal top-level session
   delete env.ELECTRON_RUN_AS_NODE; // the packaged server runs as Electron-as-node; the shell shouldn't
   const shell = process.env.SHELL || "/bin/zsh";
-  const args = o.resume ? ["-l", "-c", `exec claude --resume ${o.resume}`] : ["-l"];
+  // The agent picked in Settings (lib/providers): its own command to resume the session.
+  const resume = o.resume ? (await getProvider()).resumeCommand(o.resume).join(" ") : null;
+  const args = resume ? ["-l", "-c", `exec ${resume}`] : ["-l"];
   const pty = spawnPty(shell, args, { name: "xterm-256color", cols: fit(o.cols, 80), rows: fit(o.rows, 24), cwd: dir, env });
   const id = randomUUID();
   const t: Term = { pty, cwd: dir, token: randomBytes(24).toString("hex"), backlog: "", sockets: new Set(), exited: null };

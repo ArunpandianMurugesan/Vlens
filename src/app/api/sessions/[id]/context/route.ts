@@ -1,4 +1,4 @@
-import { compactSession, handoffNote } from "@/lib/context";
+import { getProvider } from "@/lib/providers";
 
 export const dynamic = "force-dynamic";
 
@@ -8,10 +8,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { action } = (await req.json()) as { action?: string };
   try {
     if (action === "compact") {
-      await compactSession(id);
+      await (await getProvider()).compact(id);
       return Response.json({ ok: true });
     }
-    if (action === "handoff") return Response.json(await handoffNote(id));
+    if (action === "handoff") return Response.json(await (await getProvider()).handoffNote(id));
     return Response.json({ error: "bad action" }, { status: 400 });
   } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 409 });

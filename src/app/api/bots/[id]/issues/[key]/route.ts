@@ -1,6 +1,6 @@
 import { getIssue } from "@/lib/botIssues";
 import { runIssue, stopIssue, threadState } from "@/lib/botThreads";
-import { getSession } from "@/lib/sessions";
+import { getProvider } from "@/lib/providers";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,7 +12,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   const { id, key } = await params;
   const issue = await getIssue(id, decodeURIComponent(key));
   if (!issue) return Response.json({ error: "No such issue." }, { status: 404 });
-  const session = issue.thread ? await getSession(issue.thread).catch(() => null) : null;
+  const session = issue.thread ? await (await getProvider()).getSession(issue.thread).catch(() => null) : null;
   const messages = (session?.messages ?? [])
     .filter((m) => m.role !== "sub-agent")
     .map((m) => ({

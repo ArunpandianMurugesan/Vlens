@@ -1,6 +1,5 @@
-import { forkSession } from "@anthropic-ai/claude-agent-sdk";
 import { markRecent } from "@/lib/recent";
-import { getSession } from "@/lib/sessions";
+import { getProvider } from "@/lib/providers";
 import { getSettings } from "@/lib/settings";
 import { openInTerminal } from "@/lib/terminal";
 
@@ -15,17 +14,19 @@ export const runtime = "nodejs";
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { terminal } = (await req.json().catch(() => ({}))) as { terminal?: boolean };
-  const session = await getSession(id);
+  const agent = await getProvider();
+  if (!agent.capabilities.fork) return Response.json({ error: `${agent.name} can't fork sessions.` }, { status: 400 });
+  const session = await agent.getSession(id);
   if (!session) return Response.json({ error: "Session not found." }, { status: 404 });
   if (!session.messages.length) return Response.json({ error: "Nothing to fork yet: it has no messages." }, { status: 400 });
   const cwd = session.cwd ?? process.env.HOME ?? "/";
   try {
     if (terminal) {
-      await openInTerminal(cwd, ["claude", "--resume", id, "--fork-session"], (await getSettings()).terminalApp);
+      await openInTerminal(cwd, agent.forkCommand(id), (await getSettings()).terminalApp);
       return Response.json({ ok: true, terminal: true });
     }
     const title = `${session.title.replace(/\s*↳+$/, "")} ↳`.slice(0, 200);
-    const { sessionId } = await forkSession(id, { title });
+    const { sessionId } = await agent.forkSession(id, title);
     await markRecent(sessionId); // stays in the sidebar's Sessions after you look away
     return Response.json({ ok: true, id: sessionId, title });
   } catch (e) {

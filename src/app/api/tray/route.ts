@@ -1,8 +1,7 @@
 import { listBots } from "@/lib/bots";
 import { listNotifications } from "@/lib/botNotifications";
-import { getLimits } from "@/lib/limits";
 import { listAsks } from "@/lib/permissions";
-import { listSessions } from "@/lib/sessions";
+import { getProvider } from "@/lib/providers";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -11,7 +10,7 @@ export const runtime = "nodejs";
 // you (Vlens's own prompts you can answer from there, sessions elsewhere that need
 // you, bots with news), and what's working.
 export async function GET() {
-  const [sessions, limits, bots, notes] = await Promise.all([listSessions(), getLimits(), listBots(), listNotifications()]);
+  const [sessions, limits, bots, notes] = await Promise.all([(await getProvider()).listSessions(), (await getProvider()).getLimits(), listBots(), listNotifications()]);
   const byId = new Map(sessions.map((s) => [s.id, s]));
   const botName = new Map(bots.map((b) => [b.id, b.name]));
   const where = (s: (typeof sessions)[number]) => (s.active?.entrypoint === "desktop" ? "Desktop app" : s.active?.byLens ? "Vlens" : "Terminal");

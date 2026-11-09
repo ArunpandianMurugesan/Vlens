@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { findSessionFile } from "@/lib/sessions";
+import { getProvider } from "@/lib/providers";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,7 +14,7 @@ const git = (cwd: string, args: string[]) =>
 // says changed in each since the last commit: the inspector's "Files changed".
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const f = await findSessionFile(id);
+  const f = await (await getProvider()).findSessionFile(id);
   if (!f) return Response.json({ files: [] });
   const text = await fs.readFile(f.file, "utf8").catch(() => "");
   let cwd: string | null = null;

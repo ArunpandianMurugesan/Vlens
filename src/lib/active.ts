@@ -20,7 +20,7 @@ export function isAlive(pid: number) {
   }
 }
 
-type Running = ActiveInfo & { pid: number; cwd: string | null };
+export type Running = ActiveInfo & { pid: number; cwd: string | null };
 
 export async function activeSessions(): Promise<Map<string, Running>> {
   const out = new Map<string, Running>();

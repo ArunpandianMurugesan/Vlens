@@ -1,5 +1,5 @@
 import { resolveDir } from "@/lib/folders";
-import { runClaudeOnce } from "@/lib/runClaude";
+import { getProvider } from "@/lib/providers";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   const key = `${cmd}\0${cwd ?? ""}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < 5 * 60_000) return Response.json({ text: hit.text });
-  const r = await runClaudeOnce({ prompt: `/${cmd}`, args: ["--no-session-persistence"], cwd, timeoutMs: 30_000 });
+  const r = await (await getProvider()).runOnce({ prompt: `/${cmd}`, args: ["--no-session-persistence"], cwd, timeoutMs: 30_000 });
   if (!r.ok) return Response.json({ error: r.error ?? "Couldn't ask Claude" }, { status: 500 });
   cache.set(key, { at: Date.now(), text: r.text });
   return Response.json({ text: r.text });

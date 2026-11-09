@@ -286,6 +286,7 @@ export interface Settings {
   onboarded: boolean; // went through Get started once
   notifications: boolean; // desktop notifications when Claude needs you or finishes
   cliMode?: PermissionMode; // read-only: the mode your terminal claude starts in (~/.claude/settings.json)
+  provider?: "claude-code" | "codex" | "opencode" | "cursor"; // the AI agent Vlens drives (lib/providers); unset = Claude Code
 }
 
 // A CLI session whose process stopped without closing normally (crash, reboot).

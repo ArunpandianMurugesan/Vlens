@@ -1,12 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { procFor } from "@/lib/liveSessions";
 import { turnResponse, userContent } from "@/lib/runClaude";
-import { activeSessions } from "@/lib/active";
 import { resolveDir } from "@/lib/folders";
 import { parseImages } from "@/lib/images";
 import { isModel } from "@/lib/models";
 import { markRecent } from "@/lib/recent";
-import { getSession } from "@/lib/sessions";
 import { lensPluginArgs } from "@/lib/lensPlugin";
 import { isPermissionMode } from "@/lib/modes";
 import { getSettings } from "@/lib/settings";
@@ -17,6 +14,7 @@ import { issueByThread } from "@/lib/botIssues";
 import { threadState } from "@/lib/botThreads";
 import { botIdForCwd, getBot } from "@/lib/bots";
 import type { ChatMessage } from "@/lib/types";
+import { getProvider } from "@/lib/providers";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -70,16 +68,16 @@ export async function POST(req: Request) {
       }
     }
     // Keep it on the sidebar after the reply, when its process has exited.
-    const proc = await procFor({ sessionId: null, cwd, mode, model, extra: [...extra, ...wt], onSession: (id) => void markRecent(id) });
+    const proc = await (await getProvider()).openSession({ sessionId: null, cwd, mode, model, extra: [...extra, ...wt], onSession: (id) => void markRecent(id) });
     return turnResponse(proc, content, req.signal, reply(null));
   }
 
-  const session = await getSession(body.sessionId);
+  const session = await (await getProvider()).getSession(body.sessionId);
   if (!session) return Response.json({ error: "session not found" }, { status: 404 });
   // The claude running in a terminal (or the desktop app) holds this conversation
   // in memory and never re-reads the file, so a reply from here wouldn't reach
   // it and would fork the history. One place types at a time.
-  const run = (await activeSessions()).get(session.id);
+  const run = (await (await getProvider()).activeSessions()).get(session.id);
   if (run && !run.byLens)
     return Response.json(
       { error: `This session is open in ${run.entrypoint === "desktop" ? "the desktop app" : "a terminal"}. Type there, or take it over in Vlens.` },
@@ -96,6 +94,6 @@ export async function POST(req: Request) {
       return Response.json({ error: `${issue.key} is still working on its card. Wait for it, or stop it there.` }, { status: 409 });
     return turnResponse(new BotRun(bot, session.id, undefined, issue ? { issue: issue.key } : {}), content, req.signal, reply(session.messages.at(-1)?.id ?? null));
   }
-  const proc = await procFor({ sessionId: session.id, cwd: session.cwd, mode, model, extra });
+  const proc = await (await getProvider()).openSession({ sessionId: session.id, cwd: session.cwd, mode, model, extra });
   return turnResponse(proc, content, req.signal, reply(session.messages.at(-1)?.id ?? null));
 }

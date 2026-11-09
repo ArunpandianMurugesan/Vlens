@@ -2,6 +2,7 @@
 
 import {
   ArrowLeft,
+  BrainCircuit,
   Bell,
   ChevronRight,
   Cpu,
@@ -198,6 +199,57 @@ function ModelSection({ settings, save }: { settings: Settings; save: (p: Partia
           ))}
         </select>
       </Row>
+    </Section>
+  );
+}
+
+// ── AI agent (provider) ─────────────────────────────────────────────────────
+
+type ProviderRow = { id: string; name: string; binary: string; supported: boolean; installed: boolean; version: string | null };
+
+// Which coding agent Vlens drives (lib/providers). Only Claude Code has an adapter
+// today; the others are listed so you can see what's coming and what's installed.
+function ProviderSection({ settings, save }: { settings: Settings; save: (p: Partial<Settings>) => void }) {
+  const [data, setData] = useState<{ current: string; providers: ProviderRow[] } | null>(null);
+  useEffect(() => {
+    fetch("/api/providers")
+      .then((r) => r.json())
+      .then(setData)
+      .catch(() => {});
+  }, [settings.provider]);
+  return (
+    <Section icon={BrainCircuit} title="AI agent" hint="The coding agent Vlens runs your sessions with. Sessions, replies, forks and the CLI view all go through it.">
+      {!data ? (
+        <Loader2 size={16} className="animate-spin text-muted" />
+      ) : (
+        data.providers.map((p) => {
+          const on = p.id === data.current;
+          return (
+            <Row
+              key={p.id}
+              label={p.name}
+              hint={
+                !p.supported
+                  ? `Not supported yet${p.installed ? " (installed here)" : ""}. Vlens needs an adapter for it first.`
+                  : p.installed
+                    ? `Installed${p.version ? `, version ${p.version}` : ""}. The \`${p.binary}\` command.`
+                    : `Not installed: Vlens can't find the \`${p.binary}\` command.`
+              }
+            >
+              <label className={`flex items-center gap-2 text-sm ${p.supported ? "cursor-pointer" : "opacity-50"}`}>
+                <input
+                  type="radio"
+                  name="provider"
+                  checked={on}
+                  disabled={!p.supported || !p.installed}
+                  onChange={() => save({ provider: p.id as Settings["provider"] })}
+                />
+                {on ? "In use" : p.supported ? "Use" : "Coming later"}
+              </label>
+            </Row>
+          );
+        })
+      )}
     </Section>
   );
 }
@@ -1170,11 +1222,12 @@ function AboutSection() {
 
 // ── Page ───────────────────────────────────────────────────────────────────
 
-type CardId = "appearance" | "account" | "model" | "diagrams" | "restore" | "notify" | "skills" | "hooks" | "mcp" | "about";
+type CardId = "appearance" | "account" | "agent" | "model" | "diagrams" | "restore" | "notify" | "skills" | "hooks" | "mcp" | "about";
 
 // One card per settings page. The page opens on its own, so nothing is a long scroll.
 const CARDS: { id: CardId; icon: typeof User; title: string; hint: string }[] = [
   { id: "account", icon: User, title: "Account", hint: "Who Claude is signed in as. Switch or sign out." },
+  { id: "agent", icon: BrainCircuit, title: "AI agent", hint: "Which coding agent Vlens drives: Claude Code today." },
   { id: "model", icon: Cpu, title: "Model", hint: "The default model for replies and new sessions." },
   { id: "appearance", icon: Palette, title: "Appearance", hint: "Light or dark, and the accent colour." },
   { id: "notify", icon: Bell, title: "Notifications", hint: "When Claude needs you or finishes." },
@@ -1207,6 +1260,8 @@ export function SettingsView({ chat, onBack, initial }: { chat: TreeChat; onBack
         );
       case "account":
         return <AccountSection />;
+      case "agent":
+        return needs((s) => <ProviderSection settings={s} save={saveSettings} />);
       case "model":
         return needs((s) => <ModelSection settings={s} save={saveSettings} />);
       case "diagrams":

@@ -4,8 +4,8 @@ import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { listSessions } from "./sessions";
 import type { PrDetail, PrLane, PrSummary, ReviewBoard } from "./types";
+import { getProvider } from "@/lib/providers";
 
 // Vlens Review reads GitHub through the `gh` CLI, so it uses whatever account
 // you're signed in with there. One GraphQL request runs every search at once
@@ -188,7 +188,7 @@ function git(cwd: string, args: string[]): Promise<string | null> {
 
 export async function localClones(): Promise<Record<string, string>> {
   if (clonesCache && Date.now() - clonesCache.at < 5 * 60_000) return clonesCache.clones;
-  const folders = [...new Set((await listSessions()).map((s) => s.cwd).filter((c): c is string => !!c))];
+  const folders = [...new Set((await (await getProvider()).listSessions()).map((s) => s.cwd).filter((c): c is string => !!c))];
   const clones: Record<string, string> = {};
   const add = async (dir: string) => {
     const remote = await git(dir, ["remote", "get-url", "origin"]);

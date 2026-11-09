@@ -33,6 +33,8 @@ export async function updateSettings(patch: Partial<Settings>): Promise<Settings
     if (isModel(patch.subAgentModel)) s.subAgentModel = patch.subAgentModel;
     if (typeof patch.autoRestore === "boolean") s.autoRestore = patch.autoRestore;
     if (patch.terminalApp === "Terminal" || patch.terminalApp === "iTerm") s.terminalApp = patch.terminalApp;
+    // Only an agent Vlens has an adapter for (lib/providers).
+    if (patch.provider === "claude-code") s.provider = patch.provider;
     for (const k of ["showDiagrams", "animateDiagrams", "diagramSkill", "showWhiteboards", "whiteboardSkill", "onboarded", "notifications"] as const)
       if (typeof patch[k] === "boolean") s[k] = patch[k];
   });

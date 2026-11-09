@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { findSessionFile } from "@/lib/sessions";
+import { getProvider } from "@/lib/providers";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +11,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const u = new URL(req.url).searchParams;
   const m = u.get("m") ?? "";
   const i = Number(u.get("i"));
-  const found = UUID.test(m) && Number.isInteger(i) && i >= 0 ? await findSessionFile(id) : null;
+  const found = UUID.test(m) && Number.isInteger(i) && i >= 0 ? await (await getProvider()).findSessionFile(id) : null;
   if (!found) return new Response("not found", { status: 404 });
 
   const raw = await fs.readFile(found.file, "utf8");
