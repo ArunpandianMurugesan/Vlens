@@ -272,7 +272,7 @@ export function TerminalPanel({ owner, cwd }: { owner: string; cwd: string | nul
   const icon = "rounded-md p-1.5 text-term-ink/60 hover:bg-white/10 hover:text-term-ink";
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-term text-term-ink">
-      <div className="flex items-center gap-2 border-b border-white/10 px-3 py-1.5 text-xs">
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-white/10 px-3 text-xs">
         <span className="font-medium">Terminal</span>
         <span className="flex min-w-0 items-center gap-1 truncate text-term-ink/60" title={folder}>
           <FolderOpen size={11} className="shrink-0" />

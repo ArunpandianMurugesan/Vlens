@@ -9,7 +9,7 @@ import { type SlashUi, slashUi } from "@/lib/slash";
 import type { ImageInput } from "@/lib/types";
 import { Composer } from "./Composer";
 import { CwdContext, useFiles } from "./FileContext";
-import { FolderPicker } from "./FolderPicker";
+import { FolderChip, lastFolder } from "./FolderChip";
 import { useInspector } from "./Inspector";
 import { forkSession, justForked } from "@/lib/fork";
 import { useMenu } from "@/lib/menu";
@@ -35,9 +35,19 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
   const inspectorShown = botMode === undefined && inspector && !files?.tabs.length && !files?.terminal;
   // Folders of existing sessions, most recent first, for the folder picker.
   const recent = useMemo(
-    () => [...new Set(chat.sessions.map((s) => s.cwd).filter((c): c is string => !!c))],
+    () => [...new Set(chat.sessions.filter((s) => !s.botId).map((s) => s.cwd).filter((c): c is string => !!c))],
     [chat.sessions],
   );
+  // A new session starts in the folder you used last (or your latest one); the chip changes it.
+  const setDraftFolder = (cwd: string) => chat.setDraft({ cwd, worktree: lastWorktree(cwd) });
+  const draftOpen = !!newDraft;
+  const draftCwd = newDraft?.cwd;
+  useEffect(() => {
+    if (!draftOpen || draftCwd) return;
+    const start = lastFolder() || recent[0];
+    if (start) setDraftFolder(start);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only to fill an empty draft
+  }, [draftOpen, draftCwd, recent[0]]);
   // Starts in the mode your terminal claude starts in (permissions.defaultMode), until you pick one.
   const [pickedMode, setMode] = useState<RootMode | null>(null);
   const mode = (botMode || null) ?? pickedMode ?? chat.settings?.cliMode ?? "default";
@@ -188,14 +198,14 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
 
   return (
     <CwdContext.Provider value={session?.cwd ?? newDraft?.cwd ?? null}>
-    <main className="flex min-w-0 flex-1 flex-col">
+    <main className="@container/chat flex min-w-0 flex-1 flex-col">
       {/* A bot chat has the bot's own header instead (BotsView). Its terminal buttons would
           also run it as plain claude, without its setup tools or connector blocks. */}
       {botMode === undefined && (
-      <header className="flex items-center gap-3 border-b border-line bg-bg/80 px-4 py-3 backdrop-blur">
+      <header className="@container flex h-14 shrink-0 items-center gap-2 border-b border-line bg-bg/80 px-4 backdrop-blur">
         <MenuButton onClick={onMenu} />
         {session ? (
-          <div className="min-w-[7rem] flex-1">
+          <div className="min-w-[6rem] flex-1">
             <div className="flex items-center gap-2">
               <h1 className="truncate text-sm font-semibold">{session.title}</h1>
               {live && (
@@ -225,7 +235,7 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
               title={cli ? "Back to the chat (ends the claude in the CLI view; the conversation is kept)" : "Chat view"}
               className={`flex items-center gap-1 rounded-md px-2 py-0.5 ${!cli ? "bg-bg text-ink shadow-sm" : "text-muted hover:text-ink"}`}
             >
-              <MessageSquare size={12} /> <span className="hidden xl:inline">Chat</span>
+              <MessageSquare size={12} /> <span className="hidden @4xl:inline">Chat</span>
             </button>
             <button
               onClick={() => !cli && toCli()}
@@ -242,7 +252,7 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
               }
               className={`flex items-center gap-1 rounded-md px-2 py-0.5 disabled:opacity-40 ${cli ? "bg-bg text-ink shadow-sm" : "text-muted hover:text-ink"}`}
             >
-              <Terminal size={12} /> <span className="hidden xl:inline">CLI</span>
+              <Terminal size={12} /> <span className="hidden @4xl:inline">CLI</span>
             </button>
           </div>
         )}
@@ -261,7 +271,7 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
               files.terminal ? "border-accent bg-accent-soft text-accent" : "border-line text-muted"
             }`}
           >
-            <Terminal size={12} /> <span className="hidden xl:inline">Terminal</span>
+            <Terminal size={12} /> <span className="hidden @4xl:inline">Terminal</span>
           </button>
         )}
         {(session || newDraft?.cwd) && !elsewhere && !cli && <ModePicker mode={mode} cliMode={chat.settings?.cliMode} onChange={setMode} header />}
@@ -276,7 +286,7 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
               aria-expanded={forking === "menu"}
               className="flex shrink-0 items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-xs text-muted hover:text-ink disabled:opacity-50"
             >
-              {forking === "busy" ? <Loader2 size={12} className="animate-spin" /> : <GitFork size={12} />} <span className="hidden xl:inline">Fork</span> <ChevronDown size={11} />
+              {forking === "busy" ? <Loader2 size={12} className="animate-spin" /> : <GitFork size={12} />} <span className="hidden @4xl:inline">Fork</span> <ChevronDown size={11} />
             </button>
             {forking === "menu" && (
               <div role="menu" className="absolute right-0 top-8 z-40 w-60 rounded-xl border border-line bg-panel py-1 text-sm shadow-xl" onMouseLeave={() => setForking(null)}>
@@ -307,7 +317,7 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
             }}
             title={`Copy: ${resumeCmd}`}
             aria-label="Copy the resume command"
-            className="hidden shrink-0 rounded-lg border border-line p-1.5 text-muted hover:text-ink sm:block"
+            className="hidden shrink-0 rounded-lg border border-line p-1.5 text-muted hover:text-ink @lg:block"
           >
             {copied ? <Check size={13} /> : <Copy size={13} />}
           </button>
@@ -340,10 +350,17 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
         className={`flex-1 overflow-y-auto transition-[padding] duration-300 scroll-thin ${stack.length ? "xl:pr-[540px]" : ""}`}
       >
         {newDraft && !rootPending && (
-          <div className="mx-auto max-w-2xl px-4 py-8">
-            <h2 className="mb-1 text-xl font-semibold">Start a new session</h2>
-            <p className="mb-6 text-sm text-muted">Pick the folder Claude should work in, then type your first message below.</p>
-            <FolderPicker value={newDraft.cwd} onChange={(cwd) => chat.setDraft({ cwd, worktree: lastWorktree(cwd) })} recent={recent} />
+          <div className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center px-4 text-center">
+            <h2 className="mb-1 text-xl font-semibold">New session</h2>
+            <p className="text-sm text-muted">
+              {newDraft.cwd ? (
+                <>
+                  Claude will work in <span className="font-mono text-ink">{newDraft.cwd.replace(/^\/Users\/[^/]+/, "~")}</span>. Change it with the folder button below.
+                </>
+              ) : (
+                "Pick the folder Claude works in with the folder button below, then type your first message."
+              )}
+            </p>
           </div>
         )}
         {!session && loadingSession && (
@@ -506,6 +523,7 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
               }}
               footer={
                 <div className="flex flex-wrap items-center gap-2">
+                  {newDraft && !rootPending && <FolderChip value={newDraft.cwd} onChange={setDraftFolder} recent={recent} />}
                   {newDraft?.cwd && !rootPending && (
                     <WorktreeToggle
                       cwd={newDraft.cwd}
@@ -516,7 +534,7 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
                       }}
                     />
                   )}
-                  {botMode !== undefined ? <BotMode mode={botMode} /> : elsewhere ? null : <span className="sm:hidden"><ModePicker mode={mode} cliMode={chat.settings?.cliMode} onChange={setMode} /></span>}
+                  {botMode !== undefined ? <BotMode mode={botMode} /> : elsewhere ? null : <span className="@2xl/chat:hidden"><ModePicker mode={mode} cliMode={chat.settings?.cliMode} onChange={setMode} /></span>}
                   <select
                     value={currentModel}
                     onChange={(e) => setModel(e.target.value)}
@@ -569,10 +587,10 @@ function ModePicker({ mode, cliMode, onChange, header }: { mode: RootMode; cliMo
   return (
     <label
       title={`${cur.hint}. Shift+Tab in the message box switches modes.`}
-      className={`items-center gap-1 rounded-lg ${header ? "hidden border border-line px-2 py-1 text-xs sm:flex" : "flex bg-sunken px-1.5 py-0.5 text-[0.7rem]"} ${mode === "bypassPermissions" ? "text-red-600" : mode === "default" ? "text-muted" : "text-accent"}`}
+      className={`items-center gap-1 rounded-lg ${header ? "hidden border border-line px-2 py-1 text-xs @2xl/chat:flex" : "flex bg-sunken px-1.5 py-0.5 text-[0.7rem]"} ${mode === "bypassPermissions" ? "text-red-600" : mode === "default" ? "text-muted" : "text-accent"}`}
     >
       <Icon size={11} className="shrink-0" />
-      <select value={mode} onChange={(e) => onChange(e.target.value as RootMode)} aria-label="Permission mode" className={`bg-transparent outline-none ${header ? "max-w-[7.5rem] 2xl:max-w-none" : ""}`}>
+      <select value={mode} onChange={(e) => onChange(e.target.value as RootMode)} aria-label="Permission mode" className={`bg-transparent outline-none ${header ? "max-w-[7.5rem] @5xl:max-w-none" : ""}`}>
         {PERMISSION_MODES.map((m) => (
           <option key={m.id} value={m.id}>
             {m.label}

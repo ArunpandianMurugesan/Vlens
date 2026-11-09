@@ -1,6 +1,7 @@
 "use client";
 
-import { BellRing, FolderOpen, GitBranch, Loader2, Minimize2, Play, Sparkles } from "lucide-react";
+import { FolderChip, lastFolder, rememberFolder } from "./FolderChip";
+import { BellRing, GitBranch, Loader2, Minimize2, Play, Sparkles } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import type { RootMode, TreeChat } from "@/hooks/useTreeChat";
 import { PERMISSION_MODES } from "@/lib/modes";
@@ -97,7 +98,6 @@ function HeavyRow({ h, chat, onDone }: { h: HeavySession; chat: TreeChat; onDone
 // right here. Under it, what needs you, what's running and what you were in last,
 // a strip of today's numbers, and sessions getting heavy (Compact / Fresh start).
 
-const FOLDER_KEY = "lens.homeFolder";
 const home = (p: string) => p.replace(/^\/Users\/[^/]+/, "~");
 
 function Row({ s, onOpen, right }: { s: SessionSummary; onOpen: () => void; right?: ReactNode }) {
@@ -149,17 +149,12 @@ export function HomeView({ chat, onMenu, onNew, onReview }: { chat: TreeChat; on
   const [folder, setFolder] = useState<string>("");
   useEffect(() => {
     if (folder) return;
-    let saved = "";
-    try {
-      saved = localStorage.getItem(FOLDER_KEY) ?? "";
-    } catch {}
+    const saved = lastFolder();
     if (saved || folders[0]) setFolder(saved || folders[0]);
   }, [folders, folder]);
   const pick = (f: string) => {
     setFolder(f);
-    try {
-      localStorage.setItem(FOLDER_KEY, f);
-    } catch {}
+    rememberFolder(f);
   };
   const [mode, setMode] = useState<RootMode | null>(null);
   const curMode = mode ?? chat.settings?.cliMode ?? "default";
@@ -220,23 +215,7 @@ export function HomeView({ chat, onMenu, onNew, onReview }: { chat: TreeChat; on
               onStop={() => {}}
               footer={
                 <div className="flex flex-wrap items-center gap-2">
-                  <label className="flex items-center gap-1 rounded-lg bg-sunken px-1.5 py-0.5 text-[0.7rem] text-muted">
-                    <FolderOpen size={11} className="shrink-0" />
-                    <select
-                      value={folder}
-                      onChange={(e) => (e.target.value === "__other" ? onNew() : pick(e.target.value))}
-                      aria-label="Folder"
-                      className="max-w-56 bg-transparent outline-none hover:text-ink"
-                    >
-                      {!folder && <option value="">Pick a folder</option>}
-                      {folders.map((f) => (
-                        <option key={f} value={f}>
-                          {home(f)}
-                        </option>
-                      ))}
-                      <option value="__other">Another folder…</option>
-                    </select>
-                  </label>
+                  <FolderChip value={folder} onChange={pick} recent={folders} down />
                   <select value={curMode} onChange={(e) => setMode(e.target.value as RootMode)} aria-label="Permission mode" className={sel}>
                     {PERMISSION_MODES.map((m) => (
                       <option key={m.id} value={m.id}>

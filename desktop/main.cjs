@@ -1,6 +1,6 @@
 // Vlens for Mac: starts the Vlens server that ships inside the app, then
 // shows it in a window. Quitting the app stops the server.
-const { app, BrowserWindow, Menu, Tray, dialog, nativeImage, nativeTheme, shell } = require("electron");
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, nativeTheme, shell } = require("electron");
 const { execFileSync, spawn } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -118,6 +118,20 @@ async function startServer() {
   return target;
 }
 
+// The Mac's folder window, as a sheet on the Vlens window (preload.cjs). Only for
+// Vlens's own pages.
+ipcMain.handle("choose-folder", async (e, start) => {
+  if (!e.senderFrame?.url?.startsWith(url)) return null;
+  const owner = BrowserWindow.fromWebContents(e.sender);
+  const r = await dialog.showOpenDialog(owner, {
+    title: "Choose a folder for this session",
+    buttonLabel: "Choose",
+    defaultPath: typeof start === "string" && start ? start : app.getPath("home"),
+    properties: ["openDirectory", "createDirectory"],
+  });
+  return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+});
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1440,
@@ -129,7 +143,7 @@ function createWindow() {
     // (the page makes room for them and lets its headers drag the window).
     ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 18 } } : {}),
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#1f1e1b" : "#faf9f5",
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: path.join(__dirname, "preload.cjs") },
   });
   win.loadURL(url);
 

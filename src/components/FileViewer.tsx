@@ -168,7 +168,7 @@ export function FileViewer() {
   return (
     <section className="flex h-full min-w-0 flex-col bg-panel">
       {/* Tabs and actions */}
-      <div className="flex items-center gap-1 border-b border-line px-2 py-1.5">
+      <div className="flex h-14 shrink-0 items-center gap-1 border-b border-line px-2">
         <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto scroll-thin">
           {files.tabs.map((t) => (
             <div

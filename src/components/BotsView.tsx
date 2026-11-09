@@ -189,7 +189,7 @@ function Home({ bots, onOpen, onCreate }: { bots: BotRow[]; onOpen: (id: string)
   };
   return (
     <div className="min-h-0 flex-1 overflow-y-auto scroll-thin">
-      <div className="mx-auto max-w-6xl space-y-5 px-8 py-8 pr-16">
+      <div className="mx-auto max-w-6xl space-y-5 px-8 py-8 pr-16 md:pr-8">
         <div>
           <h1 className="text-2xl font-semibold">Your bots</h1>
           <p className="text-sm text-muted">Each bot has its own chat, memory and approvals.</p>
@@ -381,7 +381,7 @@ function Workspace(p: { bot: BotRow; chat: TreeChat; renderChat: (bot: Bot) => R
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-[52px] shrink-0 items-center gap-2.5 border-b border-line px-4 pr-14">
+        <header className="@container flex h-[52px] shrink-0 items-center gap-2.5 border-b border-line px-4 pr-14 md:pr-4">
           <button onClick={p.onHome} className="inline-flex items-center gap-1 rounded-lg bg-sunken px-2 py-1 text-xs hover:text-accent">
             <ArrowLeft size={13} /> All bots
           </button>
@@ -581,7 +581,7 @@ function Notes({ bot, onBack }: { bot: Bot; onBack: () => void }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex items-center gap-2.5 border-b border-line py-2 pl-3 pr-14">
+      <header className="flex items-center gap-2.5 border-b border-line py-2 pl-3 pr-14 md:pr-3">
         <button onClick={onBack} className="rounded-md p-1 text-muted hover:bg-panel hover:text-ink" aria-label="Back to settings">
           <ArrowLeft size={16} />
         </button>

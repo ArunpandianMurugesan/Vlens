@@ -13,7 +13,7 @@ function ago(iso: string) {
   return m < 1 ? "now" : m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`;
 }
 
-export function BotBell() {
+export function BotBell({ rail }: { rail?: boolean } = {}) {
   const [list, setList] = useState<BotNotification[]>([]);
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
@@ -51,12 +51,13 @@ export function BotBell() {
   };
 
   return (
-    <div ref={box} className="fixed right-3 top-2.5 z-40">
+    // In the rail (wide windows), or floating top right where the rail is hidden.
+    <div ref={box} className={rail ? "relative" : "fixed right-3 top-2.5 z-40 md:hidden"}>
       <button
         onClick={() => setOpen((o) => !o)}
         title="What your bots want you to know"
         aria-label={`Bot notifications${unread ? `, ${unread} new` : ""}`}
-        className={`relative flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-bg transition hover:text-ink ${open ? "text-accent" : "text-muted"}`}
+        className={`relative flex items-center justify-center transition hover:text-ink ${rail ? `h-9 w-9 rounded-xl ${open ? "bg-accent-soft text-accent" : "text-muted hover:bg-panel"}` : `h-8 w-8 rounded-lg border border-line bg-bg ${open ? "text-accent" : "text-muted"}`}`}
       >
         <Bell size={15} />
         {unread > 0 && (
@@ -64,7 +65,7 @@ export function BotBell() {
         )}
       </button>
       {open && (
-        <div className="absolute right-0 top-10 w-96 overflow-hidden rounded-xl border border-line bg-panel shadow-xl">
+        <div className={`absolute z-50 w-96 overflow-hidden rounded-xl border border-line bg-panel shadow-xl ${rail ? "bottom-0 left-full ml-2" : "right-0 top-10"}`}>
           <div className="flex items-center border-b border-line px-3 py-2">
             <span className="text-sm font-medium">Bot notifications</span>
             {unread > 0 && (

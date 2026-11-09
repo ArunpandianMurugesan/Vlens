@@ -3,6 +3,7 @@
 import { Bot, GitPullRequest, MessagesSquare, Settings as SettingsIcon, Store } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Limits } from "@/lib/types";
+import { BotBell } from "./BotBell";
 import { PlanUsage, Ring } from "./Usage";
 
 // The thin bar on the far left: which space you're in (each loads its own
@@ -55,6 +56,7 @@ export function SpaceRail(p: Props) {
         </button>
       ))}
       <div className="flex-1" />
+      <BotBell rail />
       <button onClick={p.onMarketplace} title="Marketplace" aria-label="Marketplace" className={item(p.page === "marketplace")}>
         <Store size={17} />
       </button>

@@ -104,7 +104,7 @@ export function BotSettings({ bot, save, onBack, onNotes, onDeleted }: { bot: Bo
   const [more, setMore] = useState(false);
   return (
     <div className="min-h-0 flex-1 overflow-y-auto scroll-thin">
-      <div className="mx-auto max-w-4xl space-y-4 px-6 py-6 pr-16">
+      <div className="mx-auto max-w-4xl space-y-4 px-6 py-6 pr-16 md:pr-6">
         <button onClick={onBack} className="inline-flex items-center gap-1 rounded-lg bg-sunken px-2.5 py-1 text-xs hover:text-accent">
           <ArrowLeft size={13} /> Back to bot
         </button>

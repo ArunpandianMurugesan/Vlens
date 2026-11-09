@@ -137,7 +137,11 @@ export function Inspector({ chat }: { chat: TreeChat }) {
             {shown.map((c) => (
               <button
                 key={c.path}
-                onClick={() => files?.open(c.path.startsWith("/") || !changes?.repo ? c.path : `${changes.repo}/${c.path}`)}
+                onClick={() => {
+                  // Relative to the repo, or to the session's folder when it isn't a git repo.
+                  const base = changes?.repo ?? s.cwd;
+                  files?.open(c.path.startsWith("/") || !base ? c.path : `${base}/${c.path}`);
+                }}
                 title={c.path}
                 className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left font-mono text-[0.7rem] hover:bg-panel"
               >

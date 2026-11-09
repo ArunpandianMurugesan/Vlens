@@ -108,10 +108,10 @@ export function ContextBadge({ ctx, compact }: { ctx?: ContextUsage; compact?: b
       {label}
     </span>
   ) : (
-    <span title={title} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-xs text-muted">
+    <span title={title} className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-line px-1.5 py-1 text-xs text-muted @xl:px-2">
       <Ring pct={pct} size={14} stroke={2.5} />
-      ctx {label}
-      <span className="hidden opacity-70 lg:inline">
+      <span className="hidden @xl:inline">ctx</span> {label}
+      <span className="hidden opacity-70 @4xl:inline">
         · {tokens(ctx.used)}/{tokens(ctx.window)}
       </span>
     </span>
