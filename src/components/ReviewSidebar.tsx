@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronRight, GitPullRequest, RefreshCw, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Review } from "@/hooks/useReview";
 import type { PrLane, PrSummary } from "@/lib/types";
 
@@ -13,7 +13,6 @@ export const LANES: Record<PrLane, { label: string; dot: string; text: string }>
   done: { label: "Done", dot: "bg-emerald-500", text: "text-emerald-700 dark:text-emerald-400" },
   fyi: { label: "FYI", dot: "bg-line", text: "text-muted" },
 };
-const LANE_ORDER: PrLane[] = ["needsYou", "mine", "team", "waiting", "done", "fyi"];
 
 export const CI_DOT: Record<PrSummary["ci"], string> = {
   passing: "bg-emerald-500",
@@ -45,11 +44,32 @@ export function groupOf(p: PrSummary): Group {
   if (p.lane === "waiting") return "waiting";
   return "radar"; // team, fyi
 }
+// The sidebar's two tabs: reviews you (or your team) owe, and your own PRs.
+type Tab = "reviews" | "mine";
+type Section = { id: string; label: string; tone: string; folded?: boolean; test: (p: PrSummary) => boolean };
+const SECTIONS: Record<Tab, Section[]> = {
+  reviews: [
+    { id: "asked", label: "Asked of you", tone: "text-amber-700 dark:text-amber-400", test: (p) => p.lane === "needsYou" },
+    { id: "team", label: "Asked of your team", tone: "text-sky-700 dark:text-sky-400", test: (p) => p.lane === "team" },
+    { id: "reviewed", label: "You reviewed", tone: "text-muted", test: (p) => p.lane === "waiting" || p.lane === "done" },
+    { id: "fyi", label: "Mentions and FYI", tone: "text-muted", folded: true, test: (p) => p.lane === "fyi" },
+  ],
+  mine: [
+    { id: "fix", label: "Needs your fix", tone: "text-red-700 dark:text-red-400", test: (p) => p.lane === "mine" && /changes requested|CI failing|merge conflict/.test(p.why) },
+    { id: "ready", label: "Ready to merge", tone: "text-emerald-700 dark:text-emerald-400", test: (p) => p.lane === "mine" && /ready to merge/.test(p.why) },
+    { id: "waiting", label: "Waiting for review", tone: "text-muted", test: (p) => p.lane === "mine" && /waiting for review/.test(p.why) },
+    { id: "drafts", label: "Drafts", tone: "text-muted", test: (p) => p.lane === "mine" && p.why === "draft" },
+  ],
+};
+const tabOf = (p: PrSummary): Tab => (p.lane === "mine" ? "mine" : "reviews");
+const teamName = (t: string) => t.split("/").pop() ?? t;
+
 // The line under a PR's title: why it's in its section, plus CI when that's the news.
 export function statusLine(p: PrSummary) {
   const bits = [p.why];
   if (p.ci === "pending" && !/CI/.test(p.why)) bits.push("checks running");
   if (p.ci === "failing" && !/CI/.test(p.why)) bits.push("CI failing");
+  if (p.lane === "team" && p.teams?.length) bits[0] = `asked @${p.teams.map(teamName).join(", @")}`;
   if (p.lane !== "mine" && p.author) bits.push(`@${p.author}`);
   return bits.join(" · ");
 }
@@ -58,13 +78,32 @@ export function statusLine(p: PrSummary) {
 export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url: string) => void }) {
   const { board, prs, loading, refresh, selected } = review;
   const [q, setQ] = useState("");
-  const [radar, setRadar] = useState(false); // "On your radar" starts folded
+  const [open, setOpen] = useState<Record<string, boolean>>({}); // folded sections opened
+  const [tab, setTabState] = useState<Tab>(() => {
+    try {
+      return localStorage.getItem("lens.prTab") === "mine" ? "mine" : "reviews";
+    } catch {
+      return "reviews";
+    }
+  });
+  const setTab = (t: Tab) => {
+    setTabState(t);
+    try {
+      localStorage.setItem("lens.prTab", t);
+    } catch {}
+  };
+  // Opening a PR from elsewhere (search, a card) shows the tab it's in.
+  const selectedPr = prs.find((p) => p.url === selected);
+  useEffect(() => {
+    if (selectedPr) setTabState(tabOf(selectedPr));
+  }, [selectedPr?.url]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const shown = prs.filter((p) => !q || `${p.title} ${p.repo} #${p.number} ${p.author}`.toLowerCase().includes(q.toLowerCase()));
-  const groups = useMemo(() => {
-    const rank = (p: PrSummary) => LANE_ORDER.indexOf(p.lane);
-    return GROUPS.map((g) => ({ ...g, list: shown.filter((p) => groupOf(p) === g.id).sort((a, b) => rank(a) - rank(b) || b.updatedAt.localeCompare(a.updatedAt)) }));
-  }, [shown]);
+  const shown = prs.filter((p) => !q || `${p.title} ${p.repo} #${p.number} ${p.author} ${(p.teams ?? []).join(" ")}`.toLowerCase().includes(q.toLowerCase()));
+  const count = { reviews: shown.filter((p) => p.lane === "needsYou" || p.lane === "team").length, mine: shown.filter((p) => p.lane === "mine").length };
+  const groups = useMemo(
+    () => SECTIONS[tab].map((g) => ({ ...g, list: shown.filter(g.test).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) })),
+    [shown, tab],
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -93,22 +132,37 @@ export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url
           <Search size={14} className="text-muted" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search PRs" className="w-full bg-transparent outline-none placeholder:text-muted" />
         </label>
+        <div role="tablist" className="flex rounded-lg bg-sunken p-0.5 text-xs">
+          {(
+            [
+              ["reviews", "Reviews"],
+              ["mine", "My PRs"],
+            ] as const
+          ).map(([id, label]) => (
+            <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={`flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 ${tab === id ? "bg-panel font-semibold text-ink shadow-sm" : "text-muted hover:text-ink"}`}>
+              {label}
+              {count[id] > 0 && <span className={`rounded-full px-1.5 text-[0.65rem] ${id === "reviews" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" : "bg-line/60 text-muted"}`}>{count[id]}</span>}
+            </button>
+          ))}
+        </div>
       </div>
 
       <nav className="mt-1 flex-1 overflow-y-auto px-2 pb-3 scroll-thin" aria-label="Your pull requests">
         {board?.error && <p className="m-1 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600">{board.error}</p>}
         {!board && <p className="px-3 py-4 text-center text-xs text-muted">Loading PRs from GitHub…</p>}
-        {board && !shown.length && !board.error && <p className="px-3 py-4 text-center text-xs text-muted">{q ? "No PRs match." : "No open PRs need you. Nice."}</p>}
+        {board && !groups.some((g) => g.list.length) && !board.error && (
+          <p className="px-3 py-4 text-center text-xs text-muted">{q ? "No PRs match." : tab === "reviews" ? "No reviews waiting on you or your team." : "You have no open PRs."}</p>
+        )}
         {groups.map((g) => {
           if (!g.list.length) return null;
-          const folded = g.id === "radar" && !radar && !q;
+          const folded = !!g.folded && !open[g.id] && !q;
           return (
             <div key={g.id} className="pt-2">
               <button
-                onClick={() => g.id === "radar" && setRadar((v) => !v)}
-                className={`flex w-full items-center gap-1.5 px-2 pb-1 text-left text-[0.7rem] font-semibold text-muted ${g.id === "radar" ? "hover:text-ink" : "cursor-default"}`}
+                onClick={() => g.folded && setOpen((o) => ({ ...o, [g.id]: !o[g.id] }))}
+                className={`flex w-full items-center gap-1.5 px-2 pb-1 text-left text-[0.7rem] font-semibold text-muted ${g.folded ? "hover:text-ink" : "cursor-default"}`}
               >
-                {g.id === "radar" && <ChevronRight size={12} className={`transition-transform ${folded ? "" : "rotate-90"}`} />}
+                {g.folded && <ChevronRight size={12} className={`transition-transform ${folded ? "" : "rotate-90"}`} />}
                 {g.label}
                 <span className="font-normal">{g.list.length}</span>
               </button>
@@ -126,7 +180,7 @@ export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url
                         <span className="shrink-0 text-muted">
                           {p.repo.split("/")[1]} #{p.number}
                         </span>
-                        <span className={`min-w-0 flex-1 truncate ${g.id === "radar" ? "text-muted" : g.tone}`}>{statusLine(p)}</span>
+                        <span className={`min-w-0 flex-1 truncate ${g.tone}`}>{statusLine(p)}</span>
                         {p.ci !== "none" && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${CI_DOT[p.ci]}`} title={`CI ${p.ci}`} />}
                         <span className="shrink-0 text-muted">{ago(p.updatedAt)}</span>
                       </span>

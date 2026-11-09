@@ -28,12 +28,12 @@ async function me(): Promise<string | null> {
   return meCache?.login ?? null;
 }
 
-let teamsCache: { login: string; teams: string[] } | null = null;
+let teamsCache: { login: string; teams: string[]; at: number } | null = null;
 async function myTeams(login: string): Promise<string[]> {
-  if (teamsCache?.login === login) return teamsCache.teams;
+  if (teamsCache?.login === login && Date.now() - teamsCache.at < 60 * 60_000) return teamsCache.teams; // new teams show within the hour
   const r = await gh(["api", "user/teams", "--paginate", "--jq", '.[] | (.organization.login + "/" + .slug)'], 15_000);
   const teams = r.ok ? r.out.split("\n").map((t) => t.trim()).filter(Boolean) : [];
-  if (r.ok) teamsCache = { login, teams };
+  if (r.ok) teamsCache = { login, teams, at: Date.now() };
   return teams;
 }
 
@@ -143,7 +143,10 @@ export async function reviewBoard(force = false): Promise<ReviewBoard> {
       e.sources.add(alias);
       nodes.set(n.url, e);
     }
-  const prs = [...nodes.values()].map(({ node, sources }) => toSummary(node, login, sources));
+  const prs = [...nodes.values()].map(({ node, sources }) => {
+    const teamsAsked = [...sources].filter((s) => s.startsWith("team")).map((s) => teams[Number(s.slice(4))]).filter(Boolean);
+    return { ...toSummary(node, login, sources), ...(teamsAsked.length ? { teams: teamsAsked } : {}) };
+  });
   // Other people's drafts aren't ready for review yet, and old FYIs are noise.
   const shown = prs.filter((p) => !(p.isDraft && p.author !== login && p.lane !== "needsYou") && !(p.lane === "fyi" && Date.now() - Date.parse(p.updatedAt) > 14 * 86_400_000));
 

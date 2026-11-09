@@ -383,6 +383,7 @@ export interface PrSummary {
   changedSinceMyReview: boolean;
   lane: PrLane;
   why: string;
+  teams?: string[]; // which of your teams were asked to review ("org/slug")
 }
 
 export interface ReviewBoard {
