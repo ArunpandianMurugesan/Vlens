@@ -57,6 +57,8 @@ export interface BotFile {
   raw: { allow: string[]; ask: string[]; never: string[] };
   sessions: string[] | "all" | null;
   brain: "off" | "read" | "remember";
+  brainFolders: string[] | "all"; // which folders' memories it reads
+  brainLearn: "off" | "all" | string[]; // which of your Claude sessions the brain learns from, for it
   confluence: { id: string; title: string }[];
   skills: string[] | "all";
   offLimits: string[];
@@ -131,6 +133,8 @@ export function writeBotFile(b: Bot, home: string): string {
   const sess = b.sessionAccess;
   const knows = [
     `- brain: ${BRAIN_LABEL[b.brain ?? "off"]}`,
+    ...((b.brain ?? "off") !== "off" ? [`- brain folders: ${b.brainFolders?.length ? b.brainFolders.map((f) => tilde(f, home)).join(", ") : "all"}`] : []),
+    ...(b.brain === "remember" ? [`- brain learns from: ${!b.brainLearn ? "off" : b.brainLearn.all ? "all sessions" : b.brainLearn.folders.map((f) => tilde(f, home)).join(", ") || "off"}`] : []),
     `- sessions: ${sess?.all ? "all" : sess?.folders.length ? sess.folders.map((f) => tilde(f, home)).join(", ") : "off"}`,
     ...(b.knowledge?.confluence ?? []).map((c) => `- confluence: ${c.id} ${c.title}`.trim()),
     `- skills: ${Array.isArray(b.skills) ? b.skills.join(", ") || "none" : "all"}`,
@@ -199,13 +203,19 @@ export function readBotFile(text: string): { file: BotFile | null; errors: FileE
 
   let sessions: BotFile["sessions"] = null;
   let brain: BotFile["brain"] = "off";
+  let brainFolders: BotFile["brainFolders"] = "all";
+  let brainLearn: BotFile["brainLearn"] = "off";
   const confluence: BotFile["confluence"] = [];
   let skills: BotFile["skills"] = "all";
   for (const b of bulletsOf("Knows")) {
-    const m = b.match(/^(sessions|confluence|skills|brain):\s*(.*)$/i);
+    const m = b.match(/^(sessions|confluence|skills|brain learns from|brain folders|brain):\s*(.*)$/i);
     if (!m) continue;
     const [, k, v] = m;
-    if (k.toLowerCase() === "brain") {
+    if (k.toLowerCase() === "brain learns from") {
+      const x = v.trim();
+      brainLearn = /^off$/i.test(x) || !x ? "off" : /^all( sessions)?$/i.test(x) ? "all" : x.split(",").map((y) => y.trim()).filter(Boolean);
+    } else if (k.toLowerCase() === "brain folders") brainFolders = /^all$/i.test(v.trim()) ? "all" : v.split(",").map((x) => x.trim()).filter(Boolean);
+    else if (k.toLowerCase() === "brain") {
       const x = v.trim().toLowerCase();
       brain = /remember|write/.test(x) ? "remember" : /read/.test(x) ? "read" : "off";
     } else if (k.toLowerCase() === "sessions") sessions = /^off$/i.test(v.trim()) ? null : /^all$/i.test(v.trim()) ? "all" : v.split(",").map((x) => x.trim()).filter(Boolean);
@@ -215,6 +225,7 @@ export function readBotFile(text: string): { file: BotFile | null; errors: FileE
     } else skills = /^all$/i.test(v.trim()) ? "all" : /^none$/i.test(v.trim()) ? [] : v.split(",").map((x) => x.trim()).filter(Boolean);
   }
 
+  if (brainLearn !== "off" && brain !== "remember") errors.push({ line: null, message: '"brain learns from" needs "brain: read and remember": a bot that learns has to be allowed to change the brain.' });
   const operations = (body.Operations?.lines ?? []).join("\n").trim();
   const file: BotFile = {
     name,
@@ -231,6 +242,8 @@ export function readBotFile(text: string): { file: BotFile | null; errors: FileE
     raw,
     sessions,
     brain,
+    brainFolders,
+    brainLearn,
     confluence,
     skills,
     offLimits: bulletsOf("Off limits"),
@@ -358,6 +371,8 @@ export function buildFromFile(f: BotFile, b: Pick<Bot, "triggers" | "mcp">, home
     sessionAccess: f.sessions === "all" ? { all: true, folders: [] } : { all: false, folders: (f.sessions ?? []).map((x) => untilde(x, home)) },
     knowledge: { confluence: f.confluence },
     brain: f.brain,
+    brainFolders: f.brainFolders === "all" ? [] : f.brainFolders.map((x) => untilde(x, home)),
+    brainLearn: f.brain !== "remember" || f.brainLearn === "off" ? undefined : f.brainLearn === "all" ? { all: true, folders: [] } : { all: false, folders: f.brainLearn.map((x) => untilde(x, home)) },
     skills: f.skills === "all" ? null : f.skills,
   };
 }
@@ -411,6 +426,21 @@ export function changesBetween(b: Bot, next: Partial<Bot>): Change[] {
   const bw = b.brain ?? "off";
   const ba = after.brain ?? "off";
   if (bw !== ba) out.push({ text: `Vlens brain: ${BRAIN_LABEL[bw]} → ${BRAIN_LABEL[ba]}`, widens: rank[ba] > rank[bw] });
+  const fw = b.brainFolders ?? [];
+  const fa = after.brainFolders ?? [];
+  const lw = b.brainLearn;
+  const la = after.brainLearn;
+  const learnLabel = (l: Bot["brainLearn"]) => (!l ? "off" : l.all ? "all your sessions" : l.folders.map((x) => x.split("/").pop()).join(", ") || "off");
+  if (learnLabel(lw) !== learnLabel(la)) {
+    // Reading more of your sessions: all, or a folder it didn't learn from before.
+    const more = !!la && (la.all ? !lw?.all : la.folders.some((x) => !lw?.all && !lw?.folders.includes(x)));
+    out.push({ text: `The brain learns from: ${learnLabel(lw)} → ${learnLabel(la)}`, widens: more });
+  }
+  if (ba !== "off" && JSON.stringify(fw) !== JSON.stringify(fa)) {
+    const short = (xs: string[]) => (xs.length ? xs.map((x) => x.split("/").pop()).join(", ") : "all folders");
+    // Fewer limits = more it can read: from some folders to all, or a folder added.
+    out.push({ text: `Brain memories from: ${short(fw)} → ${short(fa)}`, widens: (!fa.length && fw.length > 0) || fa.some((x) => fw.length > 0 && !fw.includes(x)) });
+  }
   if (JSON.stringify(b.knowledge?.confluence ?? []) !== JSON.stringify(after.knowledge?.confluence ?? [])) out.push({ text: "Its Confluence pages" });
   if (JSON.stringify(b.skills ?? null) !== JSON.stringify(after.skills ?? null)) out.push({ text: "Its skills" });
   if ((["allowed", "lookAt", "dontLookAt"] as const).some((k) => JSON.stringify(b.rules[k]) !== JSON.stringify(after.rules[k]))) out.push({ text: "What it looks at, does, or must not touch" });

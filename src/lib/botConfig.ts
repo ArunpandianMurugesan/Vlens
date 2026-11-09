@@ -85,6 +85,9 @@ export function cleanConfig(body: Record<string, any>): Partial<Bot> { // eslint
   if (typeof body.autoSaveIssues === "boolean") p.autoSaveIssues = body.autoSaveIssues;
   if (typeof body.paused === "boolean") p.paused = body.paused;
   if (body.brain === "off" || body.brain === "read" || body.brain === "remember") p.brain = body.brain;
+  if (body.brainLearn === null) p.brainLearn = undefined;
+  else if (body.brainLearn && typeof body.brainLearn === "object") p.brainLearn = { all: !!body.brainLearn.all, folders: strs(body.brainLearn.folders, 30, 300).filter((f) => f.startsWith("/")) };
+  if (Array.isArray(body.brainFolders)) p.brainFolders = strs(body.brainFolders, 30, 300).filter((f) => f.startsWith("/"));
   // Its job in plain words (a recipe fills it in; the bot rewrites it with set_job).
   if (body.job && typeof body.job === "object" && [body.job.when, body.job.think, body.job.act].every((x) => typeof x === "string" && x.trim()))
     p.job = { when: str(body.job.when, 300), think: str(body.job.think, 300), act: str(body.job.act, 300), updatedAt: new Date().toISOString() };

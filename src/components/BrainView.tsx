@@ -18,6 +18,14 @@ type Memory = {
   importance: number;
   tags: string[];
   pinned: boolean;
+  folder?: string | null;
+  why?: string;
+  when?: string;
+  createdAt?: string;
+  branch?: string | null;
+  things?: Thing[];
+  links?: { rel: string; id: string; title: string }[];
+  supersededBy?: { id: string; title: string } | null;
   sources: { type: string; id?: string; note?: string; at: string }[];
   updatedAt: string;
   uses: number;
@@ -26,6 +34,20 @@ type Memory = {
   forgottenAt?: string;
   by?: string;
 };
+type Thing = { id: string; type: string; key: string; name: string; memories?: number; relations?: number };
+const LINK_LABEL: Record<string, string> = { supersedes: "Replaces", caused_by: "Caused by", fixes: "Fixes", part_of: "Part of", relates_to: "Relates to" };
+const TYPE_LABEL: Record<string, string> = { ticket: "Ticket", pr: "PR", repo: "Repo", person: "Person", project: "Project", file: "File", team: "Team" };
+const thingName = (t: Thing) => (t.name && t.name !== t.key ? t.name : t.key);
+
+function ThingChip({ t, onOpen }: { t: Thing; onOpen: (id: string) => void }) {
+  return (
+    <button onClick={() => onOpen(t.id)} title={`${TYPE_LABEL[t.type] ?? t.type} ${t.key}`} className="inline-flex max-w-56 items-center gap-1 rounded-full border border-line px-2 py-0.5 text-[0.7rem] hover:border-accent hover:text-accent">
+      <span className="text-muted">{TYPE_LABEL[t.type] ?? t.type}</span>
+      <span className="truncate">{thingName(t)}</span>
+    </button>
+  );
+}
+
 const KINDS: { id: Kind; label: string }[] = [
   { id: "decision", label: "Decisions" },
   { id: "fact", label: "Facts" },
@@ -35,6 +57,7 @@ const KINDS: { id: Kind; label: string }[] = [
   { id: "project", label: "Projects" },
 ];
 const btn = "inline-flex items-center gap-1 rounded-lg border border-line bg-bg px-2.5 py-1 text-xs hover:border-accent hover:text-accent disabled:opacity-50";
+const short = (f: string) => f.replace(/^\/Users\/[^/]+/, "~");
 const ago = (iso: string) => {
   const d = Math.floor((Date.now() - Date.parse(iso)) / 86_400_000);
   return d < 1 ? "today" : d === 1 ? "yesterday" : `${d}d ago`;
@@ -61,7 +84,9 @@ export function BrainView({ bots, onBack, onOpenBot, recentFolders }: { bots: Bo
   const [kind, setKind] = useState<Kind | null>(null);
   const [forgotten, setForgotten] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [tab, setTab] = useState<"memories" | "activity">("memories");
+  const [tab, setTab] = useState<"memories" | "things" | "activity">("memories");
+  const [thing, setThing] = useState<string | null>(null); // a thing's page, open
+  const [folder, setFolder] = useState<string | null>(null); // only memories from this folder
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -81,6 +106,7 @@ export function BrainView({ bots, onBack, onOpenBot, recentFolders }: { bots: Bo
   }, [load]);
 
   const users = bots.filter((b) => b.brain && b.brain !== "off");
+  const folders = [...new Set((list ?? []).map((m) => m.folder).filter((f): f is string => !!f))].sort();
   const act = async (fn: () => Promise<unknown>) => {
     setErr(null);
     try {
@@ -116,15 +142,20 @@ export function BrainView({ bots, onBack, onOpenBot, recentFolders }: { bots: Bo
               {(
                 [
                   ["memories", "Memories"],
+                  ["things", "Things"],
                   ["activity", "What it learned"],
                 ] as const
               ).map(([id, label]) => (
-                <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={`flex-1 rounded-md px-3 py-1.5 ${tab === id ? "bg-bg font-medium shadow-sm" : "text-muted hover:text-ink"}`}>
+                <button key={id} role="tab" aria-selected={tab === id && !thing} onClick={() => (setTab(id), setThing(null))} className={`flex-1 rounded-md px-3 py-1.5 ${tab === id ? "bg-bg font-medium shadow-sm" : "text-muted hover:text-ink"}`}>
                   {label}
                 </button>
               ))}
             </div>
-            {tab === "activity" ? (
+            {thing ? (
+              <ThingPage id={thing} onOpen={setThing} onBack={() => setThing(null)} />
+            ) : tab === "things" ? (
+              <Things onOpen={setThing} />
+            ) : tab === "activity" ? (
               <Activity bots={bots} />
             ) : (
               <>
@@ -164,6 +195,16 @@ export function BrainView({ bots, onBack, onOpenBot, recentFolders }: { bots: Bo
                 </Chip>
               ))}
               <span className="flex-1" />
+              {folders.length > 0 && (
+                <select value={folder ?? ""} onChange={(e) => setFolder(e.target.value || null)} aria-label="Folder" className="rounded-full border border-line bg-bg px-2.5 py-1 text-xs outline-none">
+                  <option value="">All folders</option>
+                  {folders.map((f) => (
+                    <option key={f} value={f}>
+                      {short(f)}
+                    </option>
+                  ))}
+                </select>
+              )}
               <Chip on={forgotten} onClick={() => setForgotten((v) => !v)}>
                 Forgotten
               </Chip>
@@ -176,14 +217,14 @@ export function BrainView({ bots, onBack, onOpenBot, recentFolders }: { bots: Bo
                 {forgotten ? "Nothing forgotten." : asked ? "Nothing about that yet." : "The brain is empty. Bots fill it as they work, and you can add memories yourself."}
               </p>
             ) : (
-              list.map((m) => <Row key={m.id} m={m} bots={bots} forgotten={forgotten} act={act} />)
+              list.filter((m) => !folder || m.folder === folder).map((m) => <Row key={m.id} m={m} bots={bots} forgotten={forgotten} act={act} onThing={setThing} />)
             )}
               </>
             )}
           </main>
 
           <aside className="space-y-4">
-            <Learning recentFolders={recentFolders} onChanged={() => void load()} />
+            <Learning recentFolders={recentFolders} onChanged={() => void load()} onOpenBot={onOpenBot} />
             <section className="rounded-2xl border border-line bg-panel p-4">
               <h2 className="mb-2 text-sm font-semibold">Bots that use it</h2>
               {users.length ? (
@@ -193,17 +234,19 @@ export function BrainView({ bots, onBack, onOpenBot, recentFolders }: { bots: Bo
                       <button onClick={() => onOpenBot(b.id)} className="min-w-0 flex-1 truncate text-left hover:text-accent">
                         {b.name}
                       </button>
-                      <span className="shrink-0 rounded-md bg-sunken px-1.5 py-0.5 text-[0.7rem] text-muted">{b.brain === "remember" ? "read and remember" : "read only"}</span>
+                      <span className="shrink-0 rounded-md bg-sunken px-1.5 py-0.5 text-[0.7rem] text-muted" title={b.brainFolders?.length ? b.brainFolders.join("\n") : "Memories from every folder"}>
+                        {b.brain === "remember" ? "read and remember" : "read only"} · {b.brainFolders?.length ? b.brainFolders.map((f) => f.split("/").pop()).join(", ") : "all folders"}
+                      </span>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-xs text-muted">None yet. Switch it on in a bot&apos;s setup file: under Knows, &ldquo;brain: read only&rdquo; or &ldquo;brain: read and remember&rdquo;.</p>
+                <p className="text-xs text-muted">None yet. Switch it on in a bot&apos;s setup file: under Knows, &ldquo;brain: read only&rdquo; or &ldquo;brain: read and remember&rdquo;, and &ldquo;brain folders: ~/Desktop/org_repos&rdquo; to limit which folders&apos; memories it reads.</p>
               )}
             </section>
             <section className="rounded-2xl border border-line bg-panel p-4 text-[0.8rem] leading-relaxed text-muted">
               <h2 className="mb-1 text-sm font-semibold text-ink">How it works</h2>
-              Search is by meaning, with a small model on this Mac. While you work, it reads new turns of your sessions in the folders above and keeps what matters (a small Claude call). When it&apos;s quiet, it merges duplicates and lets unused minor memories fade. Pinned memories are never touched; forgotten ones can be brought back.
+              Search is by meaning, with a small model on this Mac. While you work, it reads new turns of the sessions your bots ask it to learn from and keeps what matters (a small Claude call). When it&apos;s quiet, it merges duplicates and lets unused minor memories fade. Pinned memories are never touched; forgotten ones can be brought back.
             </section>
           </aside>
         </div>
@@ -218,7 +261,7 @@ const Chip = ({ on, onClick, children }: { on: boolean; onClick: () => void; chi
   </button>
 );
 
-function Row({ m, bots, forgotten, act }: { m: Memory; bots: Bot[]; forgotten: boolean; act: (fn: () => Promise<unknown>) => Promise<void> }) {
+function Row({ m, bots, forgotten, act, onThing }: { m: Memory; bots: Bot[]; forgotten: boolean; act: (fn: () => Promise<unknown>) => Promise<void>; onThing: (id: string) => void }) {
   const [edit, setEdit] = useState(false);
   const [title, setTitle] = useState(m.title);
   const [text, setText] = useState(m.text);
@@ -249,6 +292,28 @@ function Row({ m, bots, forgotten, act }: { m: Memory; bots: Bot[]; forgotten: b
                 {m.match !== undefined && <span className="text-[0.65rem] text-muted">match {Math.round(m.match * 100)}%</span>}
               </div>
               <p className="mt-1 whitespace-pre-wrap text-[0.85rem] leading-relaxed">{m.text}</p>
+              {m.why && (
+                <p className="mt-1 text-[0.8rem] leading-relaxed text-muted">
+                  <b className="font-medium text-ink">Why:</b> {m.why}
+                </p>
+              )}
+              {!!m.things?.length && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {m.things.map((t) => (
+                    <ThingChip key={t.id} t={t} onOpen={onThing} />
+                  ))}
+                </div>
+              )}
+              {(!!m.links?.length || m.supersededBy) && (
+                <div className="mt-1.5 space-y-0.5 text-[0.75rem]">
+                  {m.supersededBy && <div className="text-amber-700 dark:text-amber-400">Replaced by: {m.supersededBy.title}</div>}
+                  {m.links?.map((l) => (
+                    <div key={l.rel + l.id} className="text-muted">
+                      {LINK_LABEL[l.rel] ?? l.rel}: <span className="text-ink">{l.title}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             {!forgotten ? (
               <div className="flex shrink-0 gap-0.5">
@@ -270,6 +335,7 @@ function Row({ m, bots, forgotten, act }: { m: Memory; bots: Bot[]; forgotten: b
           </div>
           <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-[0.7rem] text-muted">
             <span>From {from(m, bots)}</span>
+            <span>{m.folder ? short(m.folder) : "General"}</span>
             <span>Updated {ago(m.updatedAt)}</span>
             <span>Importance {Math.round(m.importance * 100)}%</span>
             {m.uses > 0 && <span>Used {m.uses}×</span>}
@@ -323,7 +389,8 @@ function AddForm({ onDone }: { onDone: () => void }) {
 // ── Learning: from which sessions, and how it's doing ────────────────────────
 
 type LearnState = {
-  settings: { learn: boolean; folders: string[]; maxRunsPerDay: number };
+  settings: { paused: boolean; skip: string[]; maxRunsPerDay: number };
+  scope: { all: boolean; folders: string[]; bots: { id: string; name: string; all: boolean; folders: string[] }[] };
   status: { running: boolean; lastRun: string | null; skipped: number; lastError: string | null; runsToday: number; watched: number; lastReflection: string | null };
   activity: ActivityEntry[];
 };
@@ -342,7 +409,7 @@ function useLearn() {
 
 const when = (iso: string | null) => (!iso ? "never" : new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }));
 
-function Learning({ recentFolders, onChanged }: { recentFolders: string[]; onChanged: () => void }) {
+function Learning({ recentFolders, onChanged, onOpenBot }: { recentFolders: string[]; onChanged: () => void; onOpenBot: (id: string) => void }) {
   const { d, load } = useLearn();
   const [busy, setBusy] = useState<string | null>(null);
   const [adding, setAdding] = useState("");
@@ -359,48 +426,70 @@ function Learning({ recentFolders, onChanged }: { recentFolders: string[]; onCha
     onChanged();
     setBusy(null);
   };
-  const short = (f: string) => f.replace(/^\/Users\/[^/]+/, "~");
+  const asked = d.scope.bots.length > 0;
   return (
     <section className="space-y-3 rounded-2xl border border-line bg-panel p-4">
       <div className="flex items-center gap-2">
         <h2 className="flex-1 text-sm font-semibold">Learning</h2>
-        <label className="flex items-center gap-2 text-xs">
-          <span className="text-muted">{s.learn ? "On" : "Off"}</span>
-          <input type="checkbox" checked={s.learn} disabled={!s.folders.length} onChange={(e) => void save({ learn: e.target.checked })} aria-label="Learn from my Claude sessions" />
-        </label>
+        {asked && (
+          <label className="flex items-center gap-2 text-xs">
+            <span className="text-muted">{s.paused ? "Paused" : "On"}</span>
+            <input type="checkbox" checked={!s.paused} onChange={(e) => void save({ paused: !e.target.checked })} aria-label="Learning on" />
+          </label>
+        )}
       </div>
-      <p className="text-[0.75rem] leading-relaxed text-muted">Learn from your Claude sessions while they run, in these folders only:</p>
-      <div className="flex flex-wrap gap-1.5">
-        {s.folders.map((f) => (
-          <span key={f} className="inline-flex items-center gap-1 rounded-full bg-sunken px-2 py-0.5 text-[0.7rem]" title={f}>
-            {short(f)}
-            <button onClick={() => void save({ folders: s.folders.filter((x) => x !== f), ...(s.folders.length === 1 ? { learn: false } : {}) })} aria-label={`Stop learning from ${short(f)}`} className="text-muted hover:text-red-600">
-              <X size={11} />
-            </button>
-          </span>
-        ))}
-        <FolderChip
-          value={adding}
-          onChange={(f) => {
-            setAdding("");
-            if (f && !s.folders.includes(f)) void save({ folders: [...s.folders, f] });
-          }}
-          recent={recentFolders}
-          down
-        />
+      {asked ? (
+        <div className="space-y-1.5">
+          <p className="text-[0.75rem] leading-relaxed text-muted">Your bots ask it to learn from these Claude sessions, while they run:</p>
+          <ul className="space-y-1">
+            {d.scope.bots.map((b) => (
+              <li key={b.id} className="flex items-start gap-2 text-[0.8rem]">
+                <button onClick={() => onOpenBot(b.id)} className="shrink-0 font-medium hover:text-accent">
+                  {b.name}
+                </button>
+                <span className="min-w-0 flex-1 text-muted">{b.all ? "all your sessions" : b.folders.map(short).join(", ")}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="text-[0.75rem] leading-relaxed text-muted">
+          No bot asks it to learn yet. In a bot&apos;s setup, under Knows: &ldquo;brain: read and remember&rdquo; and &ldquo;brain learns from: all sessions&rdquo; (or some folders).
+        </p>
+      )}
+      <div className="space-y-1.5">
+        <div className="text-[0.75rem] text-muted">Never learn from:</div>
+        <div className="flex flex-wrap gap-1.5">
+          {s.skip.map((f) => (
+            <span key={f} className="inline-flex items-center gap-1 rounded-full bg-sunken px-2 py-0.5 text-[0.7rem]" title={f}>
+              {short(f)}
+              <button onClick={() => void save({ skip: s.skip.filter((x) => x !== f) })} aria-label={`Allow learning from ${short(f)} again`} className="text-muted hover:text-red-600">
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+          <FolderChip
+            value={adding}
+            onChange={(f) => {
+              setAdding("");
+              if (f && !s.skip.includes(f)) void save({ skip: [...s.skip, f] });
+            }}
+            recent={recentFolders}
+            down
+          />
+        </div>
+        <p className="text-[0.7rem] text-muted">Temporary folders and your bots&apos; own folders are always skipped.</p>
       </div>
-      {!s.folders.length && <p className="text-[0.7rem] text-muted">Pick a folder first, then switch it on.</p>}
-      <p className="text-[0.7rem] text-muted">Sessions count by the folder they started in, so a project you renamed may still be under its old folder.</p>
       <div className="space-y-0.5 text-[0.7rem] text-muted">
         <div>{d.status.running ? "Reading new turns now…" : `Last looked: ${when(d.status.lastRun)}`}</div>
         <div>
-          Today: {d.status.runsToday} of {s.maxRunsPerDay} curator runs{d.status.skipped ? ` · ${d.status.skipped} batches skipped as noise` : ""}
+          Today: {d.status.runsToday} of {s.maxRunsPerDay} curator runs{d.status.skipped ? ` · ${d.status.skipped} batch${d.status.skipped === 1 ? "" : "es"} skipped as noise` : ""}
         </div>
         <div>Last tidy-up: {when(d.status.lastReflection)}</div>
         {d.status.lastError && <div className="text-red-600">{d.status.lastError}</div>}
       </div>
       <div className="flex flex-wrap gap-2">
-        <button onClick={() => void run("learn")} disabled={!!busy || !s.folders.length} className={btn} title="Read the new turns of your sessions now, without waiting">
+        <button onClick={() => void run("learn")} disabled={!!busy || !asked} className={btn} title="Read the new turns of your sessions now, without waiting">
           {busy === "learn" ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Learn now
         </button>
         <button onClick={() => void run("reflect")} disabled={!!busy} className={btn} title="Merge duplicates and let unused minor memories fade, now">
@@ -446,6 +535,150 @@ function Activity({ bots }: { bots: Bot[] }) {
           )}
         </article>
       ))}
+    </div>
+  );
+}
+
+// ── Things and their pages ───────────────────────────────────────────────────
+
+function Things({ onOpen }: { onOpen: (id: string) => void }) {
+  const [list, setList] = useState<Thing[] | null>(null);
+  const [type, setType] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    api<{ things: Thing[] }>(`/api/brain/things${type ? `?type=${type}` : ""}`)
+      .then((d) => setList(d.things))
+      .catch(() => setList([]));
+  }, [type]);
+  const shown = (list ?? []).filter((t) => !q.trim() || `${t.key} ${t.name}`.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Chip on={!type} onClick={() => setType(null)}>
+          All
+        </Chip>
+        {Object.entries(TYPE_LABEL).map(([id, label]) => (
+          <Chip key={id} on={type === id} onClick={() => setType(id)}>
+            {label === "Person" ? "People" : `${label}s`}
+          </Chip>
+        ))}
+        <span className="flex-1" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter" className="w-36 rounded-full border border-line bg-bg px-3 py-1 text-xs outline-none focus:border-accent" />
+      </div>
+      {list === null ? (
+        <Loader2 size={16} className="animate-spin text-muted" />
+      ) : !shown.length ? (
+        <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-muted">No things yet. Tickets, PRs, repos, people and files show up here as the brain learns about them.</p>
+      ) : (
+        <div className="grid gap-2 md:grid-cols-2">
+          {shown.map((t) => (
+            <button key={t.id} onClick={() => onOpen(t.id)} className="flex items-center gap-2.5 rounded-xl border border-line bg-panel px-3 py-2.5 text-left hover:border-accent">
+              <span className="shrink-0 rounded-md bg-sunken px-1.5 py-0.5 text-[0.65rem] text-muted">{TYPE_LABEL[t.type] ?? t.type}</span>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{thingName(t)}</span>
+              <span className="shrink-0 text-[0.7rem] text-muted">
+                {t.memories} memor{t.memories === 1 ? "y" : "ies"}
+                {t.relations ? ` · ${t.relations} link${t.relations === 1 ? "" : "s"}` : ""}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type TrailMemory = Memory & { things?: Thing[] };
+type TrailData = { thing: Thing | null; memories: TrailMemory[]; relations: { from: Thing | null; rel: string; to: Thing | null }[]; near: { thing: Thing | null; memories: Memory[] }[] };
+
+function ThingPage({ id, onOpen, onBack }: { id: string; onOpen: (id: string) => void; onBack: () => void }) {
+  const [d, setD] = useState<TrailData | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    setD(null);
+    setErr(null);
+    api<TrailData>(`/api/brain/things/${encodeURIComponent(id)}`)
+      .then(setD)
+      .catch((e) => setErr((e as Error).message));
+  }, [id]);
+  if (err) return <p className="text-sm text-red-600">{err}</p>;
+  if (!d) return <Loader2 size={16} className="animate-spin text-muted" />;
+  const t = d.thing;
+  return (
+    <div className="space-y-4">
+      <button onClick={onBack} className="inline-flex items-center gap-1 text-xs text-muted hover:text-ink">
+        <ArrowLeft size={12} /> Back
+      </button>
+      {t && (
+        <header>
+          <div className="text-[0.7rem] text-muted">{TYPE_LABEL[t.type] ?? t.type}</div>
+          <h2 className="text-lg font-semibold">{thingName(t)}</h2>
+          {t.name !== t.key && <div className="font-mono text-xs text-muted">{t.key}</div>}
+        </header>
+      )}
+      {d.relations.length > 0 && (
+        <section className="rounded-xl border border-line bg-panel p-3">
+          <h3 className="mb-2 text-xs font-semibold text-muted">How it connects</h3>
+          <ul className="space-y-1.5">
+            {d.relations.map((r, i) => (
+              <li key={i} className="flex flex-wrap items-center gap-1.5 text-sm">
+                {r.from && <ThingChip t={r.from} onOpen={onOpen} />}
+                <span className="text-muted">{r.rel}</span>
+                {r.to && <ThingChip t={r.to} onOpen={onOpen} />}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      <section>
+        <h3 className="mb-2 text-xs font-semibold text-muted">Its story, oldest first</h3>
+        {d.memories.length ? (
+          <ol className="relative space-y-3 border-l border-line pl-4">
+            {d.memories.map((m) => (
+              <li key={m.id} className="relative">
+                <span className={`absolute -left-[1.3rem] top-1.5 h-2.5 w-2.5 rounded-full ${m.supersededBy ? "bg-line" : "bg-accent"}`} aria-hidden />
+                <div className="text-[0.7rem] text-muted">
+                  {new Date(m.when ?? m.createdAt ?? m.updatedAt).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })} · {KINDS.find((k) => k.id === m.kind)?.label.replace(/s$/, "") ?? m.kind}
+                  {m.folder ? ` · ${short(m.folder)}` : ""}
+                </div>
+                <div className={`text-sm font-medium ${m.supersededBy ? "text-muted line-through" : ""}`}>{m.title}</div>
+                <p className="text-[0.8rem] leading-relaxed">{m.text}</p>
+                {m.why && <p className="text-[0.8rem] text-muted">Why: {m.why}</p>}
+                {m.supersededBy && <p className="text-[0.75rem] text-amber-700 dark:text-amber-400">Replaced by: {m.supersededBy.title}</p>}
+                {!!m.things?.length && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {m.things.filter((x) => x.id !== id).map((x) => (
+                      <ThingChip key={x.id} t={x} onOpen={onOpen} />
+                    ))}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="text-sm text-muted">No memories about it yet.</p>
+        )}
+      </section>
+      {d.near.some((n) => n.memories.length) && (
+        <section>
+          <h3 className="mb-2 text-xs font-semibold text-muted">Nearby</h3>
+          <div className="grid gap-2 md:grid-cols-2">
+            {d.near
+              .filter((n) => n.thing && n.memories.length)
+              .map((n) => (
+                <div key={n.thing!.id} className="rounded-xl border border-line bg-panel p-3">
+                  <ThingChip t={n.thing!} onOpen={onOpen} />
+                  <ul className="mt-1.5 space-y-0.5 text-[0.8rem]">
+                    {n.memories.map((m) => (
+                      <li key={m.id} className="truncate">
+                        {m.title}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

@@ -127,6 +127,8 @@ ${ABILITIES.map((a) => `  - ${a.label}`).join("\n")}
 
 ## Knows
 - brain: off   (the shared Vlens brain: off, read only, or read and remember; "read only" suits most bots)
+- brain folders: all   (only with the brain on: which folders' memories it reads, e.g. ~/Desktop/org_repos)
+- brain learns from: off   (only with "read and remember": the brain learns from these Claude sessions as they run: off, all sessions, or ~/folder, ~/other)
 - sessions: off   (or ~/folder, ~/other, or all)
 - confluence: 12345 Page title   (only page ids you were given)
 - skills: all

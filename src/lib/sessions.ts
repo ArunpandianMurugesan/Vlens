@@ -19,6 +19,14 @@ export const PROJECTS_DIR = path.join(os.homedir(), ".claude", "projects");
 const SESSION_FILE = /^[0-9a-f-]{36}\.jsonl$/;
 
 // "-Users-am-Desktop-claude-lens" -> "claude-lens"
+// The session's folder: the one Claude Code files it under (its project dir is that
+// folder's path with every non-alphanumeric turned into "-"). A project renamed
+// mid-session (claude-lens -> vlens) then counts as its new folder, not its first one.
+function homeCwd(dir: string, p: Pick<Parsed, "cwd" | "cwds">) {
+  const enc = (c: string) => c.replace(/[^a-zA-Z0-9]/g, "-");
+  return p.cwds.find((c) => enc(c) === dir) ?? p.cwd;
+}
+
 function projectNameFromDir(dir: string, cwd: string | null) {
   const wt = parseWorktree(cwd);
   if (wt) return `${path.basename(wt.repo)} ⎇ ${wt.name}`; // a session in its own worktree
@@ -129,6 +137,7 @@ interface Parsed {
   context: { used: number; model: string | null } | null; // at the last reply
   branch: string | null; // the git branch at the last line
   forkedFrom: string | null; // the parent session, when this is a fork
+  cwds: string[]; // every folder it worked in
   firstSessionId: string | null; // the session id on its first line (a copied fork keeps its parent's)
 }
 
@@ -138,6 +147,7 @@ function parseJsonl(raw: string, withMessages: boolean, sessionId?: string): Par
   let cwd: string | null = null;
   let branch: string | null = null;
   let forkedFrom: string | null = null;
+  const cwds = new Set<string>(); // every folder it worked in (a renamed project shows both)
   let firstSessionId: string | null = null;
   let firstPrompt: string | null = null;
   let context: Parsed["context"] = null;
@@ -154,6 +164,7 @@ function parseJsonl(raw: string, withMessages: boolean, sessionId?: string): Par
     if (d.type === "ai-title") aiTitle = d.aiTitle;
     else if (d.type === "custom-title") customTitle = d.customTitle;
     if (!cwd && d.cwd) cwd = d.cwd;
+    if (typeof d.cwd === "string" && cwds.size < 100) cwds.add(d.cwd);
     if (typeof d.gitBranch === "string" && d.gitBranch) branch = d.gitBranch;
     if (!forkedFrom && typeof d.forkedFrom?.sessionId === "string") forkedFrom = d.forkedFrom.sessionId;
     if (!firstSessionId && typeof d.sessionId === "string") firstSessionId = d.sessionId;
@@ -212,6 +223,7 @@ function parseJsonl(raw: string, withMessages: boolean, sessionId?: string): Par
     cwd,
     branch,
     forkedFrom,
+    cwds: [...cwds],
     firstSessionId,
     firstPrompt,
     context,
@@ -325,8 +337,8 @@ export async function listSessions(): Promise<SessionSummary[]> {
               : {
                   id,
                   projectDir: dir,
-                  projectName: projectNameFromDir(dir, p.cwd),
-                  cwd: p.cwd,
+                  projectName: projectNameFromDir(dir, homeCwd(dir, p)),
+                  cwd: homeCwd(dir, p),
                   title: summaryTitle(p),
                   updatedAt: act.last ?? stat.mtime.toISOString(),
                   messageCount,
@@ -413,8 +425,8 @@ export async function getSession(id: string): Promise<SessionDetail | null> {
   return {
     id,
     projectDir: found.dir,
-    projectName: projectNameFromDir(found.dir, p.cwd),
-    cwd: p.cwd,
+    projectName: projectNameFromDir(found.dir, homeCwd(found.dir, p)),
+    cwd: homeCwd(found.dir, p),
     title: summaryTitle(p),
     updatedAt: stat.mtime.toISOString(),
     messageCount: p.messages.length,

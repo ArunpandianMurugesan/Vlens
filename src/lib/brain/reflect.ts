@@ -4,6 +4,7 @@ import { jsonStore } from "../jsonStore";
 import { runClaudeOnce } from "../runClaude";
 import { similarity } from "./embed";
 import { brainActivity, type BrainActivity, logActivity } from "./learn";
+import type { ThingRef } from "./things";
 import { adjustMemory, forgetMemory, KINDS, type Memory, type MemoryKind, rawMemories, updateMemory } from "./store";
 
 // Reflection: the brain tidies itself when it's quiet. Pinned memories are never
@@ -79,7 +80,11 @@ export async function reflect() {
       const merged = await mergeText(group.slice(0, 6));
       if (!merged) continue;
       const keep = [...group].sort((a, b) => b.importance - a.importance || b.uses - a.uses)[0];
-      await updateMemory(keep.id, { ...merged, importance: Math.max(...group.map((x) => x.importance)), by: "reflection" });
+      // The merged memory keeps every thing and link the group had.
+      const things = [...new Set(group.flatMap((x) => x.things ?? []))].map((id) => ({ type: id.split(":")[0] as ThingRef["type"], key: id.slice(id.indexOf(":") + 1) }));
+      const links = group.flatMap((x) => x.links ?? []).filter((l) => !group.some((y) => y.id === l.to));
+      const why = group.map((x) => x.why).filter(Boolean)[0];
+      await updateMemory(keep.id, { ...merged, why, things, links, importance: Math.max(...group.map((x) => x.importance)), by: "reflection" });
       for (const m of group) if (m.id !== keep.id) await forgetMemory(m.id, `reflection: merged into ${keep.id}`);
       ops.push({ op: "merge", id: keep.id, title: merged.title, why: `${group.length} memories said the same thing` });
     }

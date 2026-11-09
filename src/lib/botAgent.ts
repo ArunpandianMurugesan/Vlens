@@ -3,6 +3,7 @@ import "server-only";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createSdkMcpServer, query, tool, type CanUseTool, type PermissionResult, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
@@ -56,10 +57,10 @@ You are a bot in Vlens. You can change your own setup with the mcp__bot__* tools
 // The shared Vlens brain (lib/brain), when its bot.md switches it on.
 const BRAIN_GUIDE = (level: "read" | "remember") => `
 # The Vlens brain
-You can use the shared Vlens brain: long-term memory of the user's work across their Claude sessions and all bots. Search it by meaning with brain_search before you start on something (past decisions, how-tos, who owns what), and read a memory in full with brain_read. Say which memory you used.${
+You can use the shared Vlens brain: long-term memory of the user's work across their Claude sessions and all bots. Search it by meaning with brain_search before you start on something (past decisions, how-tos, who owns what), read a memory in full with brain_read, and follow how things connect with brain_trail (a ticket, PR, repo, person or memory: its story, oldest first, and what it relates to). Say which memory you used. A memory marked "replaced by" is history; prefer the newer one.${
   level === "remember"
     ? `
-You may also change it. brain_remember saves something worth keeping for later work: a decision and why, a fact, a how-to, the state of a ticket or PR. One idea per memory, in plain words, with a short title. If a close memory already exists, update it (update_id) instead of adding a near-copy. brain_forget removes a memory that is wrong or no longer true. Don't save chit-chat, secrets or passwords.`
+You may also change it. brain_remember saves something worth keeping for later work: a decision and why, a fact, a how-to, the state of a ticket or PR. One idea per memory, in plain words, with a short title, plus its why, the things it's about (ticket, PR, repo, person, project, file, team), how they relate ("ticket:XPAN-95" implemented by "pr:galaxy#35799"), and links to other memories (supersedes, caused_by, fixes, part_of, relates_to). If a close memory already exists, update it (update_id) instead of adding a near-copy; if a decision changed, add the new one with a supersedes link. brain_forget removes a memory that is wrong or no longer true. Don't save chit-chat, secrets or passwords.`
     : ""
 }`;
 
@@ -435,6 +436,21 @@ const sessionTools = (b: Bot) => [
   tool("read_memory", "Claude Code's memory files for a project folder you may read. No folder: list which folders have them.", { folder: z.string().optional() }, async (a) => text(await readMemoryText(b, a))),
 ];
 
+// "ticket:XPAN-95 implemented by pr:galaxy#35799" from a bot.
+async function relateAll(rels: { from: string; rel: string; to: string }[] | undefined, memory: string) {
+  const { relate } = await import("./brain/store");
+  const ref = (x: string) => {
+    const i = x.indexOf(":");
+    const type = x.slice(0, i);
+    return i > 0 && ["ticket", "pr", "repo", "person", "project", "file", "team"].includes(type) ? { type: type as "ticket", key: x.slice(i + 1) } : null;
+  };
+  for (const r of rels ?? []) {
+    const a = ref(r.from);
+    const b = ref(r.to);
+    if (a && b) await relate(a, r.rel, b, memory);
+  }
+}
+
 // Its brain tools: search and read with "read only", plus remember and forget with
 // "read and remember" (its bot.md). Only bots get these; your sessions never do.
 function brainTools(bot: Bot) {
@@ -442,6 +458,8 @@ function brainTools(bot: Bot) {
   if (level === "off") return [];
   const by = `bot:${bot.id}`;
   const kinds = ["decision", "fact", "howto", "work", "person", "project"] as const;
+  // Its bot.md can limit it to memories from some folders (general ones always count).
+  const folders = bot.brainFolders?.length ? bot.brainFolders : null;
   const read = [
     tool(
       "brain_search",
@@ -449,19 +467,78 @@ function brainTools(bot: Bot) {
       { query: z.string().min(2).max(500), kind: z.enum(kinds).optional(), limit: z.number().int().min(1).max(15).optional() },
       async (a) => {
         const { searchMemories } = await import("./brain/store");
-        const hits = await searchMemories(a.query, { kind: a.kind, limit: a.limit ?? 6 });
+        const hits = await searchMemories(a.query, { kind: a.kind, limit: a.limit ?? 6, folders });
         const good = hits.filter((h) => h.match > 0.35);
         if (!good.length) return text("Nothing in the brain about that yet.");
-        return text(good.map((h) => `[${h.id}] (${h.kind}, match ${h.match.toFixed(2)}) ${h.title}\n${h.text.slice(0, 400)}${h.text.length > 400 ? "…" : ""}`).join("\n\n"));
+        const { describe } = await import("./brain/store");
+        const out: string[] = [];
+        for (const h of good) {
+          const d = await describe(h);
+          out.push(
+            [
+              `[${h.id}] (${h.kind}, match ${h.match.toFixed(2)}) ${h.title}${d.supersededBy ? `  — replaced by [${d.supersededBy.id}] ${d.supersededBy.title}` : ""}`,
+              h.text.slice(0, 400) + (h.text.length > 400 ? "…" : ""),
+              h.why && `Why: ${h.why.slice(0, 200)}`,
+              d.things.length && `About: ${d.things.map((t) => t.id).join(", ")}`,
+            ]
+              .filter(Boolean)
+              .join("\n"),
+          );
+        }
+        return text(out.join("\n\n"));
       },
     ),
     tool("brain_read", "Read one memory from the Vlens brain in full: its text, where it came from, and earlier versions.", { id: z.string() }, async (a) => {
-      const { getMemory } = await import("./brain/store");
-      const m = await getMemory(a.id, { use: true });
-      if (!m) return text("No memory with that id.");
+      const { getMemory, inFolders } = await import("./brain/store");
+      const peek = await getMemory(a.id);
+      if (!peek || !inFolders(peek, folders)) return text("No memory with that id.");
+      const m = (await getMemory(a.id, { use: true }))!;
+      const { describe } = await import("./brain/store");
+      const d = await describe(m);
       const src = m.sources.map((x) => `${x.type}${x.id ? ` ${x.id}` : ""}${x.note ? ` (${x.note})` : ""} on ${x.at.slice(0, 10)}`).join("; ");
-      return text(`${m.title} (${m.kind}, importance ${m.importance})\n${m.text}\n\nFrom: ${src}${m.history.length ? `\nEarlier versions: ${m.history.length}` : ""}`);
+      return text(
+        [
+          `${m.title} (${m.kind}, importance ${m.importance})`,
+          m.text,
+          m.why && `Why: ${m.why}`,
+          `When: ${(m.when ?? m.createdAt).slice(0, 10)}${m.folder ? ` · where: ${m.folder}` : ""}${m.branch ? ` (branch ${m.branch})` : ""}`,
+          d.things.length && `About: ${d.things.map((t) => t.id).join(", ")}`,
+          d.links.length && `Links: ${d.links.map((l) => `${l.rel} [${l.id}] ${l.title}`).join("; ")}`,
+          d.supersededBy && `Replaced by: [${d.supersededBy.id}] ${d.supersededBy.title}`,
+          `From: ${src}`,
+          m.history.length && `Earlier versions: ${m.history.length}`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      );
     }),
+    tool(
+      "brain_trail",
+      "Follow the connections in the Vlens brain around a thing or a memory: a ticket (XPAN-95), PR (galaxy#35799), repo, person, project, file, or a memory id. Returns its story (memories, oldest first, with why), how it relates to other things, and what's known about those.",
+      { start: z.string().min(2).max(200) },
+      async (a) => {
+        const { trail } = await import("./brain/store");
+        const t = await trail(a.start, { folders });
+        if (!t) return text(`Nothing in the brain about "${a.start}".`);
+        const line = (m: { id: string; title: string; why?: string; when?: string; createdAt: string; supersededBy?: string | null }) =>
+          `- ${(m.when ?? m.createdAt).slice(0, 10)} [${m.id}] ${m.title}${m.supersededBy ? " (replaced later)" : ""}${m.why ? ` — why: ${m.why.slice(0, 160)}` : ""}`;
+        return text(
+          [
+            t.thing ? `${t.thing.type} ${t.thing.key}${t.thing.name !== t.thing.key ? ` (${t.thing.name})` : ""}` : `Memory [${t.memory!.id}] ${t.memory!.title}`,
+            t.memories.length ? `Story:\n${t.memories.map(line).join("\n")}` : "No memories about it yet.",
+            t.relations.length && `Relations:\n${t.relations.map((r) => `- ${r.from?.id} ${r.rel} ${r.to?.id}`).join("\n")}`,
+            t.links.length && `Links:\n${t.links.map((l) => `- ${l.rel} [${l.memory.id}] ${l.memory.title}`).join("\n")}`,
+            t.near.filter((n) => n.memories.length).length &&
+              `Nearby:\n${t.near
+                .filter((n) => n.memories.length)
+                .map((n) => `${n.thing?.id}:\n${n.memories.map(line).join("\n")}`)
+                .join("\n")}`,
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+        );
+      },
+    ),
   ];
   if (level !== "remember") return read;
   return [
@@ -469,22 +546,35 @@ function brainTools(bot: Bot) {
     tool(
       "brain_remember",
       "Save to the Vlens brain, or update a memory (update_id). One idea per memory: title (short) and text (plain words, with the why). kind: decision, fact, howto, work, person, project. importance 0..1 (0.8+ for decisions that matter later).",
-      { title: z.string().min(3).max(200), text: z.string().min(5).max(4000), kind: z.enum(kinds), importance: z.number().min(0).max(1).optional(), tags: z.array(z.string().max(40)).max(8).optional(), update_id: z.string().optional(), note: z.string().max(200).optional() },
+      { title: z.string().min(3).max(200), text: z.string().min(5).max(4000), kind: z.enum(kinds), importance: z.number().min(0).max(1).optional(), tags: z.array(z.string().max(40)).max(8).optional(), update_id: z.string().optional(), note: z.string().max(200).optional(), folder: z.string().optional(),
+        why: z.string().max(1000).optional(),
+        things: z.array(z.object({ type: z.enum(["ticket", "pr", "repo", "person", "project", "file", "team"]), key: z.string().min(1).max(200), name: z.string().max(200).optional() })).max(12).optional(),
+        relations: z.array(z.object({ from: z.string(), rel: z.string().max(40), to: z.string() })).max(8).optional(),
+        links: z.array(z.object({ id: z.string(), rel: z.enum(["supersedes", "caused_by", "fixes", "part_of", "relates_to"]) })).max(6).optional() },
       async (a) => {
-        const { addMemory, similarTo, updateMemory } = await import("./brain/store");
+        const { addMemory, getMemory, inFolders, similarTo, updateMemory } = await import("./brain/store");
         const source = { type: "bot" as const, id: bot.id, note: a.note };
+        // A folder it tags must be one it may use (or none: a general memory).
+        const folder = a.folder?.replace(/^~/, os.homedir()) ?? null;
+        if (folder && !inFolders({ folder }, folders)) return text(`You can only use memories from ${folders!.join(", ")}.`);
         if (a.update_id) {
-          const m = await updateMemory(a.update_id, { title: a.title, text: a.text, kind: a.kind, importance: a.importance, tags: a.tags, by, source });
+          const cur = await getMemory(a.update_id);
+          if (!cur || !inFolders(cur, folders)) return text("No memory with that id.");
+          const m = await updateMemory(a.update_id, { title: a.title, text: a.text, kind: a.kind, importance: a.importance, tags: a.tags, why: a.why, things: a.things, links: a.links?.map((l) => ({ to: l.id, rel: l.rel })), by, source });
+          await relateAll(a.relations, m.id);
           return text(`Updated [${m.id}] ${m.title}.`);
         }
-        const near = (await similarTo(`${a.title}\n${a.text}`, 1))[0];
+        const near = (await similarTo(`${a.title}\n${a.text}`, 1, folders))[0];
         if (near && near.match > 0.9) return text(`A very similar memory exists: [${near.id}] ${near.title}. Update it with update_id instead of adding a copy.`);
-        const m = await addMemory({ title: a.title, text: a.text, kind: a.kind, importance: a.importance, tags: a.tags, source });
+        const m = await addMemory({ title: a.title, text: a.text, kind: a.kind, importance: a.importance, tags: a.tags, folder, why: a.why, things: a.things, links: a.links?.map((l) => ({ to: l.id, rel: l.rel })), source });
+        await relateAll(a.relations, m.id);
         return text(`Saved [${m.id}] ${m.title}.`);
       },
     ),
     tool("brain_forget", "Remove a memory from the Vlens brain that is wrong or no longer true. The user can bring it back.", { id: z.string(), why: z.string().max(300) }, async (a) => {
-      const { forgetMemory } = await import("./brain/store");
+      const { forgetMemory, getMemory, inFolders } = await import("./brain/store");
+      const cur = await getMemory(a.id);
+      if (!cur || !inFolders(cur, folders)) return text("No memory with that id.");
       await forgetMemory(a.id, `${by}: ${a.why}`);
       return text("Forgotten.");
     }),

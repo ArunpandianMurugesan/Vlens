@@ -102,7 +102,13 @@ export function FileView({ file }: { file: BotFile }) {
         <ul className="space-y-0.5">
           <li>
             Vlens brain: <b className="font-medium">{BRAIN_LABEL[file.brain]}</b>
+            {file.brain !== "off" && <span className="text-muted"> · {file.brainFolders === "all" ? "memories from all folders" : `memories from ${file.brainFolders.join(", ")}`}</span>}
           </li>
+          {file.brain === "remember" && (
+            <li>
+              The brain learns from: <b className="font-medium">{file.brainLearn === "off" ? "off" : file.brainLearn === "all" ? "all your sessions" : file.brainLearn.join(", ")}</b>
+            </li>
+          )}
           <li>Your Claude sessions: {file.sessions === "all" ? "all folders (read only)" : file.sessions?.length ? `${file.sessions.join(", ")} (read only)` : "off"}</li>
           {file.confluence.length > 0 && <li>Confluence: {file.confluence.map((c) => c.title || c.id).join(", ")}</li>}
           <li>Skills: {file.skills === "all" ? "all of yours" : file.skills.join(", ") || "none"}</li>

@@ -176,6 +176,7 @@ export function BotCreate({ onBack, onCreated, recentFolders }: { onBack: () => 
       notify: { digestDone: true, digestFailed: true },
       cursor: {},
       brain: r.brain ?? "read",
+      ...(r.brain === "remember" && r.needsFolder && folder ? { brainLearn: { all: false, folders: [folder] } } : {}),
       ...careful,
     } as Bot;
     return writeBotFile(bot, "");

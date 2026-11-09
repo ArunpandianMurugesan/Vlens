@@ -4,7 +4,8 @@ import { jsonStore } from "../jsonStore";
 import { runClaudeOnce } from "../runClaude";
 import { getSession, listSessions } from "../sessions";
 import type { ChatMessage } from "../types";
-import { addMemory, forgetMemory, getMemory, KINDS, type MemoryKind, similarTo, updateMemory } from "./store";
+import { addMemory, forgetMemory, getMemory, KINDS, type MemoryKind, relate, similarTo, updateMemory } from "./store";
+import { LINK_RELS, type LinkRel, THING_TYPES, type ThingRef } from "./things";
 
 // The brain learns while you work (the "curator"). For each Claude session in the
 // folders you picked, Vlens waits until a batch of new turns builds up (or the
@@ -12,12 +13,15 @@ import { addMemory, forgetMemory, getMemory, KINDS, type MemoryKind, similarTo, 
 // Claude model what's worth remembering: add, update or forget, against the
 // closest memories it already has. Every change is logged, with its source.
 //
-// It's off until you turn it on (the Brain page), and it only reads sessions in
-// the folders you chose. Nothing here is shown to your normal Claude sessions.
+// What it learns from is set by your bots: each bot whose bot.md has "brain: read
+// and remember" can say "brain learns from: all sessions" or some folders, and the
+// brain learns from all of those together. Temp folders, the bots' own folders and
+// the folders you list under "never learn from" are always skipped, and you can
+// pause it all on the Brain page. Nothing here is shown to your normal sessions.
 
 export interface BrainSettings {
-  learn: boolean; // learn from your Claude sessions
-  folders: string[]; // only sessions in these folders
+  paused: boolean; // stop all learning (bots still read and remember)
+  skip: string[]; // never learn from sessions in these folders
   maxRunsPerDay: number; // curator calls per day, at most
 }
 export interface BrainActivity {
@@ -29,20 +33,38 @@ export interface BrainActivity {
   note?: string;
 }
 
-const settings = jsonStore<BrainSettings>("brain/settings.json", () => ({ learn: false, folders: [], maxRunsPerDay: 60 }));
+const settings = jsonStore<BrainSettings>("brain/settings.json", () => ({ paused: false, skip: [], maxRunsPerDay: 60 }));
 // Where it got to in each session: messages read, and blocks read of the last one (a reply grows in place).
 const cursors = jsonStore<Record<string, { seen: number; blocks?: number; at: string }>>("brain/cursors.json", () => ({}));
 const activity = jsonStore<BrainActivity[]>("brain/activity.json", () => []);
 
-export const brainSettings = () => settings.load();
+export async function brainSettings(): Promise<BrainSettings> {
+  const s = (await settings.load()) as Partial<BrainSettings>;
+  return { paused: !!s.paused, skip: Array.isArray(s.skip) ? s.skip : [], maxRunsPerDay: s.maxRunsPerDay ?? 60 };
+}
 export async function updateBrainSettings(p: Partial<BrainSettings>) {
   await settings.update((s) => {
-    if (typeof p.learn === "boolean") s.learn = p.learn;
-    if (Array.isArray(p.folders)) s.folders = [...new Set(p.folders.filter((f) => typeof f === "string" && f.startsWith("/")))].slice(0, 30);
+    if (typeof p.paused === "boolean") s.paused = p.paused;
+    if (Array.isArray(p.skip)) s.skip = [...new Set(p.skip.filter((f) => typeof f === "string" && f.startsWith("/")))].slice(0, 30);
     if (typeof p.maxRunsPerDay === "number") s.maxRunsPerDay = Math.max(1, Math.min(500, Math.round(p.maxRunsPerDay)));
   });
-  return settings.load();
+  return brainSettings();
 }
+
+// What the bots ask the brain to learn from, together.
+export async function learnScope() {
+  const { listBots } = await import("../bots");
+  const bots = (await listBots().catch(() => [])).filter((b) => b.brain === "remember" && b.brainLearn && (b.brainLearn.all || b.brainLearn.folders.length));
+  return {
+    all: bots.some((b) => b.brainLearn!.all),
+    folders: [...new Set(bots.flatMap((b) => (b.brainLearn!.all ? [] : b.brainLearn!.folders)))],
+    bots: bots.map((b) => ({ id: b.id, name: b.name, all: b.brainLearn!.all, folders: b.brainLearn!.folders })),
+  };
+}
+
+const BOTS_DIR = `${os.homedir()}/Library/Application Support/Vlens/bots`;
+const TEMP = /^\/(private\/)?(tmp|var\/folders)\//;
+const under = (cwd: string, f: string) => cwd === f || cwd.startsWith(`${f}/`);
 export const brainActivity = () => activity.load();
 export async function logActivity(a: Omit<BrainActivity, "id" | "at">) {
   await activity.update((l) => {
@@ -100,15 +122,34 @@ function digest(messages: ChatMessage[]) {
   return { text: text.length > 9000 ? `…\n${text.slice(-9000)}` : text, edits, commits, talk, signals };
 }
 
+export const digestOf = (messages: ChatMessage[]) => digest(messages);
+
 // Worth a model call? Something was changed or decided, and there's enough said.
 export const worthIt = (d: { edits: number; commits: number; talk: number; signals: number }) => d.talk >= 200 && (d.edits > 0 || d.commits > 0 || d.signals >= 2);
 
 // ── The curator ──────────────────────────────────────────────────────────────
 
+type Conn = { why?: string; things?: { type: string; key: string; name?: string }[]; relations?: { from: string; rel: string; to: string }[]; links?: { id: string; rel: string }[] };
 type Op =
-  | { op: "add"; title: string; text: string; kind: MemoryKind; importance?: number; tags?: string[] }
-  | { op: "update"; id: string; title?: string; text?: string; importance?: number }
+  | ({ op: "add"; title: string; text: string; kind: MemoryKind; importance?: number; tags?: string[] } & Conn)
+  | ({ op: "update"; id: string; title?: string; text?: string; importance?: number } & Conn)
   | { op: "forget"; id: string; why?: string };
+
+// "ticket:XPAN-95" -> a thing ref, if it's a kind Vlens knows.
+const ref = (s: string): ThingRef | null => {
+  const i = s.indexOf(":");
+  const type = s.slice(0, i) as ThingRef["type"];
+  return i > 0 && THING_TYPES.includes(type) && s.slice(i + 1).trim() ? { type, key: s.slice(i + 1).trim() } : null;
+};
+const things = (c: Conn) => (c.things ?? []).filter((t) => THING_TYPES.includes(t.type as ThingRef["type"]) && t.key?.trim()).slice(0, 12) as ThingRef[];
+const links = (c: Conn) => (c.links ?? []).filter((l) => LINK_RELS.includes(l.rel as LinkRel) && l.id).map((l) => ({ to: l.id, rel: l.rel as LinkRel })).slice(0, 6);
+async function relations(c: Conn, memory: string) {
+  for (const r of (c.relations ?? []).slice(0, 8)) {
+    const a = ref(r.from);
+    const b = ref(r.to);
+    if (a && b && r.rel) await relate(a, r.rel, b, memory);
+  }
+}
 
 const PROMPT = (o: { title: string; folder: string; branch: string | null; related: string; chunk: string }) => `You keep the Vlens brain: long-term memory of the user's work, used by their bots. Read the new part of a Claude Code session and decide what is worth remembering for later work.
 
@@ -123,12 +164,17 @@ ${o.chunk}
 >>>
 
 Reply with ONLY JSON: {"ops": [...]}. Each op is one of:
-{"op":"add","title":"short title","text":"plain words, with the why","kind":"decision|fact|howto|work|person|project","importance":0.0-1.0,"tags":["…"]}
-{"op":"update","id":"<an existing id>","title":"…","text":"the full new text","importance":0.0-1.0}
+{"op":"add","title":"short title","text":"what it is, in plain words","why":"the reason or context behind it","kind":"decision|fact|howto|work|person|project","importance":0.0-1.0,"tags":["…"],"things":[…],"relations":[…],"links":[…]}
+{"op":"update","id":"<an existing id>","title":"…","text":"the full new text","why":"…","importance":0.0-1.0,"things":[…],"relations":[…],"links":[…]}
 {"op":"forget","id":"<an existing id>","why":"…"}
 
+Connections (they matter as much as the memory itself):
+- "things": what it's about: [{"type":"ticket|pr|repo|person|project|file|team","key":"XPAN-95 | galaxy#35799 | galaxy | kavitha | email consent | src/x.tsx | crm team","name":"optional display name"}]
+- "relations": how those things connect: [{"from":"ticket:XPAN-95","rel":"implemented by","to":"pr:galaxy#35799"}]. Useful rels: implemented by, in, owns, reviews, depends on, includes, blocks, assigned to.
+- "links": to existing memories above, by id: [{"id":"<id>","rel":"supersedes|caused_by|fixes|part_of|relates_to"}]. If a new decision changes an older one, ADD the new one with a "supersedes" link (the old one stays as history) instead of overwriting it.
+
 Rules:
-- Keep only what helps future work: decisions and why, fixes and their root cause, how-tos, the state of a ticket or PR, who owns what, project facts.
+- Keep what helps future work: decisions and why, fixes and their root cause, how-tos, the state of a ticket or PR, who owns or reviews what, how projects, repos and tickets connect.
 - If an existing memory covers it, update that one instead of adding a near-copy. Forget one only if this part shows it is wrong or no longer true.
 - One idea per memory. Name files, repos, tickets and PRs exactly.
 - Skip chit-chat, routine commands, guesses that weren't confirmed, and anything secret (tokens, passwords, keys).
@@ -157,7 +203,7 @@ export async function curate(o: { sessionId: string; title: string; folder: stri
     title: o.title,
     folder: (o.folder ?? "").replace(os.homedir(), "~"),
     branch: o.branch,
-    related: related.map((m) => `[${m.id}] (${m.kind}) ${m.title}: ${m.text.slice(0, 300)}`).join("\n"),
+    related: related.map((m) => `[${m.id}] (${m.kind}) ${m.title}: ${m.text.slice(0, 300)}${(m.things ?? []).length ? ` · about: ${(m.things ?? []).slice(0, 6).join(", ")}` : ""}`).join("\n"),
     chunk: d.text,
   });
   const r = await runClaudeOnce({ prompt, args: ["--model", "haiku", "--tools", "", "--no-session-persistence"], cwd: os.tmpdir(), timeoutMs: 120_000 });
@@ -171,15 +217,18 @@ export async function curate(o: { sessionId: string; title: string; folder: stri
         const kind = KINDS.includes(op.kind) ? op.kind : "fact";
         const near = (await similarTo(`${op.title}\n${op.text}`, 1))[0];
         if (near && near.match > 0.92) {
-          const m = await updateMemory(near.id, { text: op.text, importance: Math.max(near.importance, op.importance ?? 0), by: "curator", source });
+          const m = await updateMemory(near.id, { text: op.text, why: op.why, things: things(op), links: links(op), importance: Math.max(near.importance, op.importance ?? 0), by: "curator", source });
+          await relations(op, m.id);
           done.push({ op: "update", id: m.id, title: m.title });
         } else {
-          const m = await addMemory({ title: op.title, text: op.text, kind, importance: op.importance ?? 0.5, tags: op.tags, source });
+          const m = await addMemory({ title: op.title, text: op.text, why: op.why, kind, importance: op.importance ?? 0.5, tags: op.tags, folder: o.folder, branch: o.branch, things: things(op), links: links(op), source });
+          await relations(op, m.id);
           done.push({ op: "add", id: m.id, title: m.title });
         }
       } else if (op.op === "update") {
         if (!(await getMemory(op.id)) || SECRET.test(`${op.title ?? ""}${op.text ?? ""}`)) continue;
-        const m = await updateMemory(op.id, { title: op.title, text: op.text, importance: op.importance, by: "curator", source });
+        const m = await updateMemory(op.id, { title: op.title, text: op.text, why: op.why, things: things(op), links: links(op), importance: op.importance, by: "curator", source });
+        await relations(op, m.id);
         done.push({ op: "update", id: m.id, title: m.title });
       } else if (op.op === "forget") {
         const m = await getMemory(op.id);
@@ -199,18 +248,30 @@ export async function curate(o: { sessionId: string; title: string; folder: stri
 
 const BATCH = 8; // new blocks (text, tool calls) before it looks
 const QUIET_MS = 3 * 60_000; // or once a session has been quiet this long
+const KEEP_BLOCKS = 60; // a batch that looks like noise waits for more, up to this size
 
 // One pass over the sessions in your folders. now: don't wait for a batch or quiet time.
 export async function learnTick(o: { now?: boolean } = {}) {
-  const s = await settings.load();
-  if ((!s.learn && !o.now) || !s.folders.length || state.running) return;
+  const s = await brainSettings();
+  if ((s.paused && !o.now) || state.running) return;
+  const scope = await learnScope();
+  if (!scope.all && !scope.folders.length) return;
   const today = new Date().toISOString().slice(0, 10);
   const runsToday = (await activity.load()).filter((a) => a.kind === "learn" && a.at.startsWith(today)).length;
   if (runsToday >= s.maxRunsPerDay) return;
   state.running = true;
   try {
     const all = await listSessions();
-    const inFolders = all.filter((x) => !x.botId && x.cwd && s.folders.some((f) => x.cwd === f || x.cwd!.startsWith(`${f}/`)) && Date.now() - Date.parse(x.updatedAt) < 2 * 86_400_000);
+    const inFolders = all.filter(
+      (x) =>
+        !x.botId &&
+        !!x.cwd &&
+        !TEMP.test(x.cwd) &&
+        !under(x.cwd, BOTS_DIR) &&
+        !s.skip.some((f) => under(x.cwd!, f)) &&
+        (scope.all || scope.folders.some((f) => under(x.cwd!, f))) &&
+        Date.now() - Date.parse(x.updatedAt) < 2 * 86_400_000,
+    );
     const seen = await cursors.load();
     let runs = runsToday;
     for (const x of inFolders) {
@@ -233,6 +294,9 @@ export async function learnTick(o: { now?: boolean } = {}) {
       const quiet = Date.now() - Date.parse(x.updatedAt) >= QUIET_MS;
       if (!size || (!o.now && size < BATCH && !quiet)) continue;
       if (runs >= s.maxRunsPerDay) break;
+      // Looks like noise so far? Keep it and judge it again with what comes next
+      // (quick tool calls cut a piece of work into small batches), unless it's big or the session went quiet.
+      if (!o.now && !quiet && size < KEEP_BLOCKS && !worthIt(digestOf(fresh))) continue;
       const r = await curate({ sessionId: x.id, title: x.title, folder: x.cwd, branch: full.branch ?? null, messages: fresh });
       if (!r.skipped) runs++;
       await cursors.update((m) => void (m[x.id] = mark));

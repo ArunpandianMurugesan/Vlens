@@ -1,4 +1,4 @@
-import { brainActivity, brainSettings, learnStatus, learnTick, updateBrainSettings } from "@/lib/brain/learn";
+import { brainActivity, brainSettings, learnScope, learnStatus, learnTick, updateBrainSettings } from "@/lib/brain/learn";
 import { lastReflection, reflect } from "@/lib/brain/reflect";
 
 export const dynamic = "force-dynamic";
@@ -6,12 +6,12 @@ export const runtime = "nodejs";
 
 // How the brain learns (the Brain page).
 //   GET                          -> settings, status, and what it learned lately
-//   PATCH { learn?, folders?, maxRunsPerDay? }
+//   PATCH { paused?, skip?, maxRunsPerDay? }   (what it learns from is set in each bot's bot.md)
 //   POST { action: "learn" }     -> look at your sessions now (no waiting for a batch)
 //   POST { action: "reflect" }   -> tidy up now
 export async function GET() {
-  const [settings, status, activity, reflected] = await Promise.all([brainSettings(), learnStatus(), brainActivity(), lastReflection()]);
-  return Response.json({ settings, status: { ...status, lastReflection: reflected }, activity: activity.slice(0, 60) });
+  const [settings, status, activity, reflected, scope] = await Promise.all([brainSettings(), learnStatus(), brainActivity(), lastReflection(), learnScope()]);
+  return Response.json({ settings, scope, status: { ...status, lastReflection: reflected }, activity: activity.slice(0, 60) });
 }
 
 export async function PATCH(req: Request) {
