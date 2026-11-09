@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Check, ChevronDown, Clock, Copy, Eye, GitFork, Loader2, PanelRight, Pencil, Power, ShieldCheck, ShieldOff, Sparkles, SquareTerminal, Terminal, X } from "lucide-react";
+import { Archive, Check, ChevronDown, Clock, Copy, Eye, GitFork, Loader2, MessageSquare, PanelRight, Pencil, Power, ShieldCheck, ShieldOff, Sparkles, SquareTerminal, Terminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type LiveRun, type RootMode, type TreeChat } from "@/hooks/useTreeChat";
 import { PERMISSION_MODES } from "@/lib/modes";
@@ -20,12 +20,16 @@ import { SlashPanel } from "./SlashPanel";
 import { lastWorktree, rememberWorktree, WorktreeToggle } from "./WorktreeToggle";
 import { ContextBadge } from "./Usage";
 import { MenuButton } from "./Sidebar";
+import { CliPane, cliEndedRecently, startCli, stopCli, useCliOn } from "./TerminalPanel";
 
 // botMode: this is a chat with a bot, which always runs in its own mode (set in its settings).
 export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: () => void; botMode?: RootMode | "" }) {
   const { session, loadingSession, stack, threadsFrom, openThread, rootPending, draft } = chat;
   const newDraft = !session ? draft : null; // starting a new session, not yet created
   const files = useFiles();
+  // The session's CLI view (claude --resume in place of the chat). Chat is the default;
+  // only one of the two drives the session at a time.
+  const cli = useCliOn(session?.id ?? null) && botMode === undefined;
   const [inspector, setInspector] = useInspector();
   // The inspector is beside the chat (wide window, nothing else open there).
   const inspectorShown = botMode === undefined && inspector && !files?.tabs.length && !files?.terminal;
@@ -61,11 +65,11 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
   // Jump to the latest message on open, then follow new ones only if already at the bottom.
   useEffect(() => {
     stickToBottom.current = true;
-  }, [session?.id]);
+  }, [session?.id, cli]);
   useEffect(() => {
     const el = scroller.current;
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [session?.messages.length, session?.id, rootPending, run?.text.length, run?.tools.length]);
+  }, [session?.messages.length, session?.id, rootPending, run?.text.length, run?.tools.length, cli]);
 
   const updated = session ? new Date(session.updatedAt).getTime() : 0;
   const own = chat.ownWrite;
@@ -73,12 +77,20 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
   // Open in a terminal or the desktop app (not one of Vlens's own runs)? That claude
   // holds the conversation in memory, so only one place can type at a time.
   const proc = chat.sessions.find((s) => s.id === session?.id)?.active;
-  const elsewhere = proc && !proc.byLens ? proc.entrypoint : null;
+  // Our own CLI shows up as "a terminal" until the next sessions refresh after it ends.
+  const ownCli = cli || cliEndedRecently(session?.id ?? null);
+  const elsewhere = proc && !proc.byLens && !ownCli ? proc.entrypoint : null;
+  // Your own CLI view writing to it isn't "something else" either.
+  const live = session && !justForked(session.id) && !ownCli && !rootPending && !ours && !chat.liveState && !proc?.byLens && Date.now() - updated < 60_000;
+  const toChat = async () => {
+    if (!session) return;
+    await stopCli(session.id);
+  };
+  const toCli = () => session && startCli(session.id, session.cwd);
   const archivedAt = chat.sessions.find((s) => s.id === session?.id)?.archivedAt;
   // Changed by something else just now. Vlens's own Claude writes between replies
   // too (when background work reports back), and that's not "something else".
   // A fork you just made was written by Vlens, not by something else.
-  const live = session && !justForked(session.id) && !rootPending && !ours && !chat.liveState && !proc?.byLens && Date.now() - updated < 60_000;
   const resumeCmd = session ? `claude --resume ${session.id}` : "";
   // Messages you send while Claude works wait here and go out together when it's
   // done, like typing ahead in the terminal. Stopping (or an error) pauses them.
@@ -183,7 +195,7 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
       <header className="flex items-center gap-3 border-b border-line bg-bg/80 px-4 py-3 backdrop-blur">
         <MenuButton onClick={onMenu} />
         {session ? (
-          <div className="min-w-0 flex-1">
+          <div className="min-w-[7rem] flex-1">
             <div className="flex items-center gap-2">
               <h1 className="truncate text-sm font-semibold">{session.title}</h1>
               {live && (
@@ -205,6 +217,35 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
         ) : (
           <div className="flex-1 text-muted">{loadingSession ? "Loading…" : "Vlens"}</div>
         )}
+        {session && botMode === undefined && (
+          <div role="group" aria-label="Interface" className="flex shrink-0 rounded-lg bg-sunken p-0.5 text-xs">
+            <button
+              onClick={() => cli && void toChat()}
+              aria-pressed={!cli}
+              title={cli ? "Back to the chat (ends the claude in the CLI view; the conversation is kept)" : "Chat view"}
+              className={`flex items-center gap-1 rounded-md px-2 py-0.5 ${!cli ? "bg-bg text-ink shadow-sm" : "text-muted hover:text-ink"}`}
+            >
+              <MessageSquare size={12} /> <span className="hidden xl:inline">Chat</span>
+            </button>
+            <button
+              onClick={() => !cli && toCli()}
+              disabled={!cli && (replying || !!elsewhere)}
+              aria-pressed={cli}
+              title={
+                cli
+                  ? "CLI view: the real claude for this session"
+                  : elsewhere
+                    ? `Open in ${elsewhere === "desktop" ? "the desktop app" : "a terminal"} already`
+                    : replying
+                      ? "Wait for the reply to finish"
+                      : "Switch to the real claude CLI for this session (claude --resume)"
+              }
+              className={`flex items-center gap-1 rounded-md px-2 py-0.5 disabled:opacity-40 ${cli ? "bg-bg text-ink shadow-sm" : "text-muted hover:text-ink"}`}
+            >
+              <Terminal size={12} /> <span className="hidden xl:inline">CLI</span>
+            </button>
+          </div>
+        )}
         {/* The inspector shows context and the terminal on a wide window; these are for narrower ones. */}
         {session && (
           <span className={inspectorShown ? "xl:hidden" : ""}>
@@ -220,20 +261,11 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
               files.terminal ? "border-accent bg-accent-soft text-accent" : "border-line text-muted"
             }`}
           >
-            <Terminal size={12} /> <span className="hidden sm:inline">Terminal</span>
+            <Terminal size={12} /> <span className="hidden xl:inline">Terminal</span>
           </button>
         )}
-        {(session || newDraft?.cwd) && !elsewhere && <ModePicker mode={mode} cliMode={chat.settings?.cliMode} onChange={setMode} header />}
-        {session && !elsewhere && (
-          <button
-            onClick={toTerminal}
-            disabled={replying}
-            title="Open this session in Terminal (claude --resume) and keep going there"
-            className="hidden shrink-0 items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs text-muted hover:text-ink disabled:opacity-50 sm:flex"
-          >
-            <SquareTerminal size={12} /> Continue in terminal
-          </button>
-        )}
+        {(session || newDraft?.cwd) && !elsewhere && !cli && <ModePicker mode={mode} cliMode={chat.settings?.cliMode} onChange={setMode} header />}
+        {/* Continue in Terminal.app lives in the Session menu and ⌘K; the CLI toggle covers it here. */}
         {session && session.messages.length > 0 && (
           <div className="relative hidden sm:block">
             <button
@@ -244,7 +276,7 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
               aria-expanded={forking === "menu"}
               className="flex shrink-0 items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-xs text-muted hover:text-ink disabled:opacity-50"
             >
-              {forking === "busy" ? <Loader2 size={12} className="animate-spin" /> : <GitFork size={12} />} Fork <ChevronDown size={11} />
+              {forking === "busy" ? <Loader2 size={12} className="animate-spin" /> : <GitFork size={12} />} <span className="hidden xl:inline">Fork</span> <ChevronDown size={11} />
             </button>
             {forking === "menu" && (
               <div role="menu" className="absolute right-0 top-8 z-40 w-60 rounded-xl border border-line bg-panel py-1 text-sm shadow-xl" onMouseLeave={() => setForking(null)}>
@@ -294,6 +326,10 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
       </header>
       )}
 
+      {cli && session ? (
+        <CliPane sessionId={session.id} cwd={session.cwd} />
+      ) : (
+      <>
       <div
         ref={scroller}
         onScroll={(e) => {
@@ -502,6 +538,8 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
           </div>
         </div>
       )}
+      </>
+      )}
     </main>
     </CwdContext.Provider>
   );
@@ -534,7 +572,7 @@ function ModePicker({ mode, cliMode, onChange, header }: { mode: RootMode; cliMo
       className={`items-center gap-1 rounded-lg ${header ? "hidden border border-line px-2 py-1 text-xs sm:flex" : "flex bg-sunken px-1.5 py-0.5 text-[0.7rem]"} ${mode === "bypassPermissions" ? "text-red-600" : mode === "default" ? "text-muted" : "text-accent"}`}
     >
       <Icon size={11} className="shrink-0" />
-      <select value={mode} onChange={(e) => onChange(e.target.value as RootMode)} aria-label="Permission mode" className="bg-transparent outline-none">
+      <select value={mode} onChange={(e) => onChange(e.target.value as RootMode)} aria-label="Permission mode" className={`bg-transparent outline-none ${header ? "max-w-[7.5rem] 2xl:max-w-none" : ""}`}>
         {PERMISSION_MODES.map((m) => (
           <option key={m.id} value={m.id}>
             {m.label}

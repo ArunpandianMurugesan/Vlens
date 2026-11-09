@@ -82,8 +82,13 @@ const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(
 const fit = (n: unknown, fallback: number) =>
   typeof n === "number" && Number.isFinite(n) && n > 1 ? Math.min(Math.floor(n), 1000) : fallback;
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // A shell to connect to: the one with this id if it's still running, else a new one.
-export async function openTerminal(o: { id?: string | null; cwd: string | null; cols: number; rows: number }) {
+// resume: a session id, to run `claude --resume <id>` instead of a plain shell (the
+// session's CLI view). It runs inside your login shell so `claude` is on your PATH.
+export async function openTerminal(o: { id?: string | null; cwd: string | null; cols: number; rows: number; resume?: string | null }) {
+  if (o.resume && !UUID.test(o.resume)) throw new Error("Not a session id.");
   const port = await server();
   const known = o.id ? terms.get(o.id) : undefined;
   if (known && known.exited === null) return { id: o.id!, cwd: known.cwd, port, token: known.token };
@@ -93,7 +98,8 @@ export async function openTerminal(o: { id?: string | null; cwd: string | null; 
   delete env.CLAUDECODE; // a `claude` started here is a normal top-level session
   delete env.ELECTRON_RUN_AS_NODE; // the packaged server runs as Electron-as-node; the shell shouldn't
   const shell = process.env.SHELL || "/bin/zsh";
-  const pty = spawnPty(shell, ["-l"], { name: "xterm-256color", cols: fit(o.cols, 80), rows: fit(o.rows, 24), cwd: dir, env });
+  const args = o.resume ? ["-l", "-c", `exec claude --resume ${o.resume}`] : ["-l"];
+  const pty = spawnPty(shell, args, { name: "xterm-256color", cols: fit(o.cols, 80), rows: fit(o.rows, 24), cwd: dir, env });
   const id = randomUUID();
   const t: Term = { pty, cwd: dir, token: randomBytes(24).toString("hex"), backlog: "", sockets: new Set(), exited: null };
   pty.onData((data) => {

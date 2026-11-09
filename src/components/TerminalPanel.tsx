@@ -56,7 +56,7 @@ const changed = () => {
   for (const l of listeners) l();
 };
 
-function openShell(owner: string, cwd: string | null): Shell {
+function openShell(owner: string, cwd: string | null, resume: string | null = null): Shell {
   const el = document.createElement("div");
   el.style.height = "100%";
   let gone = false;
@@ -101,7 +101,7 @@ function openShell(owner: string, cwd: string | null): Shell {
     const res = await fetch("/api/terminal", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: ids()[owner] ?? null, cwd, cols: term.cols, rows: term.rows }),
+      body: JSON.stringify({ id: ids()[owner] ?? null, cwd, cols: term.cols, rows: term.rows, resume }),
     });
     const t = (await res.json()) as { id: string; port: number; token: string; error?: string };
     if (!res.ok) throw new Error(t.error ?? res.statusText);
@@ -118,6 +118,7 @@ function openShell(owner: string, cwd: string | null): Shell {
       if (gone) return;
       if (e.code >= EXIT_BASE && e.code < EXIT_BASE + 256) {
         remember(owner, null);
+        if (owner.startsWith("cli:")) cliEnds.set(owner, Date.now());
         s.ended = e.code - EXIT_BASE;
       } else s.err = "Lost the connection to this terminal. Restart to open a new one.";
       changed();
@@ -135,36 +136,14 @@ function sendSize(s: Shell) {
   if (s.ws?.readyState === WebSocket.OPEN && s.term) s.ws.send("\0" + JSON.stringify({ cols: s.term.cols, rows: s.term.rows }));
 }
 
-function shellFor(owner: string, cwd: string | null) {
+function shellFor(owner: string, cwd: string | null, resume: string | null = null) {
   let s = shells.get(owner);
-  if (!s) shells.set(owner, (s = openShell(owner, cwd)));
+  if (!s) shells.set(owner, (s = openShell(owner, cwd, resume)));
   return s;
 }
 
-// Types a command into this session's shell (starting it if needed), as if you had.
-export function runInTerminal(owner: string, cwd: string | null, line: string) {
-  const s = shellFor(owner, cwd);
-  const started = Date.now();
-  const go = () => {
-    if (s.ws?.readyState === WebSocket.OPEN) s.ws.send(line + "\r");
-    else if (Date.now() - started < 15_000 && !s.err) setTimeout(go, 100);
-  };
-  go();
-}
-
-// owner: the session the shell belongs to (its folder while it's still a draft).
-export function TerminalPanel({ owner, cwd }: { owner: string; cwd: string | null }) {
-  const files = useFiles()!;
-  const box = useRef<HTMLDivElement>(null);
-  useSyncExternalStore(
-    (l) => (listeners.add(l), () => listeners.delete(l)),
-    () => version,
-    () => 0,
-  );
-  const folder = cwd ?? "~";
-  const shell = shellFor(owner, cwd);
-
-  // Show this session's terminal here; it stays alive when hidden.
+// Shows a shell in `host` while mounted (it stays alive when hidden), fitted to it.
+function useShellIn(shell: Shell, box: React.RefObject<HTMLDivElement | null>) {
   useEffect(() => {
     const host = box.current;
     if (!host) return;
@@ -187,7 +166,99 @@ export function TerminalPanel({ owner, cwd }: { owner: string; cwd: string | nul
       clearTimeout(timer);
       if (shell.el.parentElement === host) host.removeChild(shell.el);
     };
-  }, [shell]);
+  }, [shell, box]);
+}
+
+const useShells = () =>
+  useSyncExternalStore(
+    (l) => (listeners.add(l), () => listeners.delete(l)),
+    () => version,
+    () => 0,
+  );
+
+// ---- A session's CLI view: `claude --resume <id>` in place of the chat. ----
+// Only one of the two drives a session: switching back to Chat ends this claude.
+const cliOwner = (sessionId: string) => `cli:${sessionId}`;
+const cliEnds = new Map<string, number>(); // owner -> when its claude ended
+
+// Did this session's CLI end just now? Until the next sessions refresh it still
+// looks like "open in a terminal", and its last writes like someone else's.
+export function cliEndedRecently(sessionId: string | null) {
+  const at = sessionId ? cliEnds.get(cliOwner(sessionId)) : undefined;
+  return !!at && Date.now() - at < 60_000;
+}
+
+// Is this session's CLI running (in this window)? Survives a page reload.
+export function useCliOn(sessionId: string | null) {
+  useShells();
+  if (!sessionId) return false;
+  const s = shells.get(cliOwner(sessionId));
+  if (s) return s.ended === null; // an error stays on screen, with Back to chat
+  return !!ids()[cliOwner(sessionId)];
+}
+
+export function startCli(sessionId: string, cwd: string | null) {
+  const owner = cliOwner(sessionId);
+  const old = shells.get(owner);
+  if (old && (old.ended !== null || old.err)) {
+    old.dispose(); // you quit it last time: start a fresh one
+    shells.delete(owner);
+  }
+  shellFor(owner, cwd, sessionId);
+  changed();
+}
+
+// Ends the CLI (the conversation is kept: claude writes each message as it goes).
+export function stopCli(sessionId: string) {
+  const owner = cliOwner(sessionId);
+  const id = ids()[owner];
+  cliEnds.set(owner, Date.now());
+  remember(owner, null);
+  shells.get(owner)?.dispose();
+  shells.delete(owner);
+  changed();
+  return id ? fetch(`/api/terminal/${id}`, { method: "DELETE" }).then(() => {}).catch(() => {}) : Promise.resolve();
+}
+
+export function CliPane({ sessionId, cwd }: { sessionId: string; cwd: string | null }) {
+  useShells();
+  const box = useRef<HTMLDivElement>(null);
+  const shell = shellFor(cliOwner(sessionId), cwd, sessionId);
+  useShellIn(shell, box);
+  return (
+    <section className="flex min-h-0 flex-1 flex-col bg-term text-term-ink">
+      {shell.err && (
+        <div className="flex items-center gap-2 border-b border-white/10 px-3 py-1.5 text-xs text-term-ink/70">
+          {shell.err}
+          <button className="font-medium text-accent hover:underline" onClick={() => void stopCli(sessionId)}>
+            Back to chat
+          </button>
+        </div>
+      )}
+      <div ref={box} className="min-h-0 flex-1 px-3 py-2" />
+    </section>
+  );
+}
+
+// Types a command into this session's shell (starting it if needed), as if you had.
+export function runInTerminal(owner: string, cwd: string | null, line: string) {
+  const s = shellFor(owner, cwd);
+  const started = Date.now();
+  const go = () => {
+    if (s.ws?.readyState === WebSocket.OPEN) s.ws.send(line + "\r");
+    else if (Date.now() - started < 15_000 && !s.err) setTimeout(go, 100);
+  };
+  go();
+}
+
+// owner: the session the shell belongs to (its folder while it's still a draft).
+export function TerminalPanel({ owner, cwd }: { owner: string; cwd: string | null }) {
+  const files = useFiles()!;
+  const box = useRef<HTMLDivElement>(null);
+  useShells();
+  const folder = cwd ?? "~";
+  const shell = shellFor(owner, cwd);
+  useShellIn(shell, box);
 
   const restart = () => {
     const id = ids()[owner];
