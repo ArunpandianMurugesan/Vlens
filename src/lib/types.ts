@@ -34,6 +34,7 @@ export interface SessionSummary {
   botId?: string; // a chat with one of your bots (lib/bots.ts), shown in Bots, not in the sidebar
   days?: Record<string, number>; // local date (YYYY-MM-DD) → messages that day, for the last few weeks (History)
   context?: ContextUsage;
+  forkedFrom?: string; // the session this one was forked from (shown nested under it)
 }
 
 // How full the session's context window was at its last reply.

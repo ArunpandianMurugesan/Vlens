@@ -6,6 +6,7 @@ import {
   ArchiveRestore,
   GitFork,
   BellRing,
+  ChevronDown,
   ChevronRight,
   Folder,
   FolderTree,
@@ -164,7 +165,14 @@ export function Sidebar({
     .filter((s) => s.pinOrder === undefined && !s.active && s.id !== activeId && s.recentAt && matches(s))
     .sort((a, b) => b.recentAt!.localeCompare(a.recentAt!));
   // Running ones first, then the ones Vlens touched lately: one list, by folder.
-  const current = [...active, ...recent];
+  const both = [...active, ...recent];
+  // A fork shows under the session it came from, wherever that one is (Pinned or Sessions).
+  const visible = new Set([...pinned, ...both].map((s) => s.id));
+  const kids = new Map<string, SessionSummary[]>();
+  for (const s of [...pinned, ...both])
+    if (s.forkedFrom && s.forkedFrom !== s.id && visible.has(s.forkedFrom) && s.pinOrder === undefined) kids.set(s.forkedFrom, [...(kids.get(s.forkedFrom) ?? []), s]);
+  const nested = new Set([...kids.values()].flat().map((s) => s.id));
+  const current = both.filter((s) => !nested.has(s.id));
   // Sections you folded (remembered).
   const [folded, setFolded] = useState<Set<string>>(new Set());
   useEffect(() => {
@@ -241,6 +249,23 @@ export function Sidebar({
       } catch {}
       return !g;
     });
+  // Forks sit under the session they came from; a parent's forks can be folded (remembered).
+  const [foldedForks, setFoldedForks] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    try {
+      setFoldedForks(new Set(JSON.parse(localStorage.getItem(FORKS_KEY) || "[]")));
+    } catch {}
+  }, []);
+  const toggleForks = (id: string) =>
+    setFoldedForks((f) => {
+      const n = new Set(f);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      try {
+        localStorage.setItem(FORKS_KEY, JSON.stringify([...n]));
+      } catch {}
+      return n;
+    });
   const toggleFold = (key: string) =>
     setFlipped((f) => {
       const next = new Set(f);
@@ -255,7 +280,7 @@ export function Sidebar({
   // A section's sessions, either as they are or under folder headers. Folders
   // keep the order of their first session, so the most relevant stays on top.
   const list = (section: string, items: SessionSummary[]) => {
-    if (!grouped) return <div className="space-y-0.5">{items.map((s) => item(s))}</div>;
+    if (!grouped) return <div className="space-y-0.5">{tree(items, false)}</div>;
     const groups = new Map<string, SessionSummary[]>();
     for (const s of items) {
       const k = s.cwd ?? s.projectDir;
@@ -290,7 +315,7 @@ export function Sidebar({
                   <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500" title="Something in here is working" />
                 )}
               </button>
-              {open && <div className="space-y-0.5 pl-3">{g.map((s) => item(s, true))}</div>}
+              {open && <div className="space-y-0.5 pl-3">{tree(g, true)}</div>}
             </div>
           );
         })}
@@ -298,11 +323,39 @@ export function Sidebar({
     );
   };
 
-  const item = (s: SessionSummary, inFolder = false) => (
+  // Each session with its forks under it (see `kids`).
+  const tree = (items: SessionSummary[], inFolder: boolean) => {
+    const has = (s: SessionSummary, id: string | null | undefined): boolean => !!id && (kids.get(s.id) ?? []).some((c) => c.id === id || has(c, id));
+    const node = (s: SessionSummary, seen: Set<string>): React.ReactNode => {
+      const children = seen.has(s.id) ? [] : (kids.get(s.id) ?? []);
+      const open = !foldedForks.has(s.id) || has(s, activeId) || !!q;
+      const next = new Set(seen).add(s.id);
+      return (
+        <div key={s.id} className="space-y-0.5">
+          {item(s, inFolder, children.length ? { count: children.length, open, onToggle: () => toggleForks(s.id) } : undefined)}
+          {open && children.length > 0 && (
+            <div className="space-y-0.5">
+              {children.map((c, i) => (
+                <div key={c.id} className="relative pl-5">
+                  <span aria-hidden className={`pointer-events-none absolute -top-0.5 left-[13px] w-2 border-l border-muted/50 ${i === children.length - 1 ? "h-[18px] rounded-bl-md border-b" : "h-[calc(100%+2px)]"}`} />
+                  {i < children.length - 1 && <span aria-hidden className="pointer-events-none absolute left-[13px] top-4 w-2 border-t border-muted/50" />}
+                  {node(c, next)}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    };
+    return items.map((s) => node(s, new Set()));
+  };
+
+  const item = (s: SessionSummary, inFolder = false, forks?: Forks) => (
     <SessionItem
       key={s.id}
       s={s}
       inFolder={inFolder}
+      forks={forks}
       selected={s.id === activeId}
       onSelect={() => {
         onSelect(s.id);
@@ -572,6 +625,7 @@ function CrashedBanner({ actions, run }: { actions: Actions; run: (fn: () => Pro
 }
 
 const GROUP_KEY = "lens.sidebarGrouping";
+const FORKS_KEY = "lens.foldedForks"; // sessions whose forks you folded
 const FLIPPED_KEY = "lens.flippedFolders"; // folders flipped from their default (Active open, others closed)
 const ARCHIVED_KEY = "lens.archivedOpen"; // the Archived list is folded or open
 const SECTIONS_KEY = "lens.foldedSections"; // Pinned or Sessions folded
@@ -591,6 +645,8 @@ function Section({ label, count, open, onToggle, action }: { label: string; coun
 
 type Confirm = "end" | "delete" | null;
 
+type Forks = { count: number; open: boolean; onToggle: () => void };
+
 function SessionItem({
   s,
   inFolder,
@@ -599,8 +655,10 @@ function SessionItem({
   actions,
   run,
   onOpen,
+  forks,
 }: {
   s: SessionSummary;
+  forks?: Forks; // it has forks shown under it
   inFolder?: boolean; // under a folder header, so the folder name is already shown
   selected: boolean;
   onSelect: () => void;
@@ -686,6 +744,30 @@ function SessionItem({
             {s.title}
             {!inFolder && <span className="ml-1.5 text-[0.7rem] text-muted">{s.projectName}</span>}
           </span>
+          {forks && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                forks.onToggle();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  forks.onToggle();
+                }
+              }}
+              title={forks.open ? "Hide its forks" : `Show ${forks.count} fork${forks.count > 1 ? "s" : ""}`}
+              aria-label={forks.open ? "Hide forks" : "Show forks"}
+              aria-expanded={forks.open}
+              className="flex shrink-0 items-center gap-0.5 rounded px-0.5 text-muted hover:bg-sunken hover:text-ink"
+            >
+              {!forks.open && <span className="text-[0.65rem]">{forks.count}</span>}
+              <ChevronDown size={12} className={`transition-transform ${forks.open ? "" : "-rotate-90"}`} />
+            </span>
+          )}
           <Status s={s} />
         </button>
       )}

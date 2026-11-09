@@ -128,6 +128,8 @@ interface Parsed {
   messages: ChatMessage[];
   context: { used: number; model: string | null } | null; // at the last reply
   branch: string | null; // the git branch at the last line
+  forkedFrom: string | null; // the parent session, when this is a fork
+  firstSessionId: string | null; // the session id on its first line (a copied fork keeps its parent's)
 }
 
 function parseJsonl(raw: string, withMessages: boolean, sessionId?: string): Parsed {
@@ -135,6 +137,8 @@ function parseJsonl(raw: string, withMessages: boolean, sessionId?: string): Par
   let customTitle: string | null = null;
   let cwd: string | null = null;
   let branch: string | null = null;
+  let forkedFrom: string | null = null;
+  let firstSessionId: string | null = null;
   let firstPrompt: string | null = null;
   let context: Parsed["context"] = null;
   const messages: ChatMessage[] = [];
@@ -151,6 +155,8 @@ function parseJsonl(raw: string, withMessages: boolean, sessionId?: string): Par
     else if (d.type === "custom-title") customTitle = d.customTitle;
     if (!cwd && d.cwd) cwd = d.cwd;
     if (typeof d.gitBranch === "string" && d.gitBranch) branch = d.gitBranch;
+    if (!forkedFrom && typeof d.forkedFrom?.sessionId === "string") forkedFrom = d.forkedFrom.sessionId;
+    if (!firstSessionId && typeof d.sessionId === "string") firstSessionId = d.sessionId;
     // A slash command's printed output (e.g. /context) is its own line type.
     if (withMessages && d.type === "system" && d.subtype === "local_command" && !d.isSidechain) {
       const text = commandOutput(d.content);
@@ -205,6 +211,8 @@ function parseJsonl(raw: string, withMessages: boolean, sessionId?: string): Par
     title: customTitle ?? aiTitle,
     cwd,
     branch,
+    forkedFrom,
+    firstSessionId,
     firstPrompt,
     context,
     messages: withMessages ? mergeAssistantTurns(messages) : [],
@@ -230,6 +238,13 @@ function mergeAssistantTurns(messages: ChatMessage[]): ChatMessage[] {
 
 function withWindow(c: { used: number; model: string | null }, known: Record<string, number>): ContextUsage {
   return { used: c.used, model: c.model, ...contextWindowFor(c.model, c.used, known) };
+}
+
+// A fork's parent: the SDK and CLI write `forkedFrom`; the desktop app copies
+// the parent's lines, so the first line still carries the parent's id.
+function forkParent(p: Parsed, id: string): { forkedFrom?: string } {
+  const parent = p.forkedFrom ?? (p.firstSessionId !== id ? p.firstSessionId : null);
+  return parent && parent !== id ? { forkedFrom: parent } : {};
 }
 
 function summaryTitle(p: Parsed) {
@@ -316,6 +331,7 @@ export async function listSessions(): Promise<SessionSummary[]> {
                   updatedAt: act.last ?? stat.mtime.toISOString(),
                   messageCount,
                   days: act.days,
+                  ...forkParent(p, id),
                   context: p.context ? { ...p.context, window: 0, estimated: true } : undefined, // window filled in below
                 };
           summaryCache.set(fp, { mtimeMs: stat.mtimeMs, summary });
