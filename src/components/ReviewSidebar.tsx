@@ -46,19 +46,19 @@ export function groupOf(p: PrSummary): Group {
 }
 // The sidebar's two tabs: reviews you (or your team) owe, and your own PRs.
 type Tab = "reviews" | "mine";
-type Section = { id: string; label: string; tone: string; folded?: boolean; test: (p: PrSummary) => boolean };
+type Section = { id: string; label: string; tone: string; head?: string; folded?: boolean; test: (p: PrSummary) => boolean };
 const SECTIONS: Record<Tab, Section[]> = {
   reviews: [
     { id: "asked", label: "Asked of you", tone: "text-amber-700 dark:text-amber-400", test: (p) => p.lane === "needsYou" },
     { id: "team", label: "Asked of your team", tone: "text-sky-700 dark:text-sky-400", test: (p) => p.lane === "team" },
-    { id: "reviewed", label: "You reviewed", tone: "text-muted", test: (p) => p.lane === "waiting" || p.lane === "done" },
-    { id: "fyi", label: "Mentions and FYI", tone: "text-muted", folded: true, test: (p) => p.lane === "fyi" },
+    { id: "reviewed", label: "You reviewed", tone: "text-muted", head: "text-teal-700 dark:text-teal-400", test: (p) => p.lane === "waiting" || p.lane === "done" },
+    { id: "fyi", label: "Mentions and FYI", tone: "text-muted", head: "text-slate-500 dark:text-slate-400", folded: true, test: (p) => p.lane === "fyi" },
   ],
   mine: [
     { id: "fix", label: "Needs your fix", tone: "text-red-700 dark:text-red-400", test: (p) => p.lane === "mine" && /changes requested|CI failing|merge conflict/.test(p.why) },
     { id: "ready", label: "Ready to merge", tone: "text-emerald-700 dark:text-emerald-400", test: (p) => p.lane === "mine" && /ready to merge/.test(p.why) },
-    { id: "waiting", label: "Waiting for review", tone: "text-muted", test: (p) => p.lane === "mine" && /waiting for review/.test(p.why) },
-    { id: "drafts", label: "Drafts", tone: "text-muted", test: (p) => p.lane === "mine" && p.why === "draft" },
+    { id: "waiting", label: "Waiting for review", tone: "text-muted", head: "text-sky-700 dark:text-sky-400", test: (p) => p.lane === "mine" && /waiting for review/.test(p.why) },
+    { id: "drafts", label: "Drafts", tone: "text-muted", head: "text-violet-700 dark:text-violet-400", test: (p) => p.lane === "mine" && p.why === "draft" },
   ],
 };
 const tabOf = (p: PrSummary): Tab => (p.lane === "mine" ? "mine" : "reviews");
@@ -160,7 +160,7 @@ export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url
             <div key={g.id} className="pt-2">
               <button
                 onClick={() => g.folded && setOpen((o) => ({ ...o, [g.id]: !o[g.id] }))}
-                className={`flex w-full items-center gap-1.5 px-2 pb-1 text-left text-[0.75rem] font-bold ${g.tone === "text-muted" ? "text-ink/85" : g.tone} ${g.folded ? "hover:text-ink" : "cursor-default"}`}
+                className={`flex w-full items-center gap-1.5 px-2 pb-1 text-left text-[0.75rem] font-bold ${g.head ?? g.tone} ${g.folded ? "hover:text-ink" : "cursor-default"}`}
               >
                 {g.folded && <ChevronRight size={12} className={`transition-transform ${folded ? "" : "rotate-90"}`} />}
                 {g.label}
