@@ -21,7 +21,7 @@ function gh(args: string[], timeout = 25_000): Promise<{ ok: boolean; out: strin
 }
 
 let meCache: { login: string; at: number } | null = null;
-async function me(): Promise<string | null> {
+export async function me(): Promise<string | null> {
   if (meCache && Date.now() - meCache.at < 5 * 60_000) return meCache.login; // notices `gh auth switch`
   const r = await gh(["api", "user", "--jq", ".login"], 10_000);
   if (r.ok && r.out.trim()) meCache = { login: r.out.trim(), at: Date.now() };

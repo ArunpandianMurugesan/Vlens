@@ -1,6 +1,7 @@
 import "server-only";
 import yaml from "js-yaml";
 import { triggersOf } from "./bots";
+import { QUIET_RE, sourceOf } from "./botTriggers";
 import { HOOK_EVENTS } from "./hooks";
 import { isModel } from "./models";
 import { isPermissionMode } from "./modes";
@@ -41,6 +42,11 @@ export function cleanTrigger(t: Record<string, unknown>, i: number, taken: Set<s
     brief: str(t.brief, 8000),
     updateBrief: str(t.updateBrief, 8000),
     maxNew: num(t.maxNew, 3, 1, 50),
+    ...(typeof t.source === "string" && sourceOf(t.source) ? { source: t.source } : {}),
+    ...(t.params && typeof t.params === "object" && !Array.isArray(t.params)
+      ? { params: Object.fromEntries(Object.entries(t.params as Record<string, unknown>).filter(([k, v]) => /^[a-z]{1,20}$/i.test(k) && typeof v === "string").map(([k, v]) => [k, str(v, 1000)]).slice(0, 10)) }
+      : {}),
+    ...(typeof t.playbook === "string" && t.playbook.trim() ? { playbook: str(t.playbook, 100).trim() } : {}),
   };
 }
 
@@ -87,6 +93,15 @@ export function cleanConfig(body: Record<string, any>): Partial<Bot> { // eslint
   if (body.brain === "off" || body.brain === "read" || body.brain === "remember") p.brain = body.brain;
   if (body.brainLearn === null) p.brainLearn = undefined;
   else if (body.brainLearn && typeof body.brainLearn === "object") p.brainLearn = { all: !!body.brainLearn.all, folders: strs(body.brainLearn.folders, 30, 300).filter((f) => f.startsWith("/")) };
+  if (body.limits === null) p.limits = undefined;
+  else if (body.limits && typeof body.limits === "object") {
+    const l = body.limits;
+    p.limits = {
+      ...(typeof l.quietHours === "string" && QUIET_RE.test(l.quietHours) ? { quietHours: l.quietHours } : {}),
+      ...(l.weekdaysOnly === true ? { weekdaysOnly: true } : {}),
+      ...(typeof l.maxRunsPerDay === "number" && l.maxRunsPerDay > 0 ? { maxRunsPerDay: Math.min(500, Math.round(l.maxRunsPerDay)) } : {}),
+    };
+  }
   if (Array.isArray(body.brainFolders)) p.brainFolders = strs(body.brainFolders, 30, 300).filter((f) => f.startsWith("/"));
   // Its job in plain words (a recipe fills it in; the bot rewrites it with set_job).
   if (body.job && typeof body.job === "object" && [body.job.when, body.job.think, body.job.act].every((x) => typeof x === "string" && x.trim()))

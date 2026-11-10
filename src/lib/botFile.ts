@@ -1,30 +1,20 @@
 import yaml from "js-yaml";
 import { ABILITIES, type Level, LEVELS, levelLabel, levelOf, widens } from "./botAbilities";
+import { commandFor, isNativeSource, isSessionSource, type Limits, paramErrors, QUIET_RE, sourceOf } from "./botTriggers";
 import type { Bot, BotTrigger } from "./types";
 
-// A bot, as one readable file (bot.md in its folder, OKF: Markdown with YAML
-// frontmatter). It is the bot's setup in plain words, and Vlens builds the real
-// setup from it (triggers, permission rules, connectors). It round-trips with
-// bot.json: Vlens rewrites bot.md whenever the bot changes, and applying an edited
-// bot.md changes the bot. Pure: used by the server and the page.
+// A bot's setup as two files in its folder, like a harness agent:
 //
-//   ---
-//   type: bot
-//   name: PR Reviewer
-//   apps: [dev-agent-harness]
-//   ---
-//   ## When
-//   - every 15 min: review requests
-//     check: `gh search prs --review-requested=@me …`
-//     brief: |
-//       New PR {key}: {title}
-//   - when a session ends in ~/Desktop/org_repos: session coach
-//   ## Think            (where it looks: one sentence per line)
-//   ## Act              (what it does)
-//   ## May do           (- Comment or review on GitHub: ask me · - allow: `Bash(ls:*)`)
-//   ## Knows            (- sessions: ~/Desktop/org_repos · - confluence: 123 Title · - skills: all)
-//   ## Off limits       (one per line; paths are blocked for real)
-//   ## Operations       (its playbook, free text)
+//   agent.yaml    its settings: model, connectors, what it may do, what it knows,
+//                 off limits, quiet hours and limits, and its triggers (on:)
+//   PLAYBOOK.md   what it does when woken, in plain words. Its own "## …" parts
+//                 can be named by a trigger (playbook: Reviewing); the "Where it
+//                 looks" and "What it does" lists are its rules.
+//
+// Vlens builds the real setup from them (triggers, permission rules, connectors)
+// and rewrites them whenever the bot changes (they round-trip with bot.json).
+// The older single file (bot.md) is still read, to move a bot over. Pure: used
+// by the server and the page.
 
 export interface FileTrigger {
   name: string;
@@ -40,6 +30,14 @@ export interface FileTrigger {
   brief: string;
   updateBrief: string;
   maxNew: number;
+  source: string; // lib/botTriggers.ts
+  params: Record<string, string>;
+  playbook: string; // a "## …" part of its playbook
+}
+
+export interface BotFiles {
+  agent: string; // agent.yaml
+  playbook: string; // PLAYBOOK.md
 }
 
 export interface BotFile {
@@ -63,11 +61,13 @@ export interface BotFile {
   skills: string[] | "all";
   offLimits: string[];
   operations: string;
+  limits: Limits;
 }
 
 export interface FileError {
   line: number | null;
   message: string;
+  file?: "agent" | "playbook";
 }
 
 export const BRAIN_LABEL = { off: "off", read: "read only", remember: "read and remember" } as const;
@@ -76,78 +76,263 @@ const SECTIONS = ["When", "Think", "Act", "May do", "Knows", "Off limits", "Oper
 const tilde = (p: string, home: string) => (home && p.startsWith(home) ? `~${p.slice(home.length)}` : p);
 const untilde = (p: string, home: string) => (p.startsWith("~") ? home + p.slice(1) : p);
 const unquote = (v: string) => v.trim().replace(/^`([\s\S]*)`$/, "$1");
-const quote = (v: string) => (/[`]/.test(v) ? v : `\`${v}\``);
 
-// ── Write (bot → file) ───────────────────────────────────────────────────────
+// ── Write (bot → files) ──────────────────────────────────────────────────────
 
-function triggerLine(t: BotTrigger, home: string) {
-  const where = t.folders.length ? `in ${t.folders.map((f) => tilde(f, home)).join(", ")}` : "in all folders";
-  const head =
-    t.kind === "schedule"
-      ? `every ${t.everyMinutes} min`
-      : t.event === "idle"
-        ? `when a session goes idle for ${t.idleMinutes} min ${where}`
-        : `when a session ${t.event === "started" ? "starts" : "ends"} ${where}`;
-  const lines = [`- ${t.on ? "" : "(paused) "}${head}: ${t.name}`];
-  const field = (k: string, v: string) => {
-    if (!v.trim()) return;
-    if (v.includes("\n")) lines.push(`  ${k}: |`, ...v.split("\n").map((l) => `    ${l}`));
-    else lines.push(`  ${k}: ${k === "check" || k === "gate" ? quote(v) : v}`);
-  };
-  if (t.kind === "schedule") field("check", t.list);
-  else field("match", t.match);
-  field("gate", t.gate);
-  field("brief", t.brief);
-  field("update brief", t.updateBrief);
-  if (t.maxNew !== 3) lines.push(`  max new: ${t.maxNew}`);
-  return lines.join("\n");
+const WHERE = "Where it looks";
+const WHAT = "What it does";
+const sourceIdOf = (t: BotTrigger) => t.source || (t.kind === "session" ? `session.${t.event}` : "command");
+const block = (v: string) => (v.includes("\n") ? v.replace(/\s+$/, "") + "\n" : v);
+
+function triggerYaml(t: BotTrigger, home: string): Record<string, unknown> {
+  const src = sourceIdOf(t);
+  const def = sourceOf(src);
+  const o: Record<string, unknown> = { name: t.name, source: src };
+  if (!t.on) o.paused = true;
+  if (!isSessionSource(src) && src !== "time" && t.everyMinutes !== def?.every) o.every = t.everyMinutes;
+  for (const [k, v] of Object.entries(t.params ?? {})) if (v.trim()) o[k] = v;
+  if (src === "command") o.check = t.list;
+  if (isSessionSource(src)) {
+    o.folders = t.folders.length ? t.folders.map((f) => tilde(f, home)) : "all";
+    if (src === "session.idle") o.idleMinutes = t.idleMinutes;
+    if (t.match.trim()) o.match = t.match;
+  }
+  if (t.gate.trim()) o.gate = t.gate;
+  if (t.playbook) o.playbook = t.playbook;
+  if (t.brief.trim() && t.brief.trim() !== def?.brief) o.brief = block(t.brief);
+  if (t.updateBrief.trim() && t.updateBrief.trim() !== def?.updateBrief) o.updateBrief = block(t.updateBrief);
+  if (t.maxNew !== 3) o.maxNew = t.maxNew;
+  return o;
 }
 
-export function writeBotFile(b: Bot, home: string): string {
-  const fm = {
-    type: "bot",
-    name: b.name,
-    avatar: b.avatar || undefined,
-    about: b.about || undefined,
-    apps: b.mcp,
-    model: b.model || undefined,
-    effort: b.effort || undefined,
-    mode: b.mode || undefined,
-  };
-  const out: string[] = ["---", yaml.dump(fm, { lineWidth: 200, flowLevel: 1 }).trim(), "---", ""];
-  const section = (title: string, body: string) => out.push(`## ${title}`, body.trim() || "", "");
-  const bullets = (xs: string[]) => xs.map((x) => `- ${x}`).join("\n");
+const AGENT_HEAD = (name: string) => `# ${name}: its settings. What it does when woken is in PLAYBOOK.md.
+# Edit and apply from its Configuration page: Vlens checks it and shows each change first.
+`;
 
-  const ts = b.triggers ?? [];
-  section("When", ts.length ? ts.map((t) => triggerLine(t, home)).join("\n") : "- only when you message it");
-  section("Think", bullets(b.rules.lookAt));
-  section("Act", bullets(b.rules.allowed));
-  // Every action from the catalog that applies, then any other rules as they are.
+// js-yaml quotes on/off/yes/no (booleans in old YAML); Vlens reads YAML 1.2, where they're words.
+const dump = (doc: Record<string, unknown>) => yaml.dump(doc, { lineWidth: -1, noRefs: true, quotingType: '"' }).replace(/^"on":/m, "on:").replace(/: "(off|on)"$/gm, ": $1");
+
+// One change to agent.yaml (a trigger switched, added or removed; quiet hours set),
+// for the Triggers tab. The result is reviewed like any other edit.
+export function editAgent(agent: string, fn: (doc: { on?: Record<string, unknown>[]; limits?: Record<string, unknown> } & Record<string, unknown>) => void): string {
+  const doc = ((yaml.load(agent) as Record<string, unknown>) ?? {}) as Parameters<typeof fn>[0];
+  if (!Array.isArray(doc.on)) doc.on = [];
+  fn(doc);
+  if (doc.limits && !Object.keys(doc.limits).length) delete doc.limits;
+  return AGENT_HEAD(String(doc.name ?? "")) + "\n" + dump(doc);
+}
+
+export function writeBotFiles(b: Bot, home: string): BotFiles {
   const covered = new Set<string>();
-  const may = ABILITIES.filter((a) => !a.when || a.when(b)).map((a) => {
+  const may: Record<string, string> = {};
+  for (const a of ABILITIES.filter((x) => !x.when || x.when(b))) {
     a.rules.forEach((r) => covered.add(r));
-    return `- ${a.label}: ${levelLabel(levelOf(b, a)).toLowerCase()}`;
-  });
-  const raw = (k: string, xs: string[] | undefined) => (xs ?? []).filter((r) => !covered.has(r)).map((r) => `- ${k}: ${quote(r)}`);
-  section("May do", [...may, ...raw("allow", b.allowTools), ...raw("ask", b.askTools), ...raw("never", b.denyTools)].join("\n"));
+    may[a.label] = levelLabel(levelOf(b, a)).toLowerCase();
+  }
+  const extra = (xs: string[] | undefined) => (xs ?? []).filter((r) => !covered.has(r));
+  const rules = { allow: extra(b.allowTools), ask: extra(b.askTools), never: extra(b.denyTools) };
   const sess = b.sessionAccess;
-  const knows = [
-    `- brain: ${BRAIN_LABEL[b.brain ?? "off"]}`,
-    ...((b.brain ?? "off") !== "off" ? [`- brain folders: ${b.brainFolders?.length ? b.brainFolders.map((f) => tilde(f, home)).join(", ") : "all"}`] : []),
-    ...(b.brain === "remember" ? [`- brain learns from: ${!b.brainLearn ? "off" : b.brainLearn.all ? "all sessions" : b.brainLearn.folders.map((f) => tilde(f, home)).join(", ") || "off"}`] : []),
-    `- sessions: ${sess?.all ? "all" : sess?.folders.length ? sess.folders.map((f) => tilde(f, home)).join(", ") : "off"}`,
-    ...(b.knowledge?.confluence ?? []).map((c) => `- confluence: ${c.id} ${c.title}`.trim()),
-    `- skills: ${Array.isArray(b.skills) ? b.skills.join(", ") || "none" : "all"}`,
-  ];
-  section("Knows", knows.join("\n"));
-  section("Off limits", bullets(b.rules.dontLookAt));
-  section("Operations", b.role);
-  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
+  const brain = b.brain ?? "off";
+  const knows: Record<string, unknown> = { brain: BRAIN_LABEL[brain] };
+  if (brain !== "off") knows.brainFolders = b.brainFolders?.length ? b.brainFolders.map((f) => tilde(f, home)) : "all";
+  if (brain === "remember") knows.brainLearns = !b.brainLearn ? "off" : b.brainLearn.all ? "all sessions" : b.brainLearn.folders.length ? b.brainLearn.folders.map((f) => tilde(f, home)) : "off";
+  knows.sessions = sess?.all ? "all" : sess?.folders.length ? sess.folders.map((f) => tilde(f, home)) : "off";
+  if (b.knowledge?.confluence?.length) knows.confluence = b.knowledge.confluence.map((c) => ({ id: c.id, title: c.title }));
+  knows.skills = Array.isArray(b.skills) ? b.skills : "all";
+  const limits = b.limits && Object.keys(b.limits).length ? b.limits : undefined;
+  const doc: Record<string, unknown> = {
+    name: b.name,
+    ...(b.avatar ? { avatar: b.avatar } : {}),
+    ...(b.about ? { about: b.about } : {}),
+    ...(b.model ? { model: b.model } : {}),
+    ...(b.effort ? { effort: b.effort } : {}),
+    ...(b.mode ? { mode: b.mode } : {}),
+    connectors: b.mcp,
+    may,
+    ...(rules.allow.length || rules.ask.length || rules.never.length ? { rules: Object.fromEntries(Object.entries(rules).filter(([, v]) => v.length)) } : {}),
+    knows,
+    ...(b.rules.dontLookAt.length ? { offLimits: b.rules.dontLookAt } : {}),
+    ...(limits ? { limits } : {}),
+    on: (b.triggers ?? []).map((t) => triggerYaml(t, home)),
+  };
+  const agent = AGENT_HEAD(b.name) + "\n" + dump(doc);
+  const list = (xs: string[]) => xs.map((x) => `- ${x}`).join("\n");
+  const playbook = [`# ${b.name}`, "", b.role.trim(), "", `## ${WHERE}`, list(b.rules.lookAt), "", `## ${WHAT}`, list(b.rules.allowed), ""].join("\n").replace(/\n{3,}/g, "\n\n");
+  return { agent, playbook };
+}
+
+// The "## …" parts of a playbook a trigger can name.
+export const playbookParts = (operations: string) => [...operations.matchAll(/^##\s+(.+?)\s*$/gm)].map((m) => m[1]);
+
+// ── Read (files → parts) ─────────────────────────────────────────────────────
+
+const lineOf = (text: string, needle: string) => {
+  const i = text.split("\n").findIndex((l) => l.includes(needle));
+  return i < 0 ? null : i + 1;
+};
+
+function readPlaybook(text: string) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  if (/^#\s/.test(lines[0] ?? "")) lines.shift();
+  const keep: string[] = [];
+  const lists: Record<string, string[]> = { [WHERE]: [], [WHAT]: [] };
+  let cur: string | null = null;
+  for (const l of lines) {
+    const h = l.match(/^##\s+(.+?)\s*$/);
+    if (h) cur = [WHERE, WHAT].find((x) => x.toLowerCase() === h[1].toLowerCase()) ?? null;
+    if (cur) {
+      const b = l.match(/^\s*[-*]\s+(.*)$/)?.[1]?.trim();
+      if (b) lists[cur].push(b);
+      continue;
+    }
+    keep.push(l);
+  }
+  return { operations: keep.join("\n").trim(), think: lists[WHERE], act: lists[WHAT] };
+}
+
+export function readBotFiles(f: BotFiles): { file: BotFile | null; errors: FileError[] } {
+  const errors: FileError[] = [];
+  const err = (message: string, needle?: string) => errors.push({ file: "agent", line: needle ? lineOf(f.agent, needle) : null, message });
+  let doc: Record<string, unknown>;
+  try {
+    doc = (yaml.load(f.agent) as Record<string, unknown>) ?? {};
+    if (typeof doc !== "object" || Array.isArray(doc)) throw new Error("it should be a list of settings, like name: …");
+  } catch (e) {
+    const m = (e as { mark?: { line: number } }).mark;
+    return { file: null, errors: [{ file: "agent", line: m ? m.line + 1 : null, message: `agent.yaml isn't valid YAML: ${(e as Error).message.split("\n")[0]}` }] };
+  }
+  const KNOWN = ["name", "avatar", "about", "model", "effort", "mode", "connectors", "may", "rules", "knows", "offLimits", "limits", "on"];
+  for (const k of Object.keys(doc)) if (!KNOWN.includes(k)) err(`"${k}" isn't a setting Vlens knows: use ${KNOWN.join(", ")}.`, `${k}:`);
+  const str = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : String(v));
+  const strList = (v: unknown) => (Array.isArray(v) ? v.map(str).map((x) => x.trim()).filter(Boolean) : typeof v === "string" && v.trim() ? v.split(",").map((x) => x.trim()).filter(Boolean) : []);
+  const allOr = (v: unknown, none: string): string[] | "all" | null => {
+    if (v == null || (typeof v === "string" && v.trim().toLowerCase() === none)) return null;
+    if (typeof v === "string" && /^all( sessions)?$/i.test(v.trim())) return "all";
+    return strList(v);
+  };
+  const name = str(doc.name).trim();
+  if (!name) err("Give it a name (name: …).");
+
+  const mayDo: BotFile["mayDo"] = [];
+  const may = (doc.may ?? {}) as Record<string, unknown>;
+  if (typeof may !== "object" || Array.isArray(may)) err('"may" should list actions, like "Comment or review on GitHub: ask me".', "may:");
+  else
+    for (const [k, v] of Object.entries(may)) {
+      const a = ABILITIES.find((x) => x.label.toLowerCase() === k.toLowerCase() || x.id === k.toLowerCase());
+      const level = LEVELS.find((x) => x.label.toLowerCase() === str(v).toLowerCase() || x.id === str(v).toLowerCase())?.id;
+      if (!a) err(`"${k}" isn't an action Vlens knows. Use one from the list, or a rule under rules: allow / ask / never.`, k);
+      else if (!level) err(`"${v}" for ${a.label}: use on its own, ask me or never.`, k);
+      else mayDo.push({ label: a.label, level });
+    }
+  const r = (doc.rules ?? {}) as Record<string, unknown>;
+  for (const k of Object.keys(r)) if (!["allow", "ask", "never"].includes(k)) err(`rules: "${k}" should be allow, ask or never.`, `${k}:`);
+  const raw = { allow: strList(r.allow), ask: strList(r.ask), never: strList(r.never) };
+
+  const kn = (doc.knows ?? {}) as Record<string, unknown>;
+  for (const k of Object.keys(kn)) if (!["brain", "brainFolders", "brainLearns", "sessions", "confluence", "skills"].includes(k)) err(`knows: "${k}" isn't something Vlens knows.`, `${k}:`);
+  const bx = str(kn.brain).toLowerCase();
+  const brain: BotFile["brain"] = /remember|write/.test(bx) ? "remember" : /read/.test(bx) ? "read" : "off";
+  const brainFolders = allOr(kn.brainFolders, "none") ?? "all";
+  const learn = allOr(kn.brainLearns, "off");
+  const brainLearn: BotFile["brainLearn"] = learn === null || (Array.isArray(learn) && !learn.length) ? "off" : learn;
+  if (brainLearn !== "off" && brain !== "remember") err('"brainLearns" needs "brain: read and remember": a bot that learns has to be allowed to change the brain.', "brainLearns");
+  const sx = allOr(kn.sessions, "off");
+  const sessions: BotFile["sessions"] = sx === null || (Array.isArray(sx) && !sx.length) ? null : sx;
+  const confluence = Array.isArray(kn.confluence)
+    ? kn.confluence.flatMap((c) => {
+        const o = (c ?? {}) as Record<string, unknown>;
+        const id = str(o.id ?? (typeof c === "string" || typeof c === "number" ? c : "")).trim();
+        return /^\d+$/.test(id) ? [{ id, title: str(o.title) }] : (err(`knows: confluence needs page ids, like { id: 12345, title: Page }.`, "confluence"), []);
+      })
+    : [];
+  const sk = kn.skills;
+  const skills: BotFile["skills"] = sk == null || (typeof sk === "string" && /^all$/i.test(sk.trim())) ? "all" : typeof sk === "string" && /^none$/i.test(sk.trim()) ? [] : strList(sk);
+
+  const lim = (doc.limits ?? {}) as Record<string, unknown>;
+  const limits: Limits = {};
+  if (lim.quietHours != null) {
+    if (QUIET_RE.test(str(lim.quietHours))) limits.quietHours = str(lim.quietHours);
+    else err(`limits: quietHours should be like 20:00-08:00.`, "quietHours");
+  }
+  if (lim.weekdaysOnly != null) limits.weekdaysOnly = lim.weekdaysOnly === true;
+  if (lim.maxRunsPerDay != null) {
+    if (Number(lim.maxRunsPerDay) > 0) limits.maxRunsPerDay = Math.round(Number(lim.maxRunsPerDay));
+    else err("limits: maxRunsPerDay should be a number above 0.", "maxRunsPerDay");
+  }
+
+  const pb = readPlaybook(f.playbook);
+  const parts = playbookParts(pb.operations);
+  const when: FileTrigger[] = [];
+  const on = doc.on ?? [];
+  if (!Array.isArray(on)) err('"on" should be a list of triggers, each starting with "- name: …".', "on:");
+  else
+    on.forEach((x, i) => {
+      const o = (x ?? {}) as Record<string, unknown>;
+      const tname = str(o.name).trim() || `trigger ${i + 1}`;
+      const src = str(o.source || "command").trim();
+      const def = sourceOf(src);
+      const p: Record<string, string> = {};
+      for (const sp of def?.params ?? []) if (o[sp.key] != null) p[sp.key] = Array.isArray(o[sp.key]) ? (o[sp.key] as unknown[]).map(str).join(", ") : str(o[sp.key]);
+      const known = ["name", "source", "paused", "every", "check", "gate", "folders", "idleMinutes", "match", "playbook", "brief", "updateBrief", "maxNew", ...(def?.params ?? []).map((q) => q.key)];
+      for (const k of Object.keys(o)) if (!known.includes(k)) err(`"${tname}": "${k}" isn't a trigger setting for ${src}.`, `${k}:`);
+      for (const m of paramErrors(src, p)) err(`"${tname}": ${m}`, `name: ${tname}`);
+      const every = o.every == null ? (def?.every ?? 15) : Number(o.every);
+      if (!isSessionSource(src) && src !== "time" && (!Number.isFinite(every) || every < 5)) err(`"${tname}": checks can run every 5 minutes at most.`, `name: ${tname}`);
+      const playbook = str(o.playbook).trim();
+      if (playbook && !parts.some((x) => x.toLowerCase() === playbook.toLowerCase())) errors.push({ file: "playbook", line: null, message: `"${tname}" follows the playbook part "${playbook}", but PLAYBOOK.md has no "## ${playbook}".` });
+      const check = str(o.check);
+      if (src === "command" && !check.trim()) err(`"${tname}" needs a check: the command that lists what to work on.`, `name: ${tname}`);
+      const fx = isSessionSource(src) ? allOr(o.folders, "none") : [];
+      when.push({
+        name: tname,
+        on: o.paused !== true,
+        kind: isSessionSource(src) ? "session" : "schedule",
+        everyMinutes: isSessionSource(src) ? 15 : Math.max(5, Number.isFinite(every) ? every : 15),
+        event: src === "session.started" ? "started" : src === "session.idle" ? "idle" : "ended",
+        idleMinutes: Number(o.idleMinutes) || 30,
+        folders: fx === null ? [] : fx,
+        check,
+        gate: str(o.gate),
+        match: str(o.match),
+        brief: str(o.brief).replace(/\s+$/, ""),
+        updateBrief: str(o.updateBrief).replace(/\s+$/, ""),
+        maxNew: Math.max(1, Math.min(20, Number(o.maxNew) || 3)),
+        source: src,
+        params: p,
+        playbook: parts.find((x) => x.toLowerCase() === playbook.toLowerCase()) ?? "",
+      });
+    });
+
+  const file: BotFile = {
+    name,
+    avatar: str(doc.avatar).slice(0, 2),
+    about: str(doc.about),
+    apps: strList(doc.connectors),
+    model: str(doc.model),
+    effort: str(doc.effort),
+    mode: str(doc.mode),
+    when,
+    think: pb.think,
+    act: pb.act,
+    mayDo,
+    raw,
+    sessions,
+    brain,
+    brainFolders,
+    brainLearn,
+    confluence,
+    skills,
+    offLimits: strList(doc.offLimits),
+    operations: pb.operations,
+    limits,
+  };
+  return { file, errors };
 }
 
 // ── Read (file → parts) ──────────────────────────────────────────────────────
 
-export function readBotFile(text: string): { file: BotFile | null; errors: FileError[] } {
+// The older single file (bot.md): read only, to move a bot over.
+export function readLegacyBotFile(text: string): { file: BotFile | null; errors: FileError[] } {
   const errors: FileError[] = [];
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   let i = 0;
@@ -248,6 +433,7 @@ export function readBotFile(text: string): { file: BotFile | null; errors: FileE
     skills,
     offLimits: bulletsOf("Off limits"),
     operations,
+    limits: {},
   };
   return { file, errors };
 }
@@ -284,7 +470,7 @@ function readWhen(sec: { start: number; lines: string[] } | undefined, errors: F
       const rest = s.replace(/^\(paused\)\s*/i, "");
       const sched = rest.match(/^every\s+(\d+)\s*(?:min|minutes?)\s*:\s*(.+)$/i);
       const sess = rest.match(/^when a session (starts|ends|goes idle(?: for (\d+) min)?)\s+in\s+(.+?)\s*:\s*(.+)$/i);
-      const base = { on: !paused, gate: "", match: "", brief: "", updateBrief: "", maxNew: 3, check: "", everyMinutes: 15, event: "ended" as const, idleMinutes: 30, folders: [] as string[] | "all" };
+      const base = { on: !paused, gate: "", match: "", brief: "", updateBrief: "", maxNew: 3, check: "", everyMinutes: 15, event: "ended" as const, idleMinutes: 30, folders: [] as string[] | "all", source: "command", params: {}, playbook: "" };
       if (sched) {
         const every = Number(sched[1]);
         if (every < 5) errors.push({ line, message: "Checks can run every 5 minutes at most." });
@@ -292,7 +478,7 @@ function readWhen(sec: { start: number; lines: string[] } | undefined, errors: F
       } else if (sess) {
         const ev = sess[1].toLowerCase().startsWith("starts") ? "started" : sess[1].toLowerCase().startsWith("ends") ? "ended" : "idle";
         const where = sess[3].trim();
-        t = { ...base, kind: "session", name: sess[4].trim(), event: ev, idleMinutes: Number(sess[2]) || 30, folders: /^all folders$/i.test(where) ? "all" : where.split(",").map((x) => x.trim()).filter(Boolean) };
+        t = { ...base, kind: "session", source: `session.${ev}`, name: sess[4].trim(), event: ev, idleMinutes: Number(sess[2]) || 30, folders: /^all folders$/i.test(where) ? "all" : where.split(",").map((x) => x.trim()).filter(Boolean) };
       } else {
         errors.push({ line, message: `Can't read "${s}". Write "every 15 min: name" or "when a session ends in ~/folder: name".` });
         t = null;
@@ -329,21 +515,26 @@ export function buildFromFile(f: BotFile, b: Pick<Bot, "triggers" | "mcp">, home
     let id = same?.id ?? slug(t.name);
     while (taken.has(id)) id += "-2";
     taken.add(id);
+    const def = sourceOf(t.source);
+    const preset = t.source !== "command" && !isSessionSource(t.source);
     return {
       id,
       name: t.name,
       on: t.on,
       kind: t.kind,
       everyMinutes: t.everyMinutes,
-      list: t.check,
+      list: t.source === "command" ? t.check : preset && !isNativeSource(t.source) ? commandFor(t.source, t.params) : "",
       gate: t.gate,
       event: t.event,
       idleMinutes: t.idleMinutes,
       folders: t.folders === "all" ? [] : t.folders.map((x) => untilde(x, home)),
       match: t.match,
-      brief: t.brief.trim(),
-      updateBrief: t.updateBrief.trim(),
+      brief: t.brief.trim() || def?.brief || "",
+      updateBrief: t.updateBrief.trim() || def?.updateBrief || "",
       maxNew: t.maxNew,
+      ...(t.source && t.source !== "command" ? { source: t.source } : {}),
+      ...(Object.keys(t.params).length ? { params: t.params } : {}),
+      ...(t.playbook ? { playbook: t.playbook } : {}),
     };
   });
   const allow = [...f.raw.allow];
@@ -374,6 +565,7 @@ export function buildFromFile(f: BotFile, b: Pick<Bot, "triggers" | "mcp">, home
     brainFolders: f.brainFolders === "all" ? [] : f.brainFolders.map((x) => untilde(x, home)),
     brainLearn: f.brain !== "remember" || f.brainLearn === "off" ? undefined : f.brainLearn === "all" ? { all: true, folders: [] } : { all: false, folders: f.brainLearn.map((x) => untilde(x, home)) },
     skills: f.skills === "all" ? null : f.skills,
+    limits: (Object.keys(f.limits).length ? f.limits : null) as Bot["limits"], // null clears them
   };
 }
 
@@ -395,13 +587,20 @@ export function changesBetween(b: Bot, next: Partial<Bot>): Change[] {
   const was = new Map((b.triggers ?? []).map((t) => [t.id, t]));
   for (const t of after.triggers ?? []) {
     const p = was.get(t.id);
-    if (!p) out.push({ text: `New trigger "${t.name}"${t.kind === "schedule" ? `, every ${t.everyMinutes} min` : ""}`, widens: true });
+    if (!p) {
+      const src = sourceOf(t.source);
+      const how = t.source === "time" ? `, at ${t.params?.at ?? "09:00"}` : t.source && t.source !== "command" ? `: ${src?.label.toLowerCase() ?? t.source}` : t.kind === "schedule" ? `, every ${t.everyMinutes} min` : "";
+      out.push({ text: `New trigger "${t.name}"${how}`, widens: true });
+    }
     else {
       if (p.list !== t.list || p.gate !== t.gate) out.push({ text: `"${t.name}" runs a different command`, widens: true });
       if (p.everyMinutes !== t.everyMinutes && t.kind === "schedule") out.push({ text: `"${t.name}": every ${p.everyMinutes} → ${t.everyMinutes} min` });
       if (p.on !== t.on) out.push({ text: `"${t.name}" ${t.on ? "turns on" : "is paused"}`, widens: t.on });
       if (p.brief !== t.brief || p.updateBrief !== t.updateBrief) out.push({ text: `"${t.name}": what it does with each item` });
       if (JSON.stringify(p.folders) !== JSON.stringify(t.folders) || p.event !== t.event || p.match !== t.match) out.push({ text: `"${t.name}": which sessions it watches` });
+      if ((p.source ?? "") !== (t.source ?? "") && !(p.list !== t.list)) out.push({ text: `"${t.name}" watches something else: ${sourceOf(t.source)?.label ?? t.source}`, widens: true });
+      if (JSON.stringify(p.params ?? {}) !== JSON.stringify(t.params ?? {})) out.push({ text: `"${t.name}": its settings (${Object.entries(t.params ?? {}).map(([k, v]) => `${k}: ${v}`).join(", ") || "none"})` });
+      if ((p.playbook ?? "") !== (t.playbook ?? "")) out.push({ text: `"${t.name}" follows ${t.playbook ? `the "${t.playbook}" part of its playbook` : "its whole playbook"}` });
     }
     was.delete(t.id);
   }
@@ -441,6 +640,12 @@ export function changesBetween(b: Bot, next: Partial<Bot>): Change[] {
     // Fewer limits = more it can read: from some folders to all, or a folder added.
     out.push({ text: `Brain memories from: ${short(fw)} → ${short(fa)}`, widens: (!fa.length && fw.length > 0) || fa.some((x) => fw.length > 0 && !fw.includes(x)) });
   }
+  const lim = (x: Bot) => JSON.stringify(x.limits ?? {});
+  if (lim(b) !== lim(after)) {
+    const l = after.limits ?? {};
+    const bits = [l.quietHours && `quiet ${l.quietHours}`, l.weekdaysOnly && "weekdays only", l.maxRunsPerDay && `at most ${l.maxRunsPerDay} runs a day`].filter(Boolean);
+    out.push({ text: `When it may run: ${bits.join(", ") || "any time, no daily limit"}`, widens: (b.limits?.maxRunsPerDay ?? Infinity) < (l.maxRunsPerDay ?? Infinity) || (!!b.limits?.quietHours && !l.quietHours) || (!!b.limits?.weekdaysOnly && !l.weekdaysOnly) });
+  }
   if (JSON.stringify(b.knowledge?.confluence ?? []) !== JSON.stringify(after.knowledge?.confluence ?? [])) out.push({ text: "Its Confluence pages" });
   if (JSON.stringify(b.skills ?? null) !== JSON.stringify(after.skills ?? null)) out.push({ text: "Its skills" });
   if ((["allowed", "lookAt", "dontLookAt"] as const).some((k) => JSON.stringify(b.rules[k]) !== JSON.stringify(after.rules[k]))) out.push({ text: "What it looks at, does, or must not touch" });
@@ -453,7 +658,15 @@ export function changesBetween(b: Bot, next: Partial<Bot>): Change[] {
 // Its job in plain words, from the file (shown until it writes its own with set_job).
 export function jobFromFile(f: BotFile) {
   const when = f.when.length
-    ? f.when.map((t) => (t.kind === "schedule" ? `Every ${t.everyMinutes} min: ${t.name}.` : `When a session ${t.event === "idle" ? "goes quiet" : t.event}: ${t.name}.`)).join(" ")
+    ? f.when
+        .map((t) =>
+          t.source === "time"
+            ? `At ${t.params.at ?? "09:00"}${t.params.days ? ` on ${t.params.days}` : ""}: ${t.name}.`
+            : t.kind === "schedule"
+              ? `${t.source !== "command" ? `${sourceOf(t.source)?.label ?? t.name}` : `Every ${t.everyMinutes} min`}: ${t.name}.`
+              : `When a session ${t.event === "idle" ? "goes quiet" : t.event}: ${t.name}.`,
+        )
+        .join(" ")
     : "When you message it.";
   return { when, think: f.think.slice(0, 2).join(" ") || "What you tell it in chat.", act: f.act.slice(0, 2).join(" ") || "It drafts and asks before posting." };
 }

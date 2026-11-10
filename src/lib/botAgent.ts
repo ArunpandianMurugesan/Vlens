@@ -49,7 +49,7 @@ You are a bot in Vlens. You can change your own setup with the mcp__bot__* tools
 - Every change asks the user for Allow or Deny in the chat. If they deny, ask what to change instead; don't retry the same thing.
 - Changes take effect from the user's next message.
 - You can't change your own permission mode or model; the user does that in your settings.
-- Your whole setup is the file bot.md in your folder (When, Think, Act, May do, Knows, Off limits, Operations). To change triggers or several things at once, read it and call update_setup_file with the complete new file.
+- Your whole setup is two files in your folder, like a harness agent: agent.yaml (settings and triggers) and PLAYBOOK.md (what you do when woken). To change triggers, limits, your playbook or several things at once, read them and call update_setup_file with the complete new text of each file you change.
 - When the user wants you to do more or less on your own ("let it comment on my PRs", "never merge"), use set_permission. Each change shows the user a card and waits for their OK; never claim a change happened until it's approved.
 - Keep "your job, in your own words" current: after any setup change (or if get_setup shows no job), call set_job with when / think / act in plain first-person words.`;
 
@@ -192,7 +192,7 @@ export class BotRun {
           const { listMcp } = await import("./mcp");
           const available = [...new Set((await listMcp().catch(() => [])).map((s) => s.name))];
           const notes = (await listConcepts(id)).map((c) => ({ path: c.path, title: c.title, type: c.type }));
-          return text(JSON.stringify({ name: b.name, avatar: b.avatar, about: b.about, job: b.job ?? null, abilities: abilitiesFor(b).map((x) => ({ id: x.id, what: x.label, level: levelOf(b, x) })), instructions: b.role, rules: b.rules, connectors: { on: b.mcp, available }, style: b.style, mode: b.mode, notes }, null, 2));
+          return text(JSON.stringify({ name: b.name, avatar: b.avatar, about: b.about, job: b.job ?? null, abilities: abilitiesFor(b).map((x) => ({ id: x.id, what: x.label, level: levelOf(b, x) })), instructions: b.role, rules: b.rules, connectors: { on: b.mcp, available }, style: b.style, mode: b.mode, notes, files: "agent.yaml and PLAYBOOK.md in your folder", triggerSources: (await import("./botTriggers")).SOURCES.map((x) => ({ source: x.id, what: x.label, needs: x.connector ?? null, cost: x.cost, settings: (x.params ?? []).map((p) => p.key) })) }, null, 2));
         }),
         tool(
           "update_profile",
@@ -266,18 +266,22 @@ export class BotRun {
         ),
         tool(
           "update_setup_file",
-          "Change your setup by rewriting your whole setup file (bot.md in your folder: When, Think, Act, May do, Knows, Off limits, Operations). Use it for triggers (what wakes you up and the check command) or several changes at once. Read bot.md first, change only what the user asked, and pass the complete new file. Vlens checks it, tries new check commands once, and shows the user each change to approve.",
-          { text: z.string().min(20).max(60_000), why: z.string().max(300) },
+          "Change your setup by rewriting your setup files, in your folder: agent.yaml (settings: connectors, may, knows, offLimits, limits, and triggers under on:) and PLAYBOOK.md (what you do when woken; its \"## …\" parts can be named by a trigger's playbook:). Use it for triggers, quiet hours and limits, your playbook, or several changes at once. Read the files first, change only what the user asked, and pass the complete new text of each file you change (leave the other out). Vlens checks them, tries new check commands once, and shows the user each change to approve.",
+          { agent: z.string().min(10).max(60_000).optional(), playbook: z.string().max(60_000).optional(), why: z.string().max(300) },
           async (a) => {
-            const { checkBotFile, applyBotFile } = await import("./botFileOps");
-            const c = await checkBotFile(a.text, id);
-            if (c.errors.length) return text(`The file has problems; fix them and try again:\n${c.errors.map((e) => `${e.line ? `line ${e.line}: ` : ""}${e.message}`).join("\n")}`);
+            const { checkBotFile, applyBotFile, botFilesOf } = await import("./botFileOps");
+            if (!a.agent && a.playbook === undefined) return text("Pass the new agent.yaml, PLAYBOOK.md, or both.");
+            const me = await current();
+            const now = await botFilesOf(me);
+            const files = { agent: a.agent ?? now.agent, playbook: a.playbook ?? now.playbook };
+            const c = await checkBotFile(files, id);
+            if (c.errors.length) return text(`The files have problems; fix them and try again:\n${c.errors.map((e) => `${e.file === "playbook" ? "PLAYBOOK.md" : "agent.yaml"}${e.line ? ` line ${e.line}` : ""}: ${e.message}`).join("\n")}`);
             if (!c.changes.length) return text("Nothing would change.");
             const tried = c.runs.map((r) => (r.ok ? `"${r.trigger}" found ${r.found}` : `"${r.trigger}" failed: ${r.error}`)).join("; ");
             return change(
               "Change its setup file",
               [...c.changes.map((x) => `${x.text}${x.widens ? " (more access)" : ""}`), tried && `Checks tried once: ${tried}`].filter(Boolean).join("\n"),
-              async () => void (await applyBotFile(a.text, id)),
+              async () => void (await applyBotFile(files, id)),
               { title: "Change its setup", why: [a.why, tried && `Tried once: ${tried}.`].filter(Boolean).join(" "), items: c.changes, widens: c.changes.some((x) => x.widens) },
             );
           },

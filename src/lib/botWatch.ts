@@ -7,6 +7,8 @@ import { alertBot } from "./botNotifications";
 import { runIssue, threadState } from "./botThreads";
 import { BOTS_DIR, botDir, getBot, listBots, triggersOf } from "./bots";
 import { findSessionFile, listSessions } from "./sessions";
+import { asleep, DAYS, isNativeSource } from "./botTriggers";
+import { runClaudeOnce } from "./runClaude";
 import type { Bot, BotTrigger, SessionSummary } from "./types";
 
 // A bot working on its own: its triggers (its Settings, Triggers). Each one finds
@@ -38,8 +40,9 @@ export interface TriggerState {
   failures?: number; // failed checks in a row
   seen: Record<string, string>; // key -> the version it last worked on
   sessions?: Record<string, { active: boolean; updatedAt: string; fired?: string }>; // session triggers
+  primed?: boolean; // a harness-runs trigger learned what was already there (no backlog)
 }
-type State = { triggers: Record<string, TriggerState> };
+type State = { triggers: Record<string, TriggerState>; runs?: { day: string; n: number } };
 
 // Its health, for the bot's page: how long it has been failing, and when it last worked.
 function failed(s: TriggerState, error: string) {
@@ -58,7 +61,7 @@ function worked(s: TriggerState) {
 const statePath = (id: string) => path.join(botDir(id), "watch-state.json");
 async function readState(id: string): Promise<State> {
   const raw = JSON.parse(await fs.readFile(statePath(id), "utf8").catch(() => "{}"));
-  if (raw.triggers) return raw as State;
+  if (raw.triggers) return raw as State; // runs: AI runs today, for its daily limit
   // Before triggers, one watch kept its state at the top.
   return { triggers: raw.seen ? { watch: raw as TriggerState } : {} };
 }
@@ -73,6 +76,22 @@ function saveTrigger(id: string, triggerId: string, s: TriggerState) {
   saves.set(id, next.catch(() => {}));
   return next;
 }
+// AI runs today (cards opened or updated), for limits.maxRunsPerDay.
+const today = () => new Date().toLocaleDateString("en-CA");
+async function runsToday(id: string) {
+  const r = (await readState(id)).runs;
+  return r?.day === today() ? r.n : 0;
+}
+function countRun(id: string) {
+  const next = (saves.get(id) ?? Promise.resolve()).then(async () => {
+    const all = await readState(id);
+    all.runs = { day: today(), n: (all.runs?.day === today() ? all.runs.n : 0) + 1 };
+    await fs.writeFile(statePath(id), JSON.stringify(all, null, 2));
+  });
+  saves.set(id, next.catch(() => {}));
+  return next;
+}
+
 // One trigger's last check, for its card in Settings.
 export async function readWatchState(id: string) {
   return (await readState(id)).triggers;
@@ -202,13 +221,93 @@ async function sessionItems(t: BotTrigger, s: TriggerState): Promise<Item[]> {
   return items;
 }
 
+// ── Built-in sources (lib/botTriggers.ts) ───────────────────────────────────
+
+// A time of day: one item per day, once it's that time on a day it runs.
+function timeItems(t: BotTrigger): Item[] {
+  const p = t.params ?? {};
+  const now = new Date();
+  const days = (p.days ?? "").split(",").map((d) => d.trim().toLowerCase().slice(0, 3)).filter(Boolean);
+  if (days.length && !days.includes(DAYS[now.getDay()])) return [];
+  const [h, m] = (p.at ?? "09:00").split(":").map(Number);
+  if (now.getHours() * 60 + now.getMinutes() < h * 60 + m) return [];
+  const day = today();
+  return [{ key: day, title: `${t.name}, ${now.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}`, url: "", version: day, kind: "time", session: "", folder: "" }];
+}
+
+// A connector can't be called without Claude, so a small Haiku run calls one
+// read-only tool and hands back JSON. Only the tool it needs is allowed.
+async function viaConnector(bot: Bot, tool: string, ask: string, connector = "dev-agent-harness"): Promise<Record<string, unknown>[]> {
+  if (!bot.mcp.includes(connector)) throw new Error(`This trigger reads through the ${connector} connector. Add it under connectors.`);
+  const r = await runClaudeOnce({
+    prompt: `Call the MCP tool ${tool} ${ask} Reply with ONLY a JSON array, no prose. An empty result is [].`,
+    cwd: bot.dir,
+    timeoutMs: 3 * 60_000,
+    args: ["--no-session-persistence", "--model", "haiku", "--permission-mode", "default", "--allowedTools", tool, "--disallowedTools", "Bash,Write,Edit,Read"],
+  });
+  if (!r.ok) throw new Error(`The connector check didn't finish: ${r.error}`);
+  const json = r.text.slice(r.text.indexOf("["), r.text.lastIndexOf("]") + 1);
+  try {
+    const out = JSON.parse(json || "[]");
+    return Array.isArray(out) ? out : [];
+  } catch {
+    throw new Error("The connector check didn't return a list.");
+  }
+}
+
+async function harnessRunItems(bot: Bot, t: BotTrigger): Promise<Item[]> {
+  const agent = t.params?.agent?.trim();
+  const rows = await viaConnector(
+    bot,
+    "mcp__dev-agent-harness__list_runs",
+    `with ${JSON.stringify({ limit: 25, ...(agent ? { agent } : {}) })}. For each run give {"id","agent","status","createdAt","title"} where title is the first line of its prompt (at most 120 characters).`,
+  );
+  return rows
+    .filter((x) => ["succeeded", "failed", "cancelled"].includes(String(x.status)) && isIssueKey(String(x.id)))
+    .map((x) => ({ key: String(x.id), title: `${x.agent ?? "run"}: ${String(x.title ?? "").slice(0, 120)}`, url: "", version: String(x.status), kind: String(x.status), session: "", folder: "" }));
+}
+
+async function jiraItems(bot: Bot, t: BotTrigger): Promise<Item[]> {
+  const rows = await viaConnector(bot, "mcp__dev-agent-harness__read_jira", `with jql=${JSON.stringify(t.params?.jql ?? "")} and limit 25. For each issue give {"key","summary","status","updated","url"}.`);
+  return rows
+    .filter((i) => /^[A-Z][A-Z0-9]+-\d+$/.test(String(i.key)))
+    .map((i) => ({ key: String(i.key), title: String(i.summary ?? i.key).slice(0, 200), url: String(i.url ?? ""), version: String(i.updated ?? ""), kind: String(i.status ?? ""), session: "", folder: "" }));
+}
+
+// Only ids, subjects and dates come back: the bot reads the thread itself when it runs.
+async function gmailItems(bot: Bot, t: BotTrigger): Promise<Item[]> {
+  const rows = await viaConnector(
+    bot,
+    "mcp__claude_ai_Gmail__search_threads",
+    `with query=${JSON.stringify(t.params?.query ?? "")} and pageSize 20. For each thread give {"id","subject","lastMessageId","date"}: the thread id, its subject (at most 120 characters), the id of its newest message, and that message's date. Nothing else from the emails.`,
+    "claude.ai Gmail",
+  );
+  return rows
+    .filter((x) => isIssueKey(String(x.id)))
+    .map((x) => ({ key: String(x.id), title: String(x.subject ?? "(no subject)").slice(0, 120), url: `https://mail.google.com/mail/u/0/#all/${String(x.id)}`, version: String(x.lastMessageId ?? x.date ?? ""), kind: "email", session: "", folder: "" }));
+}
+
+async function nativeItems(bot: Bot, t: BotTrigger, s: TriggerState): Promise<Item[]> {
+  if (t.source === "time") return timeItems(t);
+  if (t.source === "jira.search") return jiraItems(bot, t);
+  if (t.source === "gmail.search") return gmailItems(bot, t);
+  const items = await harnessRunItems(bot, t);
+  // The first check learns which runs were already finished, so old ones don't all wake it.
+  if (!s.primed) {
+    for (const it of items) s.seen[it.key] = it.version;
+    s.primed = true;
+    return [];
+  }
+  return items;
+}
+
 // ── One check ───────────────────────────────────────────────────────────────
 
 export async function checkTrigger(id: string, triggerId: string): Promise<{ ok: boolean; summary: string }> {
   const bot = await getBot(id);
   const t = bot && triggersOf(bot).find((x) => x.id === triggerId);
   if (!bot || !t) return { ok: false, summary: "No such trigger." };
-  if (t.kind === "schedule" && !t.list.trim()) return { ok: false, summary: "This trigger has no list command." };
+  if (t.kind === "schedule" && !t.list.trim() && !isNativeSource(t.source)) return { ok: false, summary: "This trigger has no list command." };
   if (t.kind === "session" && !t.folders.length) return { ok: false, summary: "Pick the folders it watches." };
   const lock = `${id}:${t.id}`;
   if (running.has(lock)) return { ok: false, summary: "A check is already running." };
@@ -218,11 +317,14 @@ export async function checkTrigger(id: string, triggerId: string): Promise<{ ok:
   state.lastRun = new Date().toISOString();
   try {
     let items: Item[];
-    if (t.kind === "schedule") {
+    if (isNativeSource(t.source)) items = await nativeItems(bot, t, state);
+    else if (t.kind === "schedule") {
       const r = await sh(t.list, bot.dir);
       if (r.code !== 0) throw new Error(r.err || `The list command stopped (exit ${r.code}).`);
       items = parse(r.out);
     } else items = await sessionItems(t, state);
+    const cap = bot.limits?.maxRunsPerDay;
+    let used = cap ? await runsToday(id) : 0;
 
     let opened = 0;
     let updated = 0;
@@ -249,6 +351,10 @@ export async function checkTrigger(id: string, triggerId: string): Promise<{ ok:
         later++;
         continue;
       }
+      if (cap && used >= cap) {
+        later++; // its daily limit: the rest wait for tomorrow
+        continue;
+      }
       const g = await gate(t, bot, it);
       if (!g.go) {
         if (g.error) errors.push(g.error);
@@ -260,14 +366,19 @@ export async function checkTrigger(id: string, triggerId: string): Promise<{ ok:
         continue;
       }
       if (isNew) await ensureIssue(id, it.key, it.title);
-      const prompt = fill(brief, it) + (g.extra ? `\n\n## Gate output\n\n${g.extra}` : "");
+      const part = t.playbook ? `\n\nFollow the "${t.playbook}" part of your playbook.` : "";
+      const prompt = fill(brief, it) + part + (g.extra ? `\n\n## Gate output\n\n${g.extra}` : "");
       if (runIssue(id, it.key, prompt, done(bot, it)).ok) {
+        if (cap) {
+          used++;
+          await countRun(id);
+        }
         state.seen[it.key] = it.version;
         if (isNew) opened++;
         else updated++;
       }
     }
-    state.lastResult = `Found ${items.length}. ${opened} new card${opened === 1 ? "" : "s"}, ${updated} updated${skipped ? `, ${skipped} skipped by the gate` : ""}${later ? `, ${later} for the next check` : ""}.`;
+    state.lastResult = `Found ${items.length}. ${opened} new card${opened === 1 ? "" : "s"}, ${updated} updated${skipped ? `, ${skipped} skipped by the gate` : ""}${later ? `, ${later} for the next check${cap && used >= cap ? ` (its limit of ${cap} runs a day)` : ""}` : ""}.`;
     if (errors.length) failed(state, errors[0]);
     else worked(state);
     return { ok: !errors.length, summary: errors[0] ?? state.lastResult };
@@ -296,6 +407,7 @@ export function startWatches() {
     for (const b of await listBots().catch(() => [] as Bot[])) {
       const ts = triggersOf(b).filter((t) => t.on);
       if (!ts.length || b.paused) continue; // paused from its page: triggers stay set up, nothing runs
+      if (asleep(b.limits)) continue; // its quiet hours or the weekend: checks wait (Check now still works)
       const st = await readState(b.id);
       for (const t of ts) {
         if (running.has(`${b.id}:${t.id}`)) continue;
@@ -315,6 +427,14 @@ export async function testList(id: string, triggerId: string): Promise<{ ok: boo
   const bot = await getBot(id);
   const t = bot && triggersOf(bot).find((x) => x.id === triggerId);
   if (!bot || !t) return { ok: false, items: [], error: "No such trigger." };
+  if (isNativeSource(t.source)) {
+    try {
+      const items = t.source === "time" ? timeItems(t) : t.source === "jira.search" ? await jiraItems(bot, t) : t.source === "gmail.search" ? await gmailItems(bot, t) : await harnessRunItems(bot, t);
+      return { ok: true, items: items.slice(0, 30) };
+    } catch (e) {
+      return { ok: false, items: [], error: (e as Error).message };
+    }
+  }
   if (t.kind === "schedule") {
     if (!t.list.trim()) return { ok: false, items: [], error: "No list command yet." };
     const r = await sh(t.list, bot.dir);

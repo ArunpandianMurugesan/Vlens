@@ -2,13 +2,15 @@
 
 import { AlertTriangle, Check, ChevronRight, Loader2, X } from "lucide-react";
 import { useState } from "react";
-import { BRAIN_LABEL, type BotFile, type Change, type FileError } from "@/lib/botFile";
+import { BRAIN_LABEL, type BotFile, type BotFiles, type Change, type FileError, type FileTrigger, playbookParts } from "@/lib/botFile";
 import { LEVELS } from "@/lib/botAbilities";
+import { sourceOf } from "@/lib/botTriggers";
 import { Markdown } from "./Markdown";
 
-// A bot's file (bot.md, lib/botFile.ts) shown as a readable page, and the review
-// before applying a changed one: what changes, its check commands tried once, the
-// apps it needs, and anything wrong. Used by Configuration and Create.
+// A bot's files (agent.yaml + PLAYBOOK.md, lib/botFile.ts) shown as readable
+// pages, an editor for both, and the review before applying a change: what
+// changes, its check commands tried once, the apps it needs, and anything wrong.
+// Used by Configuration and Create.
 
 export type FileCheck = {
   ok: boolean;
@@ -41,40 +43,53 @@ const Bullets = ({ xs, empty }: { xs: string[]; empty: string }) =>
     <span className="text-muted">{empty}</span>
   );
 
-export function FileView({ file }: { file: BotFile }) {
+// One trigger in plain words: what wakes it, and its settings.
+export function triggerText(t: FileTrigger) {
+  const src = sourceOf(t.source);
+  const p = t.params;
+  if (t.source === "time") return `At ${p.at ?? "09:00"}${p.days ? ` on ${p.days}` : ", every day"}`;
+  if (t.kind === "session") return `When a session ${t.event === "idle" ? `goes quiet for ${t.idleMinutes} min` : t.event === "started" ? "starts" : "ends"} in ${t.folders === "all" || !t.folders.length ? "any folder" : t.folders.join(", ")}`;
+  if (t.source === "command" || !src) return `Every ${t.everyMinutes} min, its own check`;
+  const repos = (p.repos ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  const extra = [repos.length && (repos.length > 3 ? `in ${repos.length} repos` : `in ${repos.join(", ")}`), p.agent && `agent ${p.agent}`, p.jql && `“${p.jql}”`, p.query && `“${p.query}”`].filter(Boolean).join(" · ");
+  return `${src.label}${extra ? ` (${extra})` : ""}`;
+}
+
+function Triggers({ file }: { file: BotFile }) {
   const [cmds, setCmds] = useState(false);
+  if (!file.when.length) return <span className="text-muted">Only when you message it.</span>;
+  return (
+    <ul className="space-y-1.5">
+      {file.when.map((t, i) => (
+        <li key={i}>
+          <span className={t.on ? "" : "text-muted line-through"}>{triggerText(t)}</span>: <b className="font-medium">{t.name}</b>
+          {t.playbook && <span className="ml-1.5 rounded-md bg-accent-soft px-1.5 py-0.5 text-[0.65rem] text-accent">follows “{t.playbook}”</span>}
+          {!t.on && <span className="ml-1.5 text-xs text-muted">(paused)</span>}
+          {cmds && (t.check || t.match) && <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-term px-2.5 py-1.5 font-mono text-[0.7rem] text-term-ink scroll-thin">{t.check || `match: ${t.match}`}</pre>}
+        </li>
+      ))}
+      {file.when.some((t) => t.check || t.match) && (
+        <button onClick={() => setCmds((v) => !v)} className="text-xs text-muted hover:text-ink">
+          {cmds ? "Hide the commands" : "Show the commands"}
+        </button>
+      )}
+    </ul>
+  );
+}
+
+export function limitsText(l: BotFile["limits"]) {
+  const bits = [l.quietHours && `asleep ${l.quietHours.replace("-", "–")}`, l.weekdaysOnly && "weekdays only", l.maxRunsPerDay && `at most ${l.maxRunsPerDay} runs a day`].filter(Boolean);
+  return bits.length ? bits.join(" · ") : "";
+}
+
+// agent.yaml as a page: connectors, what it may do, what it knows, off limits, limits.
+export function AgentView({ file }: { file: BotFile }) {
   const [others, setOthers] = useState(false);
-  const [ops, setOps] = useState(false);
   const raw: ["on" | "ask" | "never", string][] = [...file.raw.allow.map((r) => ["on", r] as ["on", string]), ...file.raw.ask.map((r) => ["ask", r] as ["ask", string]), ...file.raw.never.map((r) => ["never", r] as ["never", string])];
   return (
     <div className="divide-y divide-line">
-      <Part k="WHEN">
-        {file.when.length ? (
-          <ul className="space-y-1.5">
-            {file.when.map((t, i) => (
-              <li key={i}>
-                <span className={t.on ? "" : "text-muted line-through"}>
-                  {t.kind === "schedule" ? `Every ${t.everyMinutes} min` : `When a session ${t.event === "idle" ? `goes quiet for ${t.idleMinutes} min` : t.event === "started" ? "starts" : "ends"} in ${t.folders === "all" ? "any folder" : t.folders.join(", ")}`}
-                </span>
-                : <b className="font-medium">{t.name}</b>
-                {!t.on && <span className="ml-1.5 text-xs text-muted">(paused)</span>}
-                {cmds && (t.check || t.match) && <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-term px-2.5 py-1.5 font-mono text-[0.7rem] text-term-ink scroll-thin">{t.check || `match: ${t.match}`}</pre>}
-              </li>
-            ))}
-            <button onClick={() => setCmds((v) => !v)} className="text-xs text-muted hover:text-ink">
-              {cmds ? "Hide the commands" : "Show the commands"}
-            </button>
-          </ul>
-        ) : (
-          <span className="text-muted">Only when you message it.</span>
-        )}
-      </Part>
-      <Part k="THINK">
-        <Bullets xs={file.think} empty="What you tell it in chat." />
-      </Part>
-      <Part k="ACT">
-        <Bullets xs={file.act} empty="Nothing written yet." />
-      </Part>
+      <Part k="CONNECTORS">{file.apps.length ? file.apps.map(appName).join(" · ") : <span className="text-muted">None. GitHub works through the gh command.</span>}</Part>
+      {(file.model || file.mode || file.effort) && <Part k="MODEL">{[file.model || "default model", file.effort && `${file.effort} effort`, file.mode && `${file.mode} mode`].filter(Boolean).join(" · ")}</Part>}
       <Part k="MAY DO">
         <div className="space-y-1">
           {file.mayDo.map((m) => (
@@ -97,7 +112,6 @@ export function FileView({ file }: { file: BotFile }) {
             ))}
         </div>
       </Part>
-      <Part k="APPS">{file.apps.length ? file.apps.map(appName).join(" · ") : <span className="text-muted">None. GitHub works through the gh command.</span>}</Part>
       <Part k="KNOWS">
         <ul className="space-y-0.5">
           <li>
@@ -119,20 +133,113 @@ export function FileView({ file }: { file: BotFile }) {
           <Bullets xs={file.offLimits} empty="" />
         </Part>
       )}
-      <Part k="OPERATIONS">
+      <Part k="LIMITS">{limitsText(file.limits) || <span className="text-muted">Any time, no daily limit.</span>}</Part>
+    </div>
+  );
+}
+
+// PLAYBOOK.md as a page: what it does when woken, its parts, and its two lists.
+export function PlaybookView({ file, clamp = false }: { file: BotFile; clamp?: boolean }) {
+  const [all, setAll] = useState(!clamp);
+  const parts = playbookParts(file.operations);
+  return (
+    <div className="divide-y divide-line">
+      <Part k="PLAYBOOK">
         {file.operations ? (
           <>
-            <div className={ops ? "" : "line-clamp-3"}>
+            <div className={all ? "" : "line-clamp-3"}>
               <Markdown text={file.operations} />
             </div>
-            <button onClick={() => setOps((v) => !v)} className="mt-1 text-xs text-muted hover:text-ink">
-              {ops ? "Show less" : "Show all"}
-            </button>
+            {clamp && (
+              <button onClick={() => setAll((v) => !v)} className="mt-1 text-xs text-muted hover:text-ink">
+                {all ? "Show less" : "Show all"}
+              </button>
+            )}
           </>
         ) : (
           <span className="text-muted">No playbook yet.</span>
         )}
       </Part>
+      {parts.length > 0 && (
+        <Part k="PARTS">
+          <ul className="space-y-0.5">
+            {parts.map((x) => {
+              const by = file.when.filter((t) => t.playbook === x);
+              return (
+                <li key={x}>
+                  <b className="font-medium">{x}</b> <span className="text-muted">{by.length ? `· followed by ${by.map((t) => `“${t.name}”`).join(", ")}` : "· no trigger names it"}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </Part>
+      )}
+      <Part k="WHERE IT LOOKS">
+        <Bullets xs={file.think} empty="What you tell it in chat." />
+      </Part>
+      <Part k="WHAT IT DOES">
+        <Bullets xs={file.act} empty="Nothing written yet." />
+      </Part>
+    </div>
+  );
+}
+
+// Both, for a new bot: triggers first.
+export function FileView({ file }: { file: BotFile }) {
+  return (
+    <div className="divide-y divide-line">
+      <Part k="WHEN">
+        <Triggers file={file} />
+        {limitsText(file.limits) && <p className="mt-1 text-xs text-muted">{limitsText(file.limits)}</p>}
+      </Part>
+      <div className="py-3">
+        <PlaybookView file={file} clamp />
+      </div>
+      <div className="pt-3">
+        <AgentView file={file} />
+      </div>
+    </div>
+  );
+}
+
+// The two files, edited by hand: one tab each, with what's wrong in each.
+export function FilesEditor({ files, onChange, errors }: { files: BotFiles; onChange: (f: BotFiles) => void; errors?: FileError[] }) {
+  const [which, setWhich] = useState<"agent" | "playbook">("agent");
+  const mine = (errors ?? []).filter((e) => (e.file ?? "agent") === which);
+  const count = (w: "agent" | "playbook") => (errors ?? []).filter((e) => (e.file ?? "agent") === w).length;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex gap-1 text-xs">
+        {(
+          [
+            ["agent", "agent.yaml"],
+            ["playbook", "PLAYBOOK.md"],
+          ] as const
+        ).map(([id, label]) => (
+          <button key={id} onClick={() => setWhich(id)} aria-pressed={which === id} className={`rounded-md px-2.5 py-1 font-mono ${which === id ? "bg-sunken font-medium text-ink" : "text-muted hover:text-ink"}`}>
+            {label}
+            {count(id) > 0 && <span className="ml-1.5 rounded-full bg-red-500/15 px-1.5 text-[0.65rem] text-red-700 dark:text-red-300">{count(id)}</span>}
+          </button>
+        ))}
+      </div>
+      <textarea
+        value={files[which]}
+        onChange={(e) => onChange({ ...files, [which]: e.target.value })}
+        rows={20}
+        spellCheck={false}
+        aria-label={which === "agent" ? "agent.yaml" : "PLAYBOOK.md"}
+        className="w-full resize-y rounded-xl border border-line bg-bg px-3 py-2 font-mono text-[0.75rem] leading-relaxed outline-none focus:border-accent scroll-thin"
+      />
+      {mine.length > 0 && (
+        <ul className="space-y-0.5 text-xs text-red-700 dark:text-red-300">
+          {mine.map((e, i) => (
+            <li key={i}>
+              {e.line ? <b>Line {e.line}: </b> : null}
+              {e.message}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -150,7 +257,7 @@ export function Review({ check, busy, onApply, onEdit, onDiscard, applyLabel = "
             <div key={i} className="flex gap-1.5">
               <X size={12} className="mt-0.5 shrink-0" />
               <span>
-                {e.line ? <b>Line {e.line}: </b> : null}
+                {e.file || e.line ? <b>{e.file === "playbook" ? "PLAYBOOK.md" : "agent.yaml"}{e.line ? ` line ${e.line}` : ""}: </b> : null}
                 {e.message}
               </span>
             </div>

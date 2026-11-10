@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import os from "node:os";
-import { writeBotFile } from "./botFile";
+import { writeBotFiles } from "./botFile";
 import { DATA_DIR } from "./paths";
 import type { Bot, BotConcept, BotTrigger } from "./types";
 
@@ -184,8 +184,12 @@ async function writeFiles(b: Bot) {
     `---\nname: Bot style\ndescription: How ${b.name.replace(/\n/g, " ")} writes\nkeep-coding-instructions: true\n---\n\n${b.style.trim()}\n`,
   );
   await fs.writeFile(path.join(dir, ".claude", "settings.json"), JSON.stringify(settingsJson(b), null, 2));
-  // The bot as one readable file (lib/botFile.ts): what you read and edit on its Configuration page.
-  await fs.writeFile(path.join(dir, "bot.md"), writeBotFile({ ...b, dir }, os.homedir()));
+  // The bot as two readable files (lib/botFile.ts), like a harness agent: what you
+  // read and edit on its Configuration page. The older single bot.md is kept as bot.md.bak.
+  const files = writeBotFiles({ ...b, dir }, os.homedir());
+  await fs.writeFile(path.join(dir, "agent.yaml"), files.agent);
+  await fs.writeFile(path.join(dir, "PLAYBOOK.md"), files.playbook);
+  await fs.rename(path.join(dir, "bot.md"), path.join(dir, "bot.md.bak")).catch(() => {});
 }
 
 const IGNORED = ["inbox/", "inbox-items/", "state.json", ".spec-check/", "watch-state.json"];

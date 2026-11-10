@@ -3,9 +3,10 @@
 import { ArrowLeft, Bot as BotIcon, Loader2, MessageSquare, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ABILITIES } from "@/lib/botAbilities";
-import { readBotFile, writeBotFile } from "@/lib/botFile";
+import { type BotFiles, readBotFiles, writeBotFiles } from "@/lib/botFile";
+import { commandFor } from "@/lib/botTriggers";
 import type { Bot, BotTrigger } from "@/lib/types";
-import { type FileCheck, FileView, Review } from "./BotFileView";
+import { type FileCheck, FilesEditor, FileView, Review } from "./BotFileView";
 import { FolderChip } from "./FolderChip";
 
 // Create a bot (design: "Bots, from scratch" → BotCreate). A bot is one file
@@ -35,7 +36,6 @@ const careful = {
   askTools: ABILITIES.filter((a) => a.risky && a.id !== "harness-runs").flatMap((a) => a.rules),
 };
 
-const GH_ITEM = `{key: "\\(.repository.name)#\\(.number)", title, url}`;
 const RECIPES: Recipe[] = [
   {
     id: "ticket",
@@ -56,7 +56,7 @@ const RECIPES: Recipe[] = [
     apps: ["github"],
     job: { when: "Every 10 minutes I check CI on your open PRs.", think: "I read the failing logs and the diff to find the cause.", act: "I suggest a fix in the PR's card. I ask before pushing anything." },
     role: "You watch CI on the user's open PRs. When checks fail: read the failing job's logs (gh run view --log-failed) and the diff, find the cause, and write it up with a suggested fix in the PR's card. Never push, comment or re-run anything without the user's OK.",
-    trigger: { name: "failing CI", kind: "schedule", everyMinutes: 10, list: `gh search prs --author=@me --state=open --checks=failure --json number,title,url,repository --jq '.[] | ${GH_ITEM}'`, brief: "CI failed on {key}: {title}\n{url}\nFind the cause and suggest a fix." },
+    trigger: { name: "failing CI", kind: "schedule", source: "github.ci_failed", everyMinutes: 10, list: commandFor("github.ci_failed"), brief: "CI failed on {key}: {title}\n{url}\nFind the cause and suggest a fix." },
   },
   {
     id: "standup",
@@ -77,7 +77,7 @@ const RECIPES: Recipe[] = [
     apps: ["github", "jira"],
     job: { when: "Every 15 minutes I look for PRs waiting on your review.", think: "I check the change against its Jira ticket.", act: "I draft review comments. I ask before posting." },
     role: "You review PRs that ask for the user's review. For each: read the description, diff and checks, and the linked Jira ticket's acceptance criteria. Draft review comments in the PR's card. Never post, approve or merge without the user's OK.",
-    trigger: { name: "review requests", kind: "schedule", everyMinutes: 15, list: `gh search prs --review-requested=@me --state=open --json number,title,url,repository --jq '.[] | ${GH_ITEM}'`, brief: "New review request {key}: {title}\n{url}\nReview it and draft comments." },
+    trigger: { name: "review requests", kind: "schedule", source: "github.review_requested", everyMinutes: 5, list: commandFor("github.review_requested"), brief: "New review request {key}: {title}\n{url}\nReview it and draft comments." },
   },
   {
     id: "coach",
@@ -88,7 +88,7 @@ const RECIPES: Recipe[] = [
     apps: ["sessions"],
     job: { when: "When a session in the folder you pick ends.", think: "I look for decisions and things that went wrong.", act: "I update my notes. Nothing leaves your Mac." },
     role: "When one of the user's Claude sessions ends, read it and save what's worth remembering to your notes: decisions, gotchas, and things that went wrong and how they were fixed. One note per topic. Nothing leaves this Mac.",
-    trigger: { name: "session ended", kind: "session", event: "ended", match: "", brief: "A session ended: {title}\nRead it and save what's worth remembering to your notes." },
+    trigger: { name: "session ended", kind: "session", source: "session.ended", event: "ended", match: "", brief: "A session ended: {title}\nRead it and save what's worth remembering to your notes." },
     needsFolder: true,
     brain: "remember",
   },
@@ -115,10 +115,11 @@ export function BotCreate({ onBack, onCreated, recentFolders }: { onBack: () => 
   const [folder, setFolder] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [imported, setImported] = useState<{ name: string; notes: string[] } | null>(null); // from a harness agent
   const [conns, setConns] = useState<Conn[] | null>(null);
   const [gh, setGh] = useState<boolean | null>(null);
-  const [drafted, setDrafted] = useState<string | null>(null); // from your own words
-  const [hand, setHand] = useState<string | null>(null); // edited by hand
+  const [drafted, setDrafted] = useState<BotFiles | null>(null); // from your own words
+  const [hand, setHand] = useState<BotFiles | null>(null); // edited by hand
   const [check, setCheck] = useState<FileCheck | null>(null);
   useEffect(() => {
     fetch("/api/mcp")
@@ -179,10 +180,10 @@ export function BotCreate({ onBack, onCreated, recentFolders }: { onBack: () => 
       ...(r.brain === "remember" && r.needsFolder && folder ? { brainLearn: { all: false, folders: [folder] } } : {}),
       ...careful,
     } as Bot;
-    return writeBotFile(bot, "");
+    return writeBotFiles(bot, "");
   }, [r, conns, folder, connectorFor]);
   const text = hand ?? (r ? recipeFile : drafted);
-  const parsed = text ? readBotFile(text).file : null;
+  const parsed = text ? readBotFiles(text).file : null;
 
   // Check it whenever it changes: what it sets up, its checks tried once.
   useEffect(() => {
@@ -190,7 +191,7 @@ export function BotCreate({ onBack, onCreated, recentFolders }: { onBack: () => 
     if (!text) return;
     let stop = false;
     const t = setTimeout(() => {
-      fetch("/api/bots/file", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "check", text }) })
+      fetch("/api/bots/file", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "check", ...text }) })
         .then((x) => x.json())
         .then((d) => !stop && setCheck(d))
         .catch(() => {});
@@ -212,8 +213,9 @@ export function BotCreate({ onBack, onCreated, recentFolders }: { onBack: () => 
     setErr(null);
     setPick(null);
     setHand(null);
+    setImported(null);
     try {
-      setDrafted((await post<{ text: string }>({ action: "draft", instruction: desc })).text);
+      setDrafted(await post<BotFiles>({ action: "draft", instruction: desc }));
     } catch (e) {
       setErr((e as Error).message);
     }
@@ -225,12 +227,14 @@ export function BotCreate({ onBack, onCreated, recentFolders }: { onBack: () => 
     setBusy("create");
     setErr(null);
     try {
-      const { bot } = await post<{ bot: Bot }>({ action: "apply", text });
+      const { bot } = await post<{ bot: Bot }>({ action: "apply", ...text });
       onCreated(
         bot,
-        r
-          ? `You were just created from the "${r.name}" recipe: ${r.when.toLowerCase()} → ${r.then.toLowerCase()}. Your setup is in bot.md. Call get_setup, ask me what you still need to know (repos, people, folders), and keep your job up to date with set_job.`
-          : `You were just created from this description: ${desc.trim()}\n\nYour setup is in bot.md. Call get_setup, ask me anything you still need to know, and keep your job up to date with set_job.`,
+        imported && !r
+          ? `You were just imported from the dev-agent-harness agent "${imported.name}". You now run on this Mac as me, and every trigger starts paused. Call get_setup, read your PLAYBOOK.md, and tell me in a few lines what you'll do differently here than in the harness (you act as me, ask before posting). Keep your job up to date with set_job.`
+          : r
+          ? `You were just created from the "${r.name}" recipe: ${r.when.toLowerCase()} → ${r.then.toLowerCase()}. Your setup is in agent.yaml and PLAYBOOK.md. Call get_setup, ask me what you still need to know (repos, people, folders), and keep your job up to date with set_job.`
+          : `You were just created from this description: ${desc.trim()}\n\nYour setup is in agent.yaml and PLAYBOOK.md. Call get_setup, ask me anything you still need to know, and keep your job up to date with set_job.`,
       );
     } catch (e) {
       setErr((e as Error).message);
@@ -287,6 +291,7 @@ export function BotCreate({ onBack, onCreated, recentFolders }: { onBack: () => 
               onClick={() => {
                 setPick(i);
                 setHand(null);
+                setImported(null);
               }}
               aria-pressed={pick === i}
               className={`flex flex-col gap-2 rounded-xl p-3.5 text-left ${pick === i ? "border-2 border-accent bg-accent-soft/40" : "border border-line bg-panel hover:border-accent/50"}`}
@@ -303,6 +308,24 @@ export function BotCreate({ onBack, onCreated, recentFolders }: { onBack: () => 
             </button>
           ))}
         </div>
+        <FromHarness
+          busy={busy === "import"}
+          onPick={async (name) => {
+            setBusy("import");
+            setErr(null);
+            setPick(null);
+            setHand(null);
+            try {
+              const d = await fetch(`/api/harness/agents/${name}`).then((r) => r.json());
+              if (d.error) throw new Error(d.error);
+              setDrafted({ agent: d.agent, playbook: d.playbook });
+              setImported({ name, notes: d.notes ?? [] });
+            } catch (e) {
+              setErr((e as Error).message);
+            }
+            setBusy(null);
+          }}
+        />
       </main>
 
       <aside aria-label="Preview" className="flex w-[26rem] shrink-0 flex-col gap-4 overflow-y-auto border-l border-line bg-sunken/40 p-5 scroll-thin">
@@ -316,7 +339,7 @@ export function BotCreate({ onBack, onCreated, recentFolders }: { onBack: () => 
           </div>
           {text && (
             <button onClick={() => setHand(hand === null ? text : null)} className={btn}>
-              {hand === null ? "Edit file" : "Done editing"}
+              {hand === null ? "Edit files" : "Done editing"}
             </button>
           )}
         </div>
@@ -347,18 +370,28 @@ export function BotCreate({ onBack, onCreated, recentFolders }: { onBack: () => 
           </div>
         )}
         {hand !== null ? (
-          <textarea value={hand} onChange={(e) => setHand(e.target.value)} rows={20} spellCheck={false} className="w-full resize-y rounded-xl border border-line bg-bg px-3 py-2 font-mono text-[0.7rem] leading-relaxed outline-none focus:border-accent scroll-thin" />
+          <FilesEditor files={hand} onChange={setHand} errors={check?.errors} />
         ) : parsed ? (
           <div className="rounded-xl border border-line bg-panel p-3.5">
             <FileView file={parsed} />
           </div>
         ) : (
-          <p className="text-[0.8rem] leading-relaxed text-muted">A bot is one file: when it works, what it does, and what it may do. Pick a recipe and it&apos;s filled in, or describe it and Claude drafts it. You can read and change it before anything is created.</p>
+          <p className="text-[0.8rem] leading-relaxed text-muted">A bot is two files, like a harness agent: agent.yaml (when it works and what it may do) and PLAYBOOK.md (what it does). Pick a recipe and it&apos;s filled in, or describe it and Claude drafts it. You can read and change it before anything is created.</p>
         )}
         <div className="space-y-1">
           <div className="text-xs font-semibold">It starts careful</div>
           <p className="text-[0.8rem] leading-relaxed text-muted">Drafts only. It asks you before it posts, sends or changes anything. You can give it more later by telling it in chat.</p>
         </div>
+        {imported && !r && drafted && (
+          <div className="space-y-1 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-[0.75rem]">
+            <div className="font-semibold">From the harness agent {imported.name}: what changes here</div>
+            <ul className="list-disc space-y-0.5 pl-4 text-muted">
+              {imported.notes.map((n, i) => (
+                <li key={i}>{n}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         {err && <p className="text-xs text-red-600">{err}</p>}
         {text && check ? (
           <Review check={check} busy={busy === "create"} onApply={() => void create()} onDiscard={() => (setPick(null), setDrafted(null), setHand(null))} applyLabel={`Create ${parsed?.name || "bot"}`} />
@@ -371,5 +404,62 @@ export function BotCreate({ onBack, onCreated, recentFolders }: { onBack: () => 
         <p className="text-[0.7rem] text-muted">Runs while Vlens is open and your Mac is awake.</p>
       </aside>
     </div>
+  );
+}
+
+// Start from a dev-agent-harness agent (read only): its definition and playbook
+// become this bot's files, to review before anything is created.
+function FromHarness({ busy, onPick }: { busy: boolean; onPick: (name: string) => void }) {
+  const [list, setList] = useState<{ name: string; description: string; shared: boolean }[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const load = async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const d = await fetch("/api/harness/agents").then((r) => r.json());
+      if (d.error) throw new Error(d.error);
+      setList(d.agents);
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+    setLoading(false);
+  };
+  const shown = (list ?? []).filter((a) => !q.trim() || `${a.name} ${a.description}`.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center gap-2">
+        <div className="text-xs font-semibold text-muted">Or start from a harness agent</div>
+        {list === null ? (
+          <button onClick={() => void load()} disabled={loading} className={btn}>
+            {loading && <Loader2 size={12} className="animate-spin" />} {loading ? "Reading the harness…" : "Show harness agents"}
+          </button>
+        ) : (
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter agents" className="ml-auto w-44 rounded-full border border-line bg-bg px-3 py-1 text-xs outline-none focus:border-accent" />
+        )}
+      </div>
+      <p className="text-[0.7rem] text-muted">Its triggers and playbook are copied, and it starts careful: it runs here as you, and every trigger starts paused. Nothing changes in the harness.</p>
+      {err && <p className="text-xs text-red-600">{err}</p>}
+      {list && (
+        <div className="grid max-h-72 gap-2 overflow-y-auto scroll-thin [grid-template-columns:repeat(auto-fill,minmax(230px,1fr))]">
+          {shown.map((a) => (
+            <button key={a.name} onClick={() => onPick(a.name)} disabled={busy} className="flex flex-col gap-1 rounded-xl border border-line bg-panel p-3 text-left hover:border-accent/50 disabled:opacity-50">
+              <span className="flex items-center gap-1.5">
+                <span className="truncate font-mono text-xs font-semibold">{a.name}</span>
+                <span className="ml-auto shrink-0 rounded bg-sunken px-1.5 text-[0.6rem] text-muted">{a.shared ? "shared" : "stored"}</span>
+              </span>
+              <span className="line-clamp-2 text-[0.75rem] text-muted">{a.description}</span>
+            </button>
+          ))}
+          {!shown.length && <p className="text-xs text-muted">No agents match.</p>}
+        </div>
+      )}
+      {busy && (
+        <p className="flex items-center gap-1.5 text-xs text-muted">
+          <Loader2 size={12} className="animate-spin" /> Reading the agent and its playbook…
+        </p>
+      )}
+    </section>
   );
 }

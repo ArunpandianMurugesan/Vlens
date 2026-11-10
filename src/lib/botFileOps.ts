@@ -1,6 +1,9 @@
 import "server-only";
 import os from "node:os";
-import { buildFromFile, changesBetween, type Change, type FileError, readBotFile } from "./botFile";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { buildFromFile, type BotFiles, changesBetween, type Change, type FileError, readBotFiles, readLegacyBotFile, writeBotFiles } from "./botFile";
+import { SOURCES } from "./botTriggers";
 import { cleanPatch } from "./botConfig";
 import { tryList } from "./botWatch";
 import { createBot, getBot, updateBot } from "./bots";
@@ -10,8 +13,9 @@ import { runClaudeOnce } from "./runClaude";
 import { ABILITIES } from "./botAbilities";
 import type { Bot } from "./types";
 
-// Check, apply and draft a bot's file (bot.md, lib/botFile.ts). Nothing changes
-// until you apply, and applying is always your click on its Configuration page.
+// Check, apply and draft a bot's files (agent.yaml + PLAYBOOK.md, lib/botFile.ts).
+// Nothing changes until you apply, and applying is always your click on its
+// Configuration page (or yours on a change card the bot proposed).
 
 export interface FileCheck {
   ok: boolean; // no errors, and every check command ran
@@ -39,15 +43,39 @@ const EMPTY: Bot = {
   dir: os.tmpdir(),
 };
 
-async function check(text: string, bot: Bot | null): Promise<FileCheck & { patch?: Partial<Bot> }> {
-  const { file, errors } = readBotFile(text);
+// A bot's files as they are on disk (written from bot.json if they're missing).
+export async function botFilesOf(b: Bot): Promise<BotFiles> {
+  const read = (f: string) => fs.readFile(path.join(b.dir, f), "utf8").catch(() => null);
+  const [agent, playbook] = await Promise.all([read("agent.yaml"), read("PLAYBOOK.md")]);
+  if (agent !== null && playbook !== null) return { agent, playbook };
+  return writeBotFiles(b, os.homedir());
+}
+
+// Files from a request: both, or (from an older client or bot) the single bot.md text.
+export function filesFrom(body: { agent?: unknown; playbook?: unknown; text?: unknown }): BotFiles | null {
+  if (typeof body.agent === "string" && typeof body.playbook === "string") return { agent: body.agent, playbook: body.playbook };
+  if (typeof body.text === "string") {
+    const { file } = readLegacyBotFile(body.text);
+    if (!file) return null;
+    const built = buildFromFile(file, { triggers: [], mcp: [] }, os.homedir());
+    return writeBotFiles({ ...EMPTY, ...built, rules: built.rules ?? EMPTY.rules, role: built.role ?? "" } as Bot, os.homedir());
+  }
+  return null;
+}
+
+async function check(files: BotFiles, bot: Bot | null): Promise<FileCheck & { patch?: Partial<Bot> }> {
+  const { file, errors } = readBotFiles(files);
   if (!file) return { ok: false, errors, changes: [], runs: [], apps: [] };
   const base = bot ?? EMPTY;
   if (file.model && !isModel(file.model)) errors.push({ line: null, message: `"${file.model}" isn't a model Vlens knows.` });
   if (file.mode && !isPermissionMode(file.mode)) errors.push({ line: null, message: `"${file.mode}" isn't a permission mode.` });
   const { listMcp } = await import("./mcp");
   const all = await listMcp().catch(() => []);
-  for (const a of file.apps) if (!all.some((s) => s.name === a)) errors.push({ line: null, message: `"${a}" isn't one of your connectors. Use the exact name, like "claude.ai Slack".` });
+  for (const a of file.apps) if (!all.some((s) => s.name === a)) errors.push({ file: "agent", line: null, message: `"${a}" isn't one of your connectors. Use the exact name, like "claude.ai Slack".` });
+  for (const t of file.when) {
+    const need = SOURCES.find((x) => x.id === t.source)?.connector;
+    if (need && !file.apps.includes(need)) errors.push({ file: "agent", line: null, message: `"${t.name}" reads through ${need}: add it under connectors.` });
+  }
 
   const built = buildFromFile(file, base, os.homedir());
   const clean = cleanPatch(built as Record<string, unknown>);
@@ -67,20 +95,20 @@ async function check(text: string, bot: Bot | null): Promise<FileCheck & { patch
   return { ok: !errors.length && runs.every((r) => r.ok), errors, changes, runs, apps, patch };
 }
 
-export async function checkBotFile(text: string, id: string | null): Promise<FileCheck> {
+export async function checkBotFile(files: BotFiles, id: string | null): Promise<FileCheck> {
   const bot = id ? await getBot(id) : null;
   if (id && !bot) throw new Error("Bot not found.");
-  const { patch: _p, ...c } = await check(text, bot);
+  const { patch: _p, ...c } = await check(files, bot);
   void _p;
   return c;
 }
 
 // Applies the file to bot `id`, or creates a new bot from it (id null). Errors stop it;
 // a check command that failed doesn't (you saw it, and may fix it later).
-export async function applyBotFile(text: string, id: string | null): Promise<{ bot: Bot; check: FileCheck }> {
+export async function applyBotFile(files: BotFiles, id: string | null): Promise<{ bot: Bot; check: FileCheck }> {
   let bot = id ? await getBot(id) : null;
   if (id && !bot) throw new Error("Bot not found.");
-  const c = await check(text, bot);
+  const c = await check(files, bot);
   if (c.errors.length || !c.patch) throw new Error(c.errors[0]?.message ?? "This file can't be applied.");
   if (!bot) bot = await createBot(c.patch.name || "New bot");
   // Its own summary goes stale when its job changes; it's read from the file until it writes a new one.
@@ -93,65 +121,65 @@ export async function applyBotFile(text: string, id: string | null): Promise<{ b
 
 // ── Drafting with AI ─────────────────────────────────────────────────────────
 
-const GUIDE = (apps: string[]) => `You write a Vlens bot's setup file (bot.md). Reply with ONLY the complete file, no fences, no comments.
+const GUIDE = (apps: string[]) => `You write a Vlens bot's two setup files, like a dev-agent-harness agent: agent.yaml (its settings and triggers) and PLAYBOOK.md (what it does when woken). Reply with ONLY the two files, each after a line "=== agent.yaml ===" or "=== PLAYBOOK.md ===", no fences, no comments around them.
 
-Format (Markdown with YAML frontmatter):
----
-type: bot
+agent.yaml (YAML):
 name: Short name
 avatar: One letter or emoji
 about: One line, what it does
-apps: [exact connector names it needs, from this list only: ${apps.join(", ") || "none"}]
----
+connectors: [exact connector names it needs, from this list only: ${apps.join(", ") || "none"}]
+may:                      # one line per action, each "on its own", "ask me" or "never":
+${ABILITIES.map((a) => `  ${a.label}: ask me`).join("\n")}
+rules:                    # optional, other permission rules exactly like these
+  allow: ["Bash(ls:*)"]
+  ask: ["Bash(gh api:*)"]
+  never: ["Bash(rm:*)"]
+knows:
+  brain: off              # the shared Vlens brain: off, read only, or read and remember ("read only" suits most bots)
+  brainFolders: all       # only with the brain on: all, or [~/Desktop/org_repos]
+  brainLearns: off        # only with "read and remember": off, all sessions, or [~/folder]
+  sessions: off           # your Claude sessions it may read: off, all, or [~/folder]
+  confluence: []          # [{ id: 12345, title: Page }], only page ids you were given
+  skills: all
+offLimits: []             # things it must never touch; paths are blocked for real
+limits:                   # optional
+  quietHours: "20:00-08:00"
+  weekdaysOnly: true
+  maxRunsPerDay: 20
+on:                       # its triggers; each wakes it for new or changed items only
+${SOURCES.map((x) => `  - name: short name\n    source: ${x.id}            # ${x.label}${x.connector ? ` (needs the ${x.connector} connector)` : ""}${(x.params ?? []).map((p) => `\n    ${p.key}: ${p.placeholder ?? "…"}   # ${p.hint}`).join("")}${x.id === "command" ? `\n    every: 15\n    check: 'a shell command printing one JSON object per line: {"key","title","url","version"}'` : ""}${x.id.startsWith("session.") ? "\n    folders: [~/Desktop/org_repos]" : ""}`).join("\n")}
+  # Every trigger may also have: paused: true, playbook: <a "## …" part of PLAYBOOK.md>,
+  # brief: | what to do with each item ({key} {title} {url} {version} {kind} {session} {folder}),
+  # updateBrief: | what to do when an item changed, gate: 'a command (exit 10 skips)', maxNew: 3.
+  # Ready-made sources have sensible briefs: leave brief out unless the user wants something specific.
 
-## When
-- every N min: short name          (N >= 5; a schedule)
-  check: \`a shell command that prints one JSON object per line: {"key","title","url","version"?}\`
-  brief: |
-    What to do with each item. Use {key} {title} {url} {version}.
-- when a session ends in ~/folder: short name      (or "starts", or "goes idle for 30 min"; "in all folders" works too)
-  brief: |
-    What to do. Use {title} {session} {folder}.
-(If nothing should wake it up, write: - only when you message it)
+PLAYBOOK.md (Markdown):
+# Its name
 
-## Think
-- One sentence per line: where it looks for information.
+What it is and how it does the job, step by step, in plain words.
 
-## Act
+## A part a trigger can follow (e.g. "## Reviewing"), as many as useful
+
+## Where it looks
+- One sentence per line: where it finds information.
+
+## What it does
 - One sentence per line: what it does.
-
-## May do
-- One line per action, from this list, each "on its own", "ask me" or "never":
-${ABILITIES.map((a) => `  - ${a.label}`).join("\n")}
-- Other rules exactly like: - allow: \`Bash(ls:*)\`  /  - ask: \`Bash(gh api:*)\`  /  - never: \`Bash(rm:*)\`
-
-## Knows
-- brain: off   (the shared Vlens brain: off, read only, or read and remember; "read only" suits most bots)
-- brain folders: all   (only with the brain on: which folders' memories it reads, e.g. ~/Desktop/org_repos)
-- brain learns from: off   (only with "read and remember": the brain learns from these Claude sessions as they run: off, all sessions, or ~/folder, ~/other)
-- sessions: off   (or ~/folder, ~/other, or all)
-- confluence: 12345 Page title   (only page ids you were given)
-- skills: all
-
-## Off limits
-- One per line: things it must never touch. Paths here are blocked for real.
-
-## Operations
-Its playbook in plain words: how it does the job, step by step.
 
 Rules:
 - Start careful: anything that posts, sends, merges, pushes or edits is "ask me" unless the user clearly asked otherwise.
-- GitHub works through the gh CLI (no connector needed). For check commands prefer gh search / gh api with --jq printing one JSON object per line.
-- Keep everything the user didn't ask to change exactly as it is.`;
+- GitHub works through the gh CLI (no connector needed). Prefer the ready-made github.* sources over a command.
+- Keep everything the user didn't ask to change exactly as it is, in both files.`;
 
-export async function draftBotFile(o: { instruction: string; current?: string }): Promise<string> {
+export async function draftBotFile(o: { instruction: string; current?: BotFiles }): Promise<BotFiles> {
   const { listMcp } = await import("./mcp");
   const apps = (await listMcp().catch(() => [])).map((s) => s.name);
-  const prompt = `${GUIDE(apps)}\n\n${o.current ? `The current file:\n\n${o.current}\n\nChange it as the user asks:` : "Write a new bot for this:"}\n\n${o.instruction.trim()}`;
-  const r = await runClaudeOnce({ prompt, args: ["--model", "sonnet", "--tools", "", "--no-session-persistence"], cwd: os.homedir(), timeoutMs: 180_000 });
-  if (!r.ok || !r.text.trim()) throw new Error(r.error || "Claude didn't write a file.");
-  // In case it fenced it anyway.
-  const t = r.text.trim().replace(/^```(?:markdown|md)?\n([\s\S]*?)\n```$/m, "$1").trim();
-  const start = t.indexOf("---");
-  return (start > 0 ? t.slice(start) : t) + "\n";
+  const cur = o.current ? `The current files:\n\n=== agent.yaml ===\n${o.current.agent}\n=== PLAYBOOK.md ===\n${o.current.playbook}\n\nChange them as the user asks:` : "Write a new bot for this:";
+  const prompt = `${GUIDE(apps)}\n\n${cur}\n\n${o.instruction.trim()}`;
+  const r = await runClaudeOnce({ prompt, args: ["--model", "sonnet", "--tools", "", "--no-session-persistence"], cwd: os.homedir(), timeoutMs: 240_000 });
+  if (!r.ok || !r.text.trim()) throw new Error(r.error || "Claude didn't write the files.");
+  const unfence = (t: string) => t.trim().replace(/^```[a-z]*\n([\s\S]*?)\n```$/m, "$1").trim();
+  const m = r.text.match(/=== agent\.yaml ===\s*\n([\s\S]*?)\n=== PLAYBOOK\.md ===\s*\n([\s\S]*)$/);
+  if (!m) throw new Error("Claude's answer didn't have both files. Try again, or edit by hand.");
+  return { agent: unfence(m[1]) + "\n", playbook: unfence(m[2]) + "\n" };
 }

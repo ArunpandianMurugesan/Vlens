@@ -178,6 +178,7 @@ export interface Bot {
   brain?: "off" | "read" | "remember"; // the Vlens brain (lib/brain): off, read only, or read and remember
   brainFolders?: string[]; // only memories from these folders (plus general ones); none = every folder
   brainLearn?: { all: boolean; folders: string[] }; // the brain learns from these Claude sessions for it (needs "remember"); unset = it doesn't ask the brain to learn
+  limits?: { quietHours?: string; weekdaysOnly?: boolean; maxRunsPerDay?: number }; // when its triggers stay asleep (lib/botTriggers.ts)
   paused?: boolean; // its triggers don't run until you resume it (its page)
   job?: { when: string; think: string; act: string; updatedAt: string }; // its job in its own words (it writes this with set_job)
   notify: { digestDone: boolean; digestFailed: boolean; needsYou?: boolean; finished?: boolean; failed?: boolean; mac?: boolean };
@@ -214,6 +215,9 @@ export interface BotTrigger {
   brief: string; // {key} {title} {url} {version} {kind} {session} {folder}
   updateBrief: string;
   maxNew: number;
+  source?: string; // where it looks (lib/botTriggers.ts): github.review_requested, time, command…; none = command / session
+  params?: Record<string, string>; // the source's settings: repos, jql, at, days, agent
+  playbook?: string; // the part of its playbook (a "## …" heading) this trigger follows
 }
 
 export interface BotHook {

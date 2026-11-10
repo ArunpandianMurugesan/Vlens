@@ -1,10 +1,11 @@
 "use client";
 
 import { AlertTriangle, ArrowLeft, Cloud, Loader2, MessageSquare, Pause, Play, Plug } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
-import { readBotFile } from "@/lib/botFile";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type BotFiles, readBotFiles } from "@/lib/botFile";
 import type { Bot } from "@/lib/types";
-import { FileView, type FileCheck, Review } from "./BotFileView";
+import { AgentView, type FileCheck, FilesEditor, PlaybookView, Review } from "./BotFileView";
+import { TriggerBoard } from "./BotTriggerBoard";
 
 // A bot's Configuration, in plain words (design: "Bots, from scratch" → BotSetup):
 // health, its job in its own words, its setup file (bot.md) shown as a page and
@@ -280,29 +281,51 @@ async function call<T>(url: string, body: object): Promise<T> {
   return d as T;
 }
 
+type View = "agent" | "playbook" | "triggers";
+
 function SetupFile({ bot, onChanged }: { bot: Bot; onChanged: () => void }) {
   const url = `/api/bots/${bot.id}/file`;
-  const [text, setText] = useState<string | null>(null);
+  const [files, setFiles] = useState<BotFiles | null>(null);
+  const [view, setView] = useState<View>(() => {
+    try {
+      const v = localStorage.getItem("lens.botSetupTab");
+      return v === "agent" || v === "playbook" || v === "triggers" ? v : "triggers";
+    } catch {
+      return "triggers";
+    }
+  });
   const [mode, setMode] = useState<Mode>("read");
   const [ask, setAsk] = useState("");
-  const [draft, setDraft] = useState<string | null>(null); // the changed file, being reviewed
-  const [hand, setHand] = useState("");
+  const [draft, setDraft] = useState<BotFiles | null>(null); // the changed files, being reviewed
+  const [hand, setHand] = useState<BotFiles | null>(null);
   const [check, setCheck] = useState<FileCheck | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const reviewRef = useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = useState(false);
+  // A change made further down (a trigger switched) is reviewed up here: bring it into view.
+  useEffect(() => {
+    if (draft) reviewRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [draft, check]);
   const load = () =>
     fetch(url)
       .then((r) => r.json())
-      .then((d) => setText(d.text ?? ""))
-      .catch(() => setText(""));
+      .then((d) => setFiles(typeof d.agent === "string" ? { agent: d.agent, playbook: d.playbook ?? "" } : { agent: "", playbook: "" }))
+      .catch(() => setFiles({ agent: "", playbook: "" }));
   useEffect(() => {
     void load();
   }, [bot.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Changed elsewhere (its chat, another window): show the new file, unless you're editing.
-  const updatedKey = JSON.stringify([bot.triggers, bot.rules, bot.allowTools, bot.askTools, bot.denyTools, bot.mcp, bot.role]);
+  // Changed elsewhere (its chat, another window): show the new files, unless you're editing.
+  const updatedKey = JSON.stringify([bot.triggers, bot.rules, bot.allowTools, bot.askTools, bot.denyTools, bot.mcp, bot.role, bot.limits]);
   useEffect(() => {
     if (mode === "read" && !draft) void load();
   }, [updatedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pick = (v: View) => {
+    setView(v);
+    try {
+      localStorage.setItem("lens.botSetupTab", v);
+    } catch {}
+  };
 
   const run = async (label: string, fn: () => Promise<void>) => {
     setBusy(label);
@@ -314,20 +337,20 @@ function SetupFile({ bot, onChanged }: { bot: Bot; onChanged: () => void }) {
     }
     setBusy(null);
   };
-  const review = (t: string) =>
+  const review = (f: BotFiles) =>
     run("check", async () => {
-      setDraft(t);
-      setCheck(await call<FileCheck>(url, { action: "check", text: t }));
+      setDraft(f);
+      setCheck(await call<FileCheck>(url, { action: "check", ...f }));
     });
   const withAi = () =>
     run("draft", async () => {
-      const d = await call<{ text: string }>(url, { action: "draft", instruction: ask });
-      setDraft(d.text);
-      setCheck(await call<FileCheck>(url, { action: "check", text: d.text }));
+      const d = await call<BotFiles>(url, { action: "draft", instruction: ask, ...(files ?? {}) });
+      setDraft(d);
+      setCheck(await call<FileCheck>(url, { action: "check", ...d }));
     });
   const apply = () =>
     run("apply", async () => {
-      await call(url, { action: "apply", text: draft });
+      await call(url, { action: "apply", ...draft });
       reset();
       await load();
       onChanged();
@@ -338,16 +361,17 @@ function SetupFile({ bot, onChanged }: { bot: Bot; onChanged: () => void }) {
     setAsk("");
     setMode("read");
   };
-  const shown = draft ?? text;
-  const parsed = shown ? readBotFile(shown).file : null;
+  const shown = draft ?? files;
+  const parsed = shown ? readBotFiles(shown).file : null;
+  const seg = "rounded-md px-2.5 py-1 text-xs";
   const tab = (m: Mode, label: string) => (
     <button
       onClick={() => {
-        setMode(m);
-        if (m === "hand") setHand(draft ?? text ?? "");
+        setMode(mode === m ? "read" : m);
+        if (m === "hand") setHand(draft ?? files);
       }}
       aria-pressed={mode === m}
-      className={`rounded-md px-2.5 py-1 text-xs ${mode === m ? "bg-bg font-medium shadow-sm" : "text-muted hover:text-ink"}`}
+      className={`${seg} ${mode === m ? "bg-bg font-medium shadow-sm" : "text-muted hover:text-ink"}`}
     >
       {label}
     </button>
@@ -357,14 +381,19 @@ function SetupFile({ bot, onChanged }: { bot: Bot; onChanged: () => void }) {
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold">Its setup</h2>
-          <p className="text-[0.7rem] text-muted">One file, bot.md: when it works, what it does, what it may do. Vlens builds the bot from it.</p>
+          <p className="text-[0.7rem] text-muted">
+            Two files, like a harness agent: <code className="font-mono">agent.yaml</code> (settings and triggers) and <code className="font-mono">PLAYBOOK.md</code> (what it does when woken).
+          </p>
         </div>
         <div className="flex rounded-lg bg-sunken p-0.5">
-          {tab("read", "Read")}
           {tab("ai", "Edit with AI")}
           {tab("hand", "Edit by hand")}
         </div>
+        <button onClick={() => setExporting((v) => !v)} aria-pressed={exporting} className={`rounded-lg border px-2.5 py-1 text-xs ${exporting ? "border-accent text-accent" : "border-line text-muted hover:text-ink"}`}>
+          Export for harness
+        </button>
       </div>
+      {exporting && <ExportPanel botId={bot.id} onClose={() => setExporting(false)} />}
       {mode === "ai" && !draft && (
         <div className="mb-3 space-y-2">
           <textarea
@@ -372,7 +401,7 @@ function SetupFile({ bot, onChanged }: { bot: Bot; onChanged: () => void }) {
             value={ask}
             onChange={(e) => setAsk(e.target.value)}
             rows={3}
-            placeholder='What should change? e.g. "also check my Jira tickets every 30 min", "never merge", "only PRs in the galaxy repo"'
+            placeholder='What should change? e.g. "also wake up when CI fails on my PRs", "never merge", "quiet after 8pm", "add a Reviewing part to the playbook"'
             className="w-full resize-y rounded-xl border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
           />
           <button onClick={() => void withAi()} disabled={!ask.trim() || !!busy} className={primary}>
@@ -380,15 +409,21 @@ function SetupFile({ bot, onChanged }: { bot: Bot; onChanged: () => void }) {
           </button>
         </div>
       )}
-      {mode === "hand" && !draft && (
+      {mode === "hand" && !draft && hand && (
         <div className="mb-3 space-y-2">
-          <textarea value={hand} onChange={(e) => setHand(e.target.value)} rows={18} spellCheck={false} className="w-full resize-y rounded-xl border border-line bg-bg px-3 py-2 font-mono text-[0.75rem] leading-relaxed outline-none focus:border-accent scroll-thin" />
+          <FilesEditor files={hand} onChange={setHand} />
           <button onClick={() => void review(hand)} disabled={!!busy} className={primary}>
             {busy === "check" && <Loader2 size={12} className="animate-spin" />} Check it
           </button>
         </div>
       )}
       {err && <p className="mb-3 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-300">{err}</p>}
+      <div ref={reviewRef} className="scroll-mt-4" />
+      {busy === "check" && !check && (
+        <p className="mb-3 flex items-center gap-1.5 text-xs text-muted">
+          <Loader2 size={12} className="animate-spin" /> Checking the change…
+        </p>
+      )}
       {check && draft && (
         <div className="mb-4">
           <Review
@@ -405,8 +440,93 @@ function SetupFile({ bot, onChanged }: { bot: Bot; onChanged: () => void }) {
           />
         </div>
       )}
-      {text === null ? <Loader2 size={14} className="animate-spin text-muted" /> : parsed ? <FileView file={parsed} /> : <p className="text-xs text-red-600">This file can&apos;t be read. Edit it by hand to fix it.</p>}
-      {draft && <p className="mt-2 text-[0.7rem] text-muted">Showing the changed file. Nothing is applied until you press Apply.</p>}
+      <div role="tablist" className="mb-3 flex gap-1 border-b border-line">
+        {(
+          [
+            ["triggers", "Triggers", `${parsed?.when.length ?? 0}`],
+            ["playbook", "Playbook", "PLAYBOOK.md"],
+            ["agent", "Agent", "agent.yaml"],
+          ] as const
+        ).map(([id, label, sub]) => (
+          <button key={id} role="tab" aria-selected={view === id} onClick={() => pick(id)} className={`-mb-px border-b-2 px-3 py-1.5 text-xs ${view === id ? "border-ink font-semibold text-ink" : "border-transparent text-muted hover:text-ink"}`}>
+            {label} <span className={`ml-1 text-[0.65rem] ${id === "triggers" ? "" : "font-mono"} text-muted`}>{sub}</span>
+          </button>
+        ))}
+      </div>
+      {files === null ? (
+        <Loader2 size={14} className="animate-spin text-muted" />
+      ) : !parsed ? (
+        <p className="text-xs text-red-600">These files can&apos;t be read. Edit them by hand to fix them.</p>
+      ) : view === "triggers" ? (
+        <TriggerBoard bot={bot} file={parsed} files={shown!} saved={!draft} onPropose={(agent) => void review({ ...shown!, agent })} />
+      ) : view === "playbook" ? (
+        <PlaybookView file={parsed} />
+      ) : (
+        <AgentView file={parsed} />
+      )}
+      {draft && <p className="mt-2 text-[0.7rem] text-muted">Showing the changed files. Nothing is applied until you press Apply.</p>}
     </section>
+  );
+}
+
+// This bot as a dev-agent-harness agent, to copy: nothing is sent anywhere.
+function ExportPanel({ botId, onClose }: { botId: string; onClose: () => void }) {
+  const [d, setD] = useState<{ agent: string; playbook: string; notes: string[] } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  useEffect(() => {
+    fetch(`/api/bots/${botId}/export`)
+      .then((r) => r.json())
+      .then((x) => (x.error ? setErr(x.error) : setD(x)))
+      .catch((e) => setErr((e as Error).message));
+  }, [botId]);
+  const copy = (k: string, t: string) => {
+    void navigator.clipboard.writeText(t).then(() => {
+      setCopied(k);
+      setTimeout(() => setCopied(null), 1500);
+    });
+  };
+  return (
+    <div className="mb-4 space-y-3 rounded-xl border border-accent/40 bg-accent-soft/20 p-4">
+      <div className="flex items-center gap-2">
+        <div className="text-sm font-semibold">As a harness agent</div>
+        <button onClick={onClose} className="ml-auto text-xs text-muted hover:text-ink">
+          Close
+        </button>
+      </div>
+      <p className="text-[0.75rem] text-muted">
+        Copy these into a toolkit PR (agents/&lt;name&gt;/), or store it yourself with upsert_agent once its playbook is on a Confluence page. Nothing is sent from here.
+      </p>
+      {err && <p className="text-xs text-red-600">{err}</p>}
+      {!d && !err && <Loader2 size={14} className="animate-spin text-muted" />}
+      {d && (
+        <>
+          <div>
+            <div className="mb-1 text-xs font-semibold">What doesn&apos;t carry over</div>
+            <ul className="list-disc space-y-0.5 pl-4 text-[0.75rem] text-muted">
+              {d.notes.map((n, i) => (
+                <li key={i}>{n}</li>
+              ))}
+            </ul>
+          </div>
+          {(
+            [
+              ["agent", "agent.yaml", d.agent],
+              ["playbook", "PLAYBOOK.md", d.playbook],
+            ] as const
+          ).map(([k, label, text]) => (
+            <div key={k}>
+              <div className="mb-1 flex items-center gap-2">
+                <span className="font-mono text-xs font-semibold">{label}</span>
+                <button onClick={() => copy(k, text)} className="ml-auto rounded-md border border-line px-2 py-0.5 text-[0.7rem] hover:border-accent hover:text-accent">
+                  {copied === k ? "Copied" : "Copy"}
+                </button>
+              </div>
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-term px-3 py-2 font-mono text-[0.7rem] text-term-ink scroll-thin">{text}</pre>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
   );
 }
