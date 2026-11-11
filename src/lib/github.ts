@@ -41,20 +41,25 @@ async function myTeams(login: string): Promise<string[]> {
   return teams;
 }
 
-const FIELDS = `
+// myReviews: your own last review, asked for directly. latestReviews drops a reviewer
+// whose review was re-requested, so on its own it would say you never reviewed it.
+// refUpdateRule: the approvals the branch needs, from rulesets or branch protection.
+const FIELDS = (login: string) => `
   number title url isDraft createdAt updatedAt headRefName baseRefName headRefOid
   additions deletions changedFiles mergeable reviewDecision
   author { login } repository { nameWithOwner }
   labels(first: 6) { nodes { name } }
   latestReviews(first: 50) { nodes { author { login } state commit { oid } } }
+  myReviews: reviews(author: ${JSON.stringify(login)}, last: 5) { nodes { state commit { oid } } }
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
-  baseRef { branchProtectionRule { requiredApprovingReviewCount } }`;
+  baseRef { refUpdateRule { requiredApprovingReviewCount } branchProtectionRule { requiredApprovingReviewCount } }`;
 
 const lit = (s: string) => JSON.stringify(s); // safe GraphQL string literal
 
 function toSummary(n: any, login: string, sources: Set<string>): PrSummary | null {
   const reviews: any[] = n.latestReviews?.nodes ?? [];
-  const mine = reviews.find((r) => r.author?.login === login);
+  const own = (n.myReviews?.nodes ?? []).filter((r: any) => r.state && r.state !== "PENDING");
+  const mine = reviews.find((r) => r.author?.login === login) ?? own[own.length - 1];
   const ci = n.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null;
   const pr: PrSummary = {
     url: n.url,
@@ -75,7 +80,7 @@ function toSummary(n: any, login: string, sources: Set<string>): PrSummary | nul
     mergeable: n.mergeable ?? "UNKNOWN",
     reviewDecision: n.reviewDecision ?? null,
     approvals: reviews.filter((r) => r.state === "APPROVED").length,
-    requiredApprovals: n.baseRef?.branchProtectionRule?.requiredApprovingReviewCount ?? null,
+    requiredApprovals: n.baseRef?.refUpdateRule?.requiredApprovingReviewCount ?? n.baseRef?.branchProtectionRule?.requiredApprovingReviewCount ?? null,
     myReview: mine?.state ?? null,
     // You reviewed an older commit and new code has landed since.
     changedSinceMyReview: !!(mine?.commit?.oid && n.headRefOid && mine.commit.oid !== n.headRefOid),
@@ -117,6 +122,9 @@ function lane(p: PrSummary, login: string, sources: Set<string>): Lane | null {
 
   // Someone else's draft isn't ready, unless they asked you directly.
   if (p.isDraft && !asked) return null;
+  // You reviewed before and the author asked you again: your turn.
+  if (asked && myReview && myReview !== "APPROVED")
+    return { lane: "needsYou", priority: p.changedSinceMyReview ? "high" : "normal", why: p.changedSinceMyReview ? "re-review requested · new commits" : "re-review requested" };
   // A fix landed on something you flagged: your turn again, on top.
   if ((myReview === "CHANGES_REQUESTED" || myReview === "COMMENTED") && p.changedSinceMyReview)
     return { lane: "needsYou", priority: "high", why: "fix pushed · re-review" };
@@ -177,6 +185,7 @@ export async function reviewBoard(force = false): Promise<ReviewBoard> {
     ["review", `review-requested:${login}`],
     ...teams.map((t, i): [string, string] => [`team${i}`, `team-review-requested:${t}`]),
     ["mine", `author:${login}`],
+    ["reviewed", `reviewed-by:${login}`],
     ["mentions", `mentions:${login}`],
     ["commenter", `commenter:${login}`],
   ];
@@ -189,7 +198,7 @@ export async function reviewBoard(force = false): Promise<ReviewBoard> {
     const r = prRef(url);
     return r ? `  ${alias}: repository(owner: ${lit(r.owner)}, name: ${lit(r.name)}) { pullRequest(number: ${r.number}) { ...pr state } }` : "";
   };
-  const query = `fragment pr on PullRequest {${FIELDS}\n}\nquery {\n${[
+  const query = `fragment pr on PullRequest {${FIELDS(login)}\n}\nquery {\n${[
     ...searches.map(([alias, q]) => `  ${alias}: search(query: ${lit(`${q} is:pr is:open archived:false`)}, type: ISSUE, first: 30) { nodes { ...pr } }`),
     ...lookups.map(lookup).filter(Boolean),
   ].join("\n")}\n}`;
