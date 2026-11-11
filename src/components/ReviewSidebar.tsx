@@ -5,12 +5,14 @@ import { useEffect, useMemo, useState } from "react";
 import type { Review } from "@/hooks/useReview";
 import type { PrLane, PrSummary } from "@/lib/types";
 
+// vTower's lanes (vendasta/vtower, renderer/app.js LANES), in its order.
 export const LANES: Record<PrLane, { label: string; dot: string; text: string }> = {
   needsYou: { label: "Needs you", dot: "bg-amber-500", text: "text-amber-700 dark:text-amber-400" },
-  mine: { label: "Yours", dot: "bg-accent", text: "text-accent" },
-  team: { label: "Team", dot: "bg-sky-500", text: "text-sky-700 dark:text-sky-400" },
-  waiting: { label: "Waiting", dot: "bg-muted", text: "text-muted" },
-  done: { label: "Done", dot: "bg-emerald-500", text: "text-emerald-700 dark:text-emerald-400" },
+  mine: { label: "Your PRs", dot: "bg-accent", text: "text-accent" },
+  team: { label: "Needs your team", dot: "bg-sky-500", text: "text-sky-700 dark:text-sky-400" },
+  approvedWaiting: { label: "Approved · awaiting others", dot: "bg-violet-500", text: "text-violet-700 dark:text-violet-400" },
+  waitingAuthor: { label: "Waiting on author", dot: "bg-muted", text: "text-muted" },
+  done: { label: "Done · your part", dot: "bg-emerald-500", text: "text-emerald-700 dark:text-emerald-400" },
   fyi: { label: "FYI", dot: "bg-line", text: "text-muted" },
 };
 
@@ -39,9 +41,9 @@ export const GROUPS: { id: Group; label: string; tone: string }[] = [
 ];
 export function groupOf(p: PrSummary): Group {
   if (p.lane === "needsYou") return "yours";
-  if (p.lane === "mine") return /ready to merge/.test(p.why) ? "ready" : /waiting for review/.test(p.why) ? "waiting" : "yours";
+  if (p.lane === "mine") return p.priority === "high" ? "yours" : /ready to merge/.test(p.why) ? "ready" : "waiting";
   if (p.lane === "done") return "ready";
-  if (p.lane === "waiting") return "waiting";
+  if (p.lane === "approvedWaiting" || p.lane === "waitingAuthor") return "waiting";
   return "radar"; // team, fyi
 }
 // The sidebar's two tabs: reviews you (or your team) owe, and your own PRs.
@@ -49,18 +51,29 @@ type Tab = "reviews" | "mine";
 type Section = { id: string; label: string; tone: string; head?: string; folded?: boolean; test: (p: PrSummary) => boolean };
 const SECTIONS: Record<Tab, Section[]> = {
   reviews: [
-    { id: "asked", label: "Asked of you", tone: "text-amber-700 dark:text-amber-400", test: (p) => p.lane === "needsYou" },
-    { id: "team", label: "Asked of your team", tone: "text-sky-700 dark:text-sky-400", test: (p) => p.lane === "team" },
-    { id: "reviewed", label: "You reviewed", tone: "text-muted", head: "text-teal-700 dark:text-teal-400", test: (p) => p.lane === "waiting" || p.lane === "done" },
-    { id: "fyi", label: "Mentions and FYI", tone: "text-muted", head: "text-slate-500 dark:text-slate-400", folded: true, test: (p) => p.lane === "fyi" },
+    { id: "needsYou", label: "Needs you", tone: "text-amber-700 dark:text-amber-400", test: (p) => p.lane === "needsYou" },
+    { id: "team", label: "Needs your team", tone: "text-sky-700 dark:text-sky-400", test: (p) => p.lane === "team" },
+    { id: "approvedWaiting", label: "Approved · awaiting others", tone: "text-violet-700 dark:text-violet-400", test: (p) => p.lane === "approvedWaiting" },
+    { id: "waitingAuthor", label: "Waiting on author", tone: "text-muted", head: "text-teal-700 dark:text-teal-400", test: (p) => p.lane === "waitingAuthor" },
+    { id: "done", label: "Done · your part", tone: "text-emerald-700 dark:text-emerald-400", test: (p) => p.lane === "done" },
+    { id: "fyi", label: "FYI", tone: "text-muted", head: "text-slate-500 dark:text-slate-400", folded: true, test: (p) => p.lane === "fyi" },
   ],
+  // vTower's "Your PRs" lane, ranked: blocked on you, ready, awaiting review, stale.
   mine: [
-    { id: "fix", label: "Needs your fix", tone: "text-red-700 dark:text-red-400", test: (p) => p.lane === "mine" && /changes requested|CI failing|merge conflict/.test(p.why) },
-    { id: "ready", label: "Ready to merge", tone: "text-emerald-700 dark:text-emerald-400", test: (p) => p.lane === "mine" && /ready to merge/.test(p.why) },
-    { id: "waiting", label: "Waiting for review", tone: "text-muted", head: "text-sky-700 dark:text-sky-400", test: (p) => p.lane === "mine" && /waiting for review/.test(p.why) },
-    { id: "drafts", label: "Drafts", tone: "text-muted", head: "text-violet-700 dark:text-violet-400", test: (p) => p.lane === "mine" && p.why === "draft" },
+    { id: "fix", label: "Blocked on you", tone: "text-red-700 dark:text-red-400", test: (p) => p.lane === "mine" && p.priority === "high" },
+    { id: "ready", label: "Ready to merge", tone: "text-emerald-700 dark:text-emerald-400", test: (p) => p.lane === "mine" && p.priority === "normal" },
+    { id: "awaiting", label: "Awaiting review", tone: "text-muted", head: "text-sky-700 dark:text-sky-400", test: (p) => p.lane === "mine" && p.priority === "low" && !p.isDraft },
+    { id: "drafts", label: "Drafts", tone: "text-muted", head: "text-violet-700 dark:text-violet-400", test: (p) => p.lane === "mine" && p.isDraft },
+    { id: "stale", label: "Stale (30+ days)", tone: "text-muted", head: "text-slate-500 dark:text-slate-400", folded: true, test: (p) => p.lane === "mine" && p.priority === "stale" },
   ],
 };
+const RANK: Record<PrSummary["priority"], number> = { high: 0, normal: 1, low: 2, stale: 3 };
+// vTower's approval meter: approvals out of the branch's required count, where it matters.
+function meter(p: PrSummary): string | null {
+  const show = p.lane === "approvedWaiting" || p.lane === "done" || ((p.lane === "needsYou" || p.lane === "team") && p.approvals > 0) || (p.lane === "fyi" && p.why === "approved without you");
+  if (!show) return null;
+  return p.requiredApprovals ? `${Math.min(p.approvals, p.requiredApprovals)}/${p.requiredApprovals} ✓` : `${p.approvals} ✓`;
+}
 const tabOf = (p: PrSummary): Tab => (p.lane === "mine" ? "mine" : "reviews");
 const teamName = (t: string) => t.split("/").pop() ?? t;
 
@@ -70,6 +83,7 @@ export function statusLine(p: PrSummary) {
   if (p.ci === "pending" && !/CI/.test(p.why)) bits.push("checks running");
   if (p.ci === "failing" && !/CI/.test(p.why)) bits.push("CI failing");
   if (p.lane === "team" && p.teams?.length) bits[0] = `asked @${p.teams.map(teamName).join(", @")}`;
+  else if (p.lane === "team" && p.pinged) bits[0] = "your team was tagged";
   if (p.lane !== "mine" && p.author) bits.push(`@${p.author}`);
   return bits.join(" · ");
 }
@@ -101,7 +115,7 @@ export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url
   const shown = prs.filter((p) => !q || `${p.title} ${p.repo} #${p.number} ${p.author} ${(p.teams ?? []).join(" ")}`.toLowerCase().includes(q.toLowerCase()));
   const count = { reviews: shown.filter((p) => p.lane === "needsYou" || p.lane === "team").length, mine: shown.filter((p) => p.lane === "mine").length };
   const groups = useMemo(
-    () => SECTIONS[tab].map((g) => ({ ...g, list: shown.filter(g.test).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) })),
+    () => SECTIONS[tab].map((g) => ({ ...g, list: shown.filter(g.test).sort((a, b) => RANK[a.priority] - RANK[b.priority] || b.updatedAt.localeCompare(a.updatedAt)) })),
     [shown, tab],
   );
 
@@ -181,6 +195,11 @@ export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url
                           {p.repo.split("/")[1]} #{p.number}
                         </span>
                         <span className={`min-w-0 flex-1 truncate ${g.tone}`}>{statusLine(p)}</span>
+                        {meter(p) && (
+                          <span className={`shrink-0 rounded px-1 text-[0.65rem] ${p.requiredApprovals && p.approvals >= p.requiredApprovals ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-sunken text-muted"}`} title="Approvals out of what the branch needs">
+                            {meter(p)}
+                          </span>
+                        )}
                         {p.ci !== "none" && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${CI_DOT[p.ci]}`} title={`CI ${p.ci}`} />}
                         <span className="shrink-0 text-muted">{ago(p.updatedAt)}</span>
                       </span>

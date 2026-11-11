@@ -297,6 +297,12 @@ function DiagramsSection({ settings, save }: { settings: Settings; save: (p: Par
       >
         <Toggle label="Whiteboard skill" on={settings.whiteboardSkill} onChange={(v) => save({ whiteboardSkill: v })} />
       </Row>
+      <Row
+        label="PR review skill (lens:review)"
+        hint="The dev-agent toolkit's shared review process, the same one Vendasta's review agents follow, used by Review with Claude. Loaded only into sessions Vlens runs, from the toolkit's marketplace on this Mac."
+      >
+        <Toggle label="PR review skill" on={settings.reviewSkill !== false} onChange={(v) => save({ reviewSkill: v })} />
+      </Row>
       {(settings.showDiagrams || settings.showWhiteboards) && (
         <div className="space-y-3 border-t border-line pt-3">
           <div className="text-xs text-muted">Preview</div>

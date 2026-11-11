@@ -1,6 +1,6 @@
 "use client";
 
-import { Cloud, GitPullRequest, MessagesSquare, Settings as SettingsIcon, Store } from "lucide-react";
+import { GitPullRequest, MessagesSquare, Settings as SettingsIcon, Store } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Limits } from "@/lib/types";
 import { PlanUsage, Ring } from "./Usage";
@@ -8,10 +8,9 @@ import { PlanUsage, Ring } from "./Usage";
 // The thin bar on the far left: which space you're in (each loads its own
 // data when you open it), and at the bottom what's shared by all of them:
 // Marketplace, Settings and your plan's usage.
-export type Space = "harness" | "sessions" | "review";
+export type Space = "sessions" | "review";
 
-const SPACES: { id: Space; label: string; Icon: typeof Cloud }[] = [
-  { id: "harness", label: "Harness", Icon: Cloud },
+const SPACES: { id: Space; label: string; Icon: typeof MessagesSquare }[] = [
   { id: "sessions", label: "Sessions", Icon: MessagesSquare },
   { id: "review", label: "Vlens Review", Icon: GitPullRequest },
 ];

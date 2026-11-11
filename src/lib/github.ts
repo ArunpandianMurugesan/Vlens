@@ -4,13 +4,17 @@ import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { PrDetail, PrLane, PrSummary, ReviewBoard } from "./types";
+import { DATA_DIR } from "./paths";
+import type { PrDetail, PrLane, PrPriority, PrSummary, ReviewBoard } from "./types";
 import { getProvider } from "@/lib/providers";
 
 // Vlens Review reads GitHub through the `gh` CLI, so it uses whatever account
-// you're signed in with there. One GraphQL request runs every search at once
-// (review requested from you or your teams, your PRs, mentions), which keeps
-// us far below GitHub's rate limits even when polling.
+// you're signed in with there. It pulls PRs the way vTower does (vendasta/vtower,
+// electron/ipc.cjs gatherPRs + classify): ONE GraphQL request holds every search
+// (review requested from you or your teams, your PRs, mentions, commenter), every
+// PR still being tracked, and the PRs your team was @-mentioned on (from your
+// notifications, which search can't reach). One call per poll keeps us far below
+// GitHub's rate limits, including its secondary limit on bursts.
 
 function gh(args: string[], timeout = 25_000): Promise<{ ok: boolean; out: string; err: string }> {
   return new Promise((resolve) =>
@@ -48,7 +52,7 @@ const FIELDS = `
 
 const lit = (s: string) => JSON.stringify(s); // safe GraphQL string literal
 
-function toSummary(n: any, login: string, sources: Set<string>): PrSummary {
+function toSummary(n: any, login: string, sources: Set<string>): PrSummary | null {
   const reviews: any[] = n.latestReviews?.nodes ?? [];
   const mine = reviews.find((r) => r.author?.login === login);
   const ci = n.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null;
@@ -76,32 +80,87 @@ function toSummary(n: any, login: string, sources: Set<string>): PrSummary {
     // You reviewed an older commit and new code has landed since.
     changedSinceMyReview: !!(mine?.commit?.oid && n.headRefOid && mine.commit.oid !== n.headRefOid),
     lane: "fyi",
+    priority: "low",
     why: "",
+    ...(sources.has("pinged") ? { pinged: true } : {}),
   };
-  return { ...pr, ...lane(pr, login, sources) };
+  const l = lane(pr, login, sources);
+  return l ? { ...pr, ...l } : null;
 }
 
-// Whose move is it? Sort each PR into one lane, with a short reason.
-function lane(p: PrSummary, login: string, sources: Set<string>): { lane: PrLane; why: string } {
-  const approved = p.reviewDecision === "APPROVED" || (p.reviewDecision === null && p.approvals > 0);
-  if (p.author === login) {
-    if (p.isDraft) return { lane: "mine", why: "draft" };
-    if (p.reviewDecision === "CHANGES_REQUESTED") return { lane: "mine", why: "changes requested" };
-    if (p.ci === "failing") return { lane: "mine", why: "CI failing" };
-    if (p.mergeable === "CONFLICTING") return { lane: "mine", why: "merge conflict" };
-    return { lane: "mine", why: approved ? "ready to merge" : "waiting for review" };
-  }
+// Whose move is it? vTower's attention model: one lane per PR (by whose turn it is and
+// how you relate to it), a priority within the lane, and a short reason. null = hidden.
+type Lane = { lane: PrLane; priority: PrPriority; why: string };
+const DAY = 86_400_000;
+function lane(p: PrSummary, login: string, sources: Set<string>): Lane | null {
+  const src = [...sources];
   const asked = sources.has("review");
-  const teamAsked = [...sources].some((s) => s.startsWith("team"));
-  if (p.myReview && p.myReview !== "APPROVED" && p.myReview !== "DISMISSED" && p.changedSinceMyReview)
-    return { lane: "needsYou", why: "new commits since your review" };
-  if (p.myReview === "APPROVED") return approved ? { lane: "done", why: "you approved · ready to merge" } : { lane: "waiting", why: "you approved · needs more approvals" };
-  if (p.myReview === "CHANGES_REQUESTED" || p.myReview === "COMMENTED") return { lane: "waiting", why: "waiting on the author" };
-  if (approved) return { lane: "fyi", why: "approved without you" };
-  if (asked) return { lane: "needsYou", why: p.approvals ? "your review · almost approved" : "your review requested" };
-  if (teamAsked) return { lane: "team", why: "your team's review requested" };
-  return { lane: "fyi", why: sources.has("mentions") ? "you were mentioned" : "you commented" };
+  const teamAsked = src.some((s) => /^team\d/.test(s));
+  const pinged = sources.has("pinged");
+  // Cleared: the full approval quorum is met; with no review rule, one approval clears it.
+  const cleared = p.reviewDecision === "APPROVED" || (p.reviewDecision === null && p.approvals > 0);
+  const myReview = p.myReview && p.myReview !== "DISMISSED" ? p.myReview : null;
+  const age = Date.now() - Date.parse(p.updatedAt || "0");
+
+  // Your own PRs: blocked on you first, then ready, then waiting; old ones sink but stay.
+  if (p.author === login) {
+    if (p.isDraft) return { lane: "mine", priority: "low", why: "draft" };
+    let base: Omit<Lane, "lane">;
+    if (p.reviewDecision === "CHANGES_REQUESTED") base = { priority: "high", why: "changes requested" };
+    else if (p.ci === "failing") base = { priority: "high", why: "CI failing" };
+    else if (p.mergeable === "CONFLICTING") base = { priority: "high", why: "merge conflict" };
+    else if (cleared) base = { priority: "normal", why: "ready to merge" };
+    else base = { priority: "low", why: "awaiting review" };
+    if (age >= 30 * DAY) return { lane: "mine", priority: "stale", why: `${base.why} · stale` };
+    return { lane: "mine", ...base };
+  }
+
+  // Someone else's draft isn't ready, unless they asked you directly.
+  if (p.isDraft && !asked) return null;
+  // A fix landed on something you flagged: your turn again, on top.
+  if ((myReview === "CHANGES_REQUESTED" || myReview === "COMMENTED") && p.changedSinceMyReview)
+    return { lane: "needsYou", priority: "high", why: "fix pushed · re-review" };
+  if (myReview === "APPROVED")
+    return cleared ? { lane: "done", priority: "low", why: "approved · ready to merge" } : { lane: "approvedWaiting", priority: "normal", why: "you approved · awaiting others" };
+  if (myReview === "CHANGES_REQUESTED") return { lane: "waitingAuthor", priority: "low", why: "changes requested · author's turn" };
+  if (myReview === "COMMENTED") return { lane: "waitingAuthor", priority: "low", why: "you commented · author's turn" };
+  // You haven't reviewed, and it's approved without you.
+  if (cleared) return { lane: "fyi", priority: "low", why: "approved without you" };
+  if (asked) {
+    const closing = p.approvals > 0;
+    return { lane: "needsYou", priority: closing ? "high" : "normal", why: closing ? "awaiting your review · nearly cleared" : "awaiting your review" };
+  }
+  if (teamAsked || pinged)
+    return { lane: "team", priority: p.approvals > 0 ? "high" : "normal", why: pinged && !teamAsked ? "your team was tagged" : "awaiting your team's review" };
+  // Mentioned or commented on: just so you know, and gone after a week.
+  if (sources.has("mentions") || sources.has("commenter")) return age >= 7 * DAY ? null : { lane: "fyi", priority: "low", why: "mentioned" };
+  return { lane: "fyi", priority: "low", why: "tracked" };
 }
+
+// Every PR on the board stays until it's merged or closed, even after it drops out of
+// the searches (say, the review request cleared once you reviewed): its URL is kept here
+// and looked up directly next time. It prunes itself: a PR that's no longer open drops out.
+const TRACKED = path.join(DATA_DIR, "review-tracked.json");
+const readTracked = async (): Promise<string[]> => JSON.parse(await fs.readFile(TRACKED, "utf8").catch(() => "[]"));
+const writeTracked = (urls: string[]) => fs.writeFile(TRACKED, JSON.stringify(urls.slice(0, 60))).catch(() => {});
+const prRef = (url: string) => {
+  const m = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+  return m ? { owner: m[1], name: m[2], number: Number(m[3]) } : null;
+};
+
+// PRs your team (or you) were @-mentioned on. Search's mentions: only knows users, not
+// teams; your notifications know both. One REST call, at most 30.
+async function pingedPrs(): Promise<string[]> {
+  const r = await gh(["api", "/notifications?all=true&participating=true&per_page=100", "--jq", '[.[] | select(.subject.type=="PullRequest" and (.reason=="team_mention" or .reason=="mention")) | .subject.url]'], 12_000);
+  if (!r.ok) return [];
+  let urls: string[] = [];
+  try {
+    urls = JSON.parse(r.out) ?? [];
+  } catch {}
+  return [...new Set(urls.map((u) => u.match(/repos\/([^/]+)\/([^/]+)\/pulls\/(\d+)/)).filter(Boolean).map((m) => `https://github.com/${m![1]}/${m![2]}/pull/${m![3]}`))].slice(0, 30);
+}
+
+const RANK: Record<PrPriority, number> = { high: 0, normal: 1, low: 2, stale: 3 };
 
 let boardCache: { at: number; board: ReviewBoard } | null = null;
 let rateLimitedUntil = 0;
@@ -121,9 +180,19 @@ export async function reviewBoard(force = false): Promise<ReviewBoard> {
     ["mentions", `mentions:${login}`],
     ["commenter", `commenter:${login}`],
   ];
-  const query = `fragment pr on PullRequest {${FIELDS}\n}\nquery {\n${searches
-    .map(([alias, q]) => `  ${alias}: search(query: ${lit(`${q} is:pr is:open archived:false`)}, type: ISSUE, first: 30) { nodes { ...pr } }`)
-    .join("\n")}\n}`;
+  // Tracked PRs and team-mentioned ones are looked up by number, in the same call.
+  const [tracked, pinged] = await Promise.all([readTracked(), pingedPrs()]);
+  const lookups: [string, string, string][] = []; // alias, source, url
+  tracked.forEach((u, i) => lookups.push([`t${i}`, "tracked", u]));
+  pinged.forEach((u, i) => lookups.push([`p${i}`, "pinged", u]));
+  const lookup = ([alias, , url]: [string, string, string]) => {
+    const r = prRef(url);
+    return r ? `  ${alias}: repository(owner: ${lit(r.owner)}, name: ${lit(r.name)}) { pullRequest(number: ${r.number}) { ...pr state } }` : "";
+  };
+  const query = `fragment pr on PullRequest {${FIELDS}\n}\nquery {\n${[
+    ...searches.map(([alias, q]) => `  ${alias}: search(query: ${lit(`${q} is:pr is:open archived:false`)}, type: ISSUE, first: 30) { nodes { ...pr } }`),
+    ...lookups.map(lookup).filter(Boolean),
+  ].join("\n")}\n}`;
 
   const r = await gh(["api", "graphql", "-f", `query=${query}`]);
   let data: any = null;
@@ -143,12 +212,25 @@ export async function reviewBoard(force = false): Promise<ReviewBoard> {
       e.sources.add(alias);
       nodes.set(n.url, e);
     }
-  const prs = [...nodes.values()].map(({ node, sources }) => {
-    const teamsAsked = [...sources].filter((s) => s.startsWith("team")).map((s) => teams[Number(s.slice(4))]).filter(Boolean);
-    return { ...toSummary(node, login, sources), ...(teamsAsked.length ? { teams: teamsAsked } : {}) };
-  });
-  // Other people's drafts aren't ready for review yet, and old FYIs are noise.
-  const shown = prs.filter((p) => !(p.isDraft && p.author !== login && p.lane !== "needsYou") && !(p.lane === "fyi" && Date.now() - Date.parse(p.updatedAt) > 14 * 86_400_000));
+  // Tracked and team-mentioned PRs: only while they're still open.
+  for (const [alias, source] of lookups) {
+    const n = data[alias]?.pullRequest;
+    if (!n?.url || n.state !== "OPEN") continue;
+    const e = nodes.get(n.url) ?? { node: n, sources: new Set<string>() };
+    e.sources.add(source);
+    nodes.set(n.url, e);
+  }
+  // Keep tracking every open PR we saw, until it's merged or closed.
+  void writeTracked([...nodes.keys()]);
+  const shown = [...nodes.values()]
+    .map(({ node, sources }) => {
+      const pr = toSummary(node, login, sources);
+      if (!pr) return null;
+      const teamsAsked = [...sources].filter((s) => /^team\d/.test(s)).map((s) => teams[Number(s.slice(4))]).filter(Boolean);
+      return { ...pr, ...(teamsAsked.length ? { teams: teamsAsked } : {}) };
+    })
+    .filter((p): p is PrSummary => !!p)
+    .sort((a, b) => RANK[a.priority] - RANK[b.priority] || b.updatedAt.localeCompare(a.updatedAt));
 
   const board: ReviewBoard = { login, prs: shown, fetchedAt: new Date().toISOString(), clones: await localClones(), home: os.homedir() };
   boardCache = { at: Date.now(), board };

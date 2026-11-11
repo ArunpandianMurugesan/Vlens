@@ -240,9 +240,8 @@ function buildMenu() {
       {
         label: "Go",
         submenu: [
-          item("Harness", "go-harness", "CmdOrCtrl+1"),
-          item("Sessions", "go-sessions", "CmdOrCtrl+2"),
-          item("Review", "go-review", "CmdOrCtrl+3"),
+          item("Sessions", "go-sessions", "CmdOrCtrl+1"),
+          item("Review", "go-review", "CmdOrCtrl+2"),
           { type: "separator" },
           item("Home", "go-home", "Shift+CmdOrCtrl+H"),
           item("History", "go-history", "CmdOrCtrl+Y"),

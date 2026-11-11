@@ -18,7 +18,6 @@ import { runInTerminal, TerminalPanel } from "@/components/TerminalPanel";
 import { HomeView } from "@/components/HomeView";
 import { MarketplaceView } from "@/components/MarketplaceView";
 import { HistoryView } from "@/components/HistoryView";
-import { HarnessView } from "@/components/HarnessView";
 import { SpaceRail } from "@/components/SpaceRail";
 import { type Go, QuickSwitcher } from "@/components/QuickSwitcher";
 import { useMenu } from "@/lib/menu";
@@ -48,13 +47,13 @@ export default function Home() {
   }, []);
   // The header's menu button: slides the sidebar over on a narrow window, brings it back on a wide one.
   const showSidebar = () => setSidebarOpen(true);
-  const [view, setView] = useState<"chat" | "settings" | "review" | "marketplace" | "history" | "harness">("chat");
+  const [view, setView] = useState<"chat" | "settings" | "review" | "marketplace" | "history">("chat");
   const [tab, setTab] = useState<"sessions" | "review">("sessions");
   // Where Settings' back button goes: the space you came from.
-  const [back, setBack] = useState<"chat" | "review" | "harness">("chat");
+  const [back, setBack] = useState<"chat" | "review">("chat");
   const openShared = (page: "settings" | "marketplace") => {
     setView((v) => {
-      if (v === "chat" || v === "review" || v === "harness") setBack(v);
+      if (v === "chat" || v === "review") setBack(v);
       return page;
     });
   };
@@ -101,7 +100,7 @@ export default function Home() {
 
   // Opening a session from elsewhere (a notification click) shows the chat.
   useEffect(() => {
-    if (chat.activeId) setView((v) => (v === "review" || v === "harness" ? v : "chat"));
+    if (chat.activeId) setView((v) => (v === "review" ? v : "chat"));
   }, [chat.activeId]);
 
   const n = chat.stack.length;
@@ -152,7 +151,6 @@ export default function Home() {
       const id = chat.activeId;
       if (id && window.confirm("Archive this session? You can open it again from Archived.")) void chat.archiveSession(id, true).then(() => chat.goHome());
     },
-    "go-harness": () => setView("harness"),
     "go-sessions": () => {
       setTab("sessions");
       setView("chat");
@@ -181,7 +179,7 @@ export default function Home() {
       <FilesProvider>
       <div className="flex h-dvh overflow-hidden">
         <SpaceRail
-          space={view === "settings" || view === "marketplace" ? null : view === "harness" ? "harness" : view === "review" ? "review" : "sessions"}
+          space={view === "settings" || view === "marketplace" ? null : view === "review" ? "review" : "sessions"}
           badge={{ review: review.prs.filter((p) => p.lane === "needsYou").length }}
           page={view === "settings" || view === "marketplace" ? view : null}
           onSettings={() => openShared("settings")}
@@ -190,13 +188,12 @@ export default function Home() {
           refreshingLimits={chat.refreshingLimits}
           onRefreshLimits={chat.refreshLimits}
           onSpace={(s) => {
-            if (s === "harness") return setView("harness");
             setTab(s);
             setView(s === "review" ? "review" : "chat");
           }}
         />
         {/* Pages with their own navigation (like the design) don't get the sessions list beside it. */}
-        {view !== "harness" && view !== "settings" && view !== "marketplace" && view !== "history" && (
+        {view !== "settings" && view !== "marketplace" && view !== "history" && (
         <Sidebar
           sessions={chat.sessions}
           activeId={chat.activeId}
@@ -234,9 +231,7 @@ export default function Home() {
           onClose={() => setSidebarOpen(false)}
         />
         )}
-        {view === "harness" ? (
-          <HarnessView />
-        ) : view === "history" ? (
+        {view === "history" ? (
           <HistoryView
             chat={chat}
             onMenu={() => setView(back)}

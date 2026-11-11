@@ -158,6 +158,7 @@ export interface Settings {
   diagramSkill: boolean; // load the built-in lens:diagrams skill into Vlens runs
   showWhiteboards: boolean; // draw ```excalidraw blocks as whiteboards
   whiteboardSkill: boolean; // load the built-in lens:whiteboard skill into Vlens runs
+  reviewSkill?: boolean; // load the dev-agent toolkit's review skill as lens:review (default on)
   onboarded: boolean; // went through Get started once
   notifications: boolean; // desktop notifications when Claude needs you or finishes
   cliMode?: PermissionMode; // read-only: the mode your terminal claude starts in (~/.claude/settings.json)
@@ -226,7 +227,10 @@ export interface HookEntry {
 // ── Vlens Review ──
 
 // Whose move it is on a PR.
-export type PrLane = "needsYou" | "mine" | "team" | "waiting" | "done" | "fyi";
+// The same lanes as vTower's PR board (vendasta/vtower, electron/ipc.cjs classify()).
+export type PrLane = "needsYou" | "mine" | "team" | "approvedWaiting" | "waitingAuthor" | "done" | "fyi";
+// How urgent it is within its lane (sorts the lane): high first, stale last.
+export type PrPriority = "high" | "normal" | "low" | "stale";
 
 export interface PrSummary {
   url: string;
@@ -251,7 +255,9 @@ export interface PrSummary {
   myReview: string | null;
   changedSinceMyReview: boolean;
   lane: PrLane;
+  priority: PrPriority;
   why: string;
+  pinged?: boolean; // your team was @-mentioned on it (from your GitHub notifications)
   teams?: string[]; // which of your teams were asked to review ("org/slug")
 }
 

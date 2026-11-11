@@ -17,6 +17,7 @@ import {
   Sparkles,
   Wrench,
   X,
+  ImageIcon,
 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { Review } from "@/hooks/useReview";
@@ -25,15 +26,39 @@ import { addPrSession, usePrSessions } from "@/lib/prSessions";
 import type { PrSummary } from "@/lib/types";
 import { Markdown } from "./Markdown";
 import { ago, GROUPS, groupOf } from "./ReviewSidebar";
+import { ReviewResults } from "./ReviewResults";
 import { MenuButton } from "./Sidebar";
 
-// What Claude is asked to do. Reviews run read-only; addressing your own PR may edit files.
+// What Claude is asked to do. Reviews post nothing (you post from the results panel,
+// ReviewResults.tsx); addressing your own PR may edit files.
+const RESULT_JSON = [
+  "End your reply with the result as one ```json block, exactly this shape:",
+  '{"verdict": "COMMENT | REQUEST_CHANGES | APPROVE", "summary": "two or three plain sentences for the review\'s top comment", "findings": [{"id": "1", "file": "path/in/repo.ts", "line": 42, "body": "what is wrong, why it matters, a suggested fix", "severity": "high | medium | low"}]}',
+  "`line` is a line in the PR's new version of the file, inside the diff. Write each body as a reviewer's comment, kind and specific.",
+].join("\n");
+
 export function reviewPrompt(p: PrSummary, hasClone: boolean) {
-  if (hasClone) return `/code-review ${p.number}`;
   return [
-    `Review this pull request: ${p.url}`,
+    `Review pull request #${p.number} in ${p.repo}: ${p.url}`,
     "",
-    "Read it with the gh CLI (gh pr view, gh pr diff). List real bugs and risks first, most serious first, with the file and line for each. Keep it short. Don't post anything to GitHub.",
+    hasClone
+      ? "Use the lens:review skill in its PR Studio mode: run Steps 1 to 7 on this repo (its `.claude/review.md` overlay applies), and post nothing. Never post, approve, comment or push on GitHub."
+      : "Read it with the gh CLI (gh pr view, gh pr diff). Look for real bugs and risks first. Never post, approve, comment or push on GitHub.",
+    "If the PR links a Jira ticket, check the change against its acceptance criteria and say which are met.",
+    "",
+    RESULT_JSON,
+  ].join("\n");
+}
+
+// galaxy's own skill (.claude/skills/galaxy-before-after in your clone): screenshots of
+// what the PR changes, from the builds Cloud Build already published.
+export function beforeAfterPrompt(p: PrSummary) {
+  return [
+    `Use the galaxy-before-after skill to show what pull request #${p.number} changes on screen: ${p.url}`,
+    "Pick the apps and routes from its changed files as the skill says. Save every screenshot as a PNG file under ~/galaxy-proof. Never post anything on GitHub.",
+    "",
+    "End your reply with one ```json block, exactly this shape (absolute file paths):",
+    '{"verdict": "PASS | INCONCLUSIVE | BLOCKED", "summary": "what changed on screen, in two sentences", "shots": [{"label": "Business Center · /route · desktop light", "before": "/Users/.../before.png", "after": "/Users/.../after.png"}]}',
   ].join("\n");
 }
 
@@ -102,7 +127,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the tab changes
   }, [tab, pr?.url]);
   const busy = !!chat.rootPending || !!starting;
-  const start = (kind: string, prompt: string, mode: "plan" | "acceptEdits", cwd: string) => {
+  const start = (kind: string, prompt: string, mode: "default" | "plan" | "acceptEdits", cwd: string) => {
     if (!pr || busy) return;
     const url = pr.url;
     setStarting({ url, kind });
@@ -168,6 +193,20 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
   }
 
   const clone = cloneFor(pr);
+  const primaryBtn = "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50";
+  const secondaryBtn = "inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent disabled:opacity-50";
+  // galaxy PRs: screenshots of the change, with galaxy's own skill, in your clone.
+  const beforeAfter =
+    pr.repo.toLowerCase() === "vendasta/galaxy" ? (
+      <button
+        onClick={() => clone && start("Before/after", beforeAfterPrompt(pr), "default", clone)}
+        disabled={!clone || busy}
+        title={clone ? (busy ? busyHint : "Screenshots of what this PR changes, before and after, from its published build") : "Clone galaxy on your Mac first: the skill lives in the repo."}
+        className={secondaryBtn}
+      >
+        <ImageIcon size={14} /> Before/after
+      </button>
+    ) : null;
   const group = GROUPS.find((g) => g.id === groupOf(pr))!;
   const mine = pr.lane === "mine";
   const d = detail?.url === pr.url ? detail : null;
@@ -197,8 +236,6 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
       void refresh();
     }
   };
-  const primaryBtn = "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50";
-  const secondaryBtn = "inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent disabled:opacity-50";
   const files = d?.data?.files ?? [];
   const changes = d?.data?.reviews.filter((r) => r.state === "CHANGES_REQUESTED").length ?? 0;
 
@@ -228,17 +265,21 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
               <button onClick={() => clone && start("Address feedback", addressPrompt(pr), "acceptEdits", clone)} disabled={!clone || busy} title={clone ? (busy ? busyHint : undefined) : "Clone this repo on your Mac first, so Claude can work on the branch."} className={primaryBtn}>
                 <Wrench size={14} /> Address feedback
               </button>
-              <button onClick={() => start("Self-review", reviewPrompt(pr, !!clone), "plan", clone ?? home)} disabled={busy} title={busy ? busyHint : undefined} className={secondaryBtn}>
+              <button onClick={() => start("Self-review", reviewPrompt(pr, !!clone), "default", clone ?? home)} disabled={busy} title={busy ? busyHint : undefined} className={secondaryBtn}>
                 <Sparkles size={14} /> Review with Claude
               </button>
+              {beforeAfter}
               <button onClick={() => setMerging({ method: "squash", busy: false, error: null })} disabled={!!mergeBlock} title={mergeBlock ?? "Merge it on GitHub"} className={secondaryBtn}>
                 <GitMerge size={14} /> Merge
               </button>
             </>
           ) : (
-            <button onClick={() => start("Review", reviewPrompt(pr, !!clone), "plan", clone ?? home)} disabled={busy} title={busy ? busyHint : undefined} className={primaryBtn}>
-              <Sparkles size={14} /> Review with Claude
-            </button>
+            <>
+              <button onClick={() => start("Review", reviewPrompt(pr, !!clone), "default", clone ?? home)} disabled={busy} title={busy ? busyHint : undefined} className={primaryBtn}>
+                <Sparkles size={14} /> Review with Claude
+              </button>
+              {beforeAfter}
+            </>
           )}
           <a href={pr.url} target="_blank" rel="noreferrer" title="Open on GitHub" aria-label="Open on GitHub" className="rounded-lg border border-line p-2 text-muted hover:border-accent hover:text-accent">
             <ExternalLink size={14} />
@@ -288,7 +329,10 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
       )}
 
       {tab !== "overview" ? (
-        <div className="flex min-h-0 flex-1">{renderChat()}</div>
+        <div className="flex min-h-0 flex-1 flex-col">
+          {chat.session?.id === tab && <ReviewResults pr={pr} messages={chat.session.messages} />}
+          <div className="flex min-h-0 flex-1">{renderChat()}</div>
+        </div>
       ) : (
         <div className="flex-1 overflow-y-auto scroll-thin">
           <div className="mx-auto max-w-5xl space-y-4 px-6 py-5">
