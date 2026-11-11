@@ -10,11 +10,11 @@ import { getProvider } from "@/lib/providers";
 
 // Vlens Review reads GitHub through the `gh` CLI, so it uses whatever account
 // you're signed in with there. It pulls PRs the way vTower does (vendasta/vtower,
-// electron/ipc.cjs gatherPRs + classify): ONE GraphQL request holds every search
-// (review requested from you or your teams, your PRs, mentions, commenter), every
-// PR still being tracked, and the PRs your team was @-mentioned on (from your
-// notifications, which search can't reach). One call per poll keeps us far below
-// GitHub's rate limits, including its secondary limit on bursts.
+// electron/ipc.cjs gatherPRs + classify): GraphQL searches (review requested from you
+// or your teams, your PRs, reviewed by you, mentions, commenter), every PR still being
+// tracked, and the PRs your team was @-mentioned on (from your notifications, which
+// search can't reach). A handful of small calls per refresh keeps us far below
+// GitHub's rate limits and its 10-second limit per query.
 
 function gh(args: string[], timeout = 25_000): Promise<{ ok: boolean; out: string; err: string }> {
   return new Promise((resolve) =>
@@ -49,7 +49,7 @@ const FIELDS = (login: string) => `
   additions deletions changedFiles mergeable reviewDecision
   author { login } repository { nameWithOwner }
   labels(first: 6) { nodes { name } }
-  latestReviews(first: 50) { nodes { author { login } state commit { oid } } }
+  latestReviews(first: 20) { nodes { author { login } state commit { oid } } }
   myReviews: reviews(author: ${JSON.stringify(login)}, last: 5) { nodes { state commit { oid } } }
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
   baseRef { refUpdateRule { requiredApprovingReviewCount } branchProtectionRule { requiredApprovingReviewCount } }`;
@@ -156,10 +156,15 @@ const prRef = (url: string) => {
   return m ? { owner: m[1], name: m[2], number: Number(m[3]) } : null;
 };
 
+// PRs looked up and found merged or closed: never asked about again (until restart).
+const g = globalThis as { lensClosedPrs?: Set<string> };
+const closedPrs = (g.lensClosedPrs ??= new Set());
+
 // PRs your team (or you) were @-mentioned on. Search's mentions: only knows users, not
 // teams; your notifications know both. One REST call, at most 30.
 async function pingedPrs(): Promise<string[]> {
-  const r = await gh(["api", "/notifications?all=true&participating=true&per_page=100", "--jq", '[.[] | select(.subject.type=="PullRequest" and (.reason=="team_mention" or .reason=="mention")) | .subject.url]'], 12_000);
+  const since = new Date(Date.now() - 21 * 86_400_000).toISOString(); // older tags are long settled
+  const r = await gh(["api", `/notifications?all=true&participating=true&per_page=100&since=${since}`, "--jq", '[.[] | select(.subject.type=="PullRequest" and (.reason=="team_mention" or .reason=="mention")) | .subject.url]'], 12_000);
   if (!r.ok) return [];
   let urls: string[] = [];
   try {
@@ -170,6 +175,23 @@ async function pingedPrs(): Promise<string[]> {
 
 const RANK: Record<PrPriority, number> = { high: 0, normal: 1, low: 2, stale: 3 };
 
+// One GraphQL call, tried once more when GitHub's own server fails (502, 504, a
+// timeout): those are usually momentary. Partial data (one alias failed) still counts.
+async function graphql(query: string): Promise<{ data: any; err: string }> {
+  let last = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const r = await gh(["api", "graphql", "-f", `query=${query}`]);
+    try {
+      const data = JSON.parse(r.out).data;
+      if (data && Object.keys(data).length) return { data, err: "" };
+    } catch {}
+    last = r.err;
+    if (!/\b50[234]\b|timeout|timed out|something went wrong/i.test(r.err)) break;
+    await new Promise((res) => setTimeout(res, 1500));
+  }
+  return { data: null, err: last };
+}
+
 let boardCache: { at: number; board: ReviewBoard } | null = null;
 let rateLimitedUntil = 0;
 
@@ -177,9 +199,19 @@ export async function reviewBoard(force = false): Promise<ReviewBoard> {
   if (boardCache && !force && Date.now() - boardCache.at < 60_000) return boardCache.board;
   if (Date.now() < rateLimitedUntil) return { ...(boardCache?.board ?? emptyBoard()), error: "GitHub rate limit hit. Trying again in a few minutes." };
 
+  const t0 = Date.now();
+  const lap: string[] = []; // where a refresh spends its time (dev log)
+  const mark = (what: string) => lap.push(`${what} ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   const login = await me();
   if (!login) return { ...emptyBoard(), error: "The GitHub CLI isn't signed in. Run `gh auth login` in a terminal." };
   const teams = await myTeams(login);
+  mark("login+teams");
+  // GitHub said no: keep showing the last board, with why.
+  const failed = (err: string): ReviewBoard => {
+    if (/rate limit|secondary|abuse|\b403\b/i.test(err)) rateLimitedUntil = Date.now() + 3 * 60_000;
+    const why = /\b50[234]\b|timeout/i.test(err) ? "GitHub's server didn't answer in time. Showing the last list; press Refresh to try again." : `Couldn't load PRs from GitHub: ${err.slice(0, 200)}`;
+    return { ...(boardCache?.board ?? emptyBoard()), error: why };
+  };
 
   const searches: [string, string][] = [
     ["review", `review-requested:${login}`],
@@ -189,29 +221,23 @@ export async function reviewBoard(force = false): Promise<ReviewBoard> {
     ["mentions", `mentions:${login}`],
     ["commenter", `commenter:${login}`],
   ];
-  // Tracked PRs and team-mentioned ones are looked up by number, in the same call.
-  const [tracked, pinged] = await Promise.all([readTracked(), pingedPrs()]);
-  const lookups: [string, string, string][] = []; // alias, source, url
-  tracked.forEach((u, i) => lookups.push([`t${i}`, "tracked", u]));
-  pinged.forEach((u, i) => lookups.push([`p${i}`, "pinged", u]));
-  const lookup = ([alias, , url]: [string, string, string]) => {
-    const r = prRef(url);
-    return r ? `  ${alias}: repository(owner: ${lit(r.owner)}, name: ${lit(r.name)}) { pullRequest(number: ${r.number}) { ...pr state } }` : "";
-  };
-  const query = `fragment pr on PullRequest {${FIELDS(login)}\n}\nquery {\n${[
-    ...searches.map(([alias, q]) => `  ${alias}: search(query: ${lit(`${q} is:pr is:open archived:false`)}, type: ISSUE, first: 30) { nodes { ...pr } }`),
-    ...lookups.map(lookup).filter(Boolean),
-  ].join("\n")}\n}`;
-
-  const r = await gh(["api", "graphql", "-f", `query=${query}`]);
-  let data: any = null;
-  try {
-    data = JSON.parse(r.out).data; // partial data still comes back if one search failed
-  } catch {}
-  if (!data) {
-    if (/rate limit|secondary|abuse|403/i.test(r.err)) rateLimitedUntil = Date.now() + 3 * 60_000;
-    return { ...(boardCache?.board ?? emptyBoard()), error: `Couldn't load PRs from GitHub: ${r.err.slice(0, 200)}` };
-  }
+  // Light calls, not one heavy one: GitHub stops a GraphQL query after about 10 seconds
+  // (HTTP 502), and the searches plus every lookup in one go got close to that. First
+  // the searches; then only the tracked and team-mentioned PRs they didn't return.
+  const frag = `fragment pr on PullRequest {${FIELDS(login)}\n}`;
+  // The searches go as a few small queries at once (GitHub runs each on its own), so the
+  // wait is the slowest one, not the sum, and none gets near the limit.
+  const chunks: [string, string][][] = [];
+  for (let i = 0; i < searches.length; i += 3) chunks.push(searches.slice(i, i + 3));
+  const [tracked, pinged, ...parts] = await Promise.all([
+    readTracked(),
+    pingedPrs(),
+    ...chunks.map((c) => graphql(`${frag}\nquery {\n${c.map(([alias, q]) => `  ${alias}: search(query: ${lit(`${q} is:pr is:open archived:false`)}, type: ISSUE, first: 25) { nodes { ...pr } }`).join("\n")}\n}`)),
+  ]);
+  mark("searches");
+  const bad = parts.find((x) => !x.data);
+  if (bad) return failed(bad.err);
+  const data = Object.assign({}, ...parts.map((x) => x.data));
 
   const nodes = new Map<string, { node: any; sources: Set<string> }>();
   for (const [alias] of searches)
@@ -221,13 +247,41 @@ export async function reviewBoard(force = false): Promise<ReviewBoard> {
       e.sources.add(alias);
       nodes.set(n.url, e);
     }
-  // Tracked and team-mentioned PRs: only while they're still open.
-  for (const [alias, source] of lookups) {
-    const n = data[alias]?.pullRequest;
-    if (!n?.url || n.state !== "OPEN") continue;
-    const e = nodes.get(n.url) ?? { node: n, sources: new Set<string>() };
-    e.sources.add(source);
-    nodes.set(n.url, e);
+  // Team-mentioned PRs the searches already found just get the mark.
+  for (const u of pinged) nodes.get(u)?.sources.add("pinged");
+  // The rest are looked up by number: only while they're still open.
+  const lookups: [string, string, string][] = []; // alias, source, url
+  const wanted = (u: string) => !nodes.has(u) && !closedPrs.has(u);
+  pinged.filter(wanted).forEach((u, i) => lookups.push([`p${i}`, "pinged", u]));
+  tracked.filter((u) => wanted(u) && !pinged.includes(u)).forEach((u, i) => lookups.push([`t${i}`, "tracked", u]));
+  if (lookups.length) {
+    // In small batches, at once.
+    const batches: (typeof lookups)[] = [];
+    for (let i = 0; i < lookups.length; i += 8) batches.push(lookups.slice(i, i + 8));
+    const results = await Promise.all(
+      batches.map((b) =>
+        graphql(
+          `${frag}\nquery {\n${b
+            .map(([alias, , url]) => {
+              const ref = prRef(url);
+              return ref ? `  ${alias}: repository(owner: ${lit(ref.owner)}, name: ${lit(ref.name)}) { pullRequest(number: ${ref.number}) { ...pr state } }` : "";
+            })
+            .filter(Boolean)
+            .join("\n")}\n}`,
+        ),
+      ),
+    );
+    mark(`lookups(${lookups.length})`);
+    const found = Object.assign({}, ...results.map((x) => x.data ?? {}));
+    if (results.every((x) => !x.data)) return failed(results[0].err);
+    for (const [alias, source, url] of lookups) {
+      const n = found[alias]?.pullRequest;
+      if (n && n.state !== "OPEN") closedPrs.add(url);
+      if (!n?.url || n.state !== "OPEN") continue;
+      const e = nodes.get(n.url) ?? { node: n, sources: new Set<string>() };
+      e.sources.add(source);
+      nodes.set(n.url, e);
+    }
   }
   // Keep tracking every open PR we saw, until it's merged or closed.
   void writeTracked([...nodes.keys()]);
@@ -241,7 +295,10 @@ export async function reviewBoard(force = false): Promise<ReviewBoard> {
     .filter((p): p is PrSummary => !!p)
     .sort((a, b) => RANK[a.priority] - RANK[b.priority] || b.updatedAt.localeCompare(a.updatedAt));
 
-  const board: ReviewBoard = { login, prs: shown, fetchedAt: new Date().toISOString(), clones: await localClones(), home: os.homedir() };
+  const clones = await localClones();
+  mark("clones");
+  if (process.env.NODE_ENV === "development") console.log(`  review board: ${lap.join(" · ")}`);
+  const board: ReviewBoard = { login, prs: shown, fetchedAt: new Date().toISOString(), clones, home: os.homedir() };
   boardCache = { at: Date.now(), board };
   return board;
 }
