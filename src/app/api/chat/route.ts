@@ -9,10 +9,6 @@ import { isPermissionMode } from "@/lib/modes";
 import { getSettings } from "@/lib/settings";
 import { worktreeArgs } from "@/lib/worktree";
 import { setArchived } from "@/lib/archive";
-import { BotRun } from "@/lib/botAgent";
-import { issueByThread } from "@/lib/botIssues";
-import { threadState } from "@/lib/botThreads";
-import { botIdForCwd, getBot } from "@/lib/bots";
 import type { ChatMessage } from "@/lib/types";
 import { getProvider } from "@/lib/providers";
 
@@ -47,9 +43,6 @@ export async function POST(req: Request) {
   const model = body.model ?? settings.defaultModel;
   const mode = body.mode;
   const extra = await lensPluginArgs(settings);
-  // A chat with a bot (in its folder) runs with the Agent SDK instead, as the
-  // bot: its model, mode, connectors and setup tools (botAgent.ts).
-  const botFor = (cwd: string | null) => getBot(botIdForCwd(cwd) ?? "");
   const reply = (parentId: string | null) => async (blocks: ChatMessage["blocks"]) =>
     ({ id: randomUUID(), parentId, role: "assistant", blocks, timestamp: new Date().toISOString() }) satisfies ChatMessage;
   const content = userContent(body.prompt, images);
@@ -57,8 +50,6 @@ export async function POST(req: Request) {
   if (!body.sessionId) {
     const cwd = await resolveDir(body.cwd ?? "");
     if (!cwd) return Response.json({ error: "That folder doesn't exist" }, { status: 400 });
-    const bot = await botFor(cwd);
-    if (bot) return turnResponse(new BotRun(bot, null, (id) => void markRecent(id)), content, req.signal, reply(null));
     let wt: string[] = [];
     if (body.worktree) {
       try {
@@ -86,14 +77,6 @@ export async function POST(req: Request) {
   await markRecent(session.id);
   await setArchived(session.id, false); // writing in an archived session brings it back
 
-  const bot = await botFor(session.cwd);
-  if (bot) {
-    // An issue's thread, opened in full (Fork): it stays that issue's thread.
-    const issue = await issueByThread(bot.id, session.id);
-    if (issue && threadState(bot.id, issue.key).running)
-      return Response.json({ error: `${issue.key} is still working on its card. Wait for it, or stop it there.` }, { status: 409 });
-    return turnResponse(new BotRun(bot, session.id, undefined, issue ? { issue: issue.key } : {}), content, req.signal, reply(session.messages.at(-1)?.id ?? null));
-  }
   const proc = await (await getProvider()).openSession({ sessionId: session.id, cwd: session.cwd, mode, model, extra });
   return turnResponse(proc, content, req.signal, reply(session.messages.at(-1)?.id ?? null));
 }

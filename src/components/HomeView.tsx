@@ -143,7 +143,7 @@ export function HomeView({ chat, onMenu, onNew, onReview }: { chat: TreeChat; on
   // Folders you worked in, most recent first; the one you used last here is picked.
   const folders = useMemo(() => {
     const seen: string[] = [];
-    for (const s of [...chat.sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))) if (s.cwd && !s.botId && !seen.includes(s.cwd)) seen.push(s.cwd);
+    for (const s of [...chat.sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))) if (s.cwd && !seen.includes(s.cwd)) seen.push(s.cwd);
     return seen.slice(0, 15);
   }, [chat.sessions]);
   const [folder, setFolder] = useState<string>("");
@@ -165,7 +165,7 @@ export function HomeView({ chat, onMenu, onNew, onReview }: { chat: TreeChat; on
     void chat.sendRoot(text, curMode, curModel, images, folder);
   };
 
-  const people = chat.sessions.filter((s) => !s.botId && !s.archivedAt);
+  const people = chat.sessions.filter((s) => !s.archivedAt);
   const waiting = people.filter((s) => s.active?.waitingFor);
   const running = people.filter((s) => s.active && !s.active.waitingFor);
   const recent = people

@@ -24,7 +24,7 @@ export interface ToolRun {
   id: string;
   name: string;
   input: unknown;
-  result?: { text: string; isError: boolean };
+  result?: { text: string; isError: boolean; stopped?: boolean };
 }
 
 // Claude asking before it runs something that needs approval.
@@ -89,12 +89,27 @@ export interface SpawnSource {
   prompt?: string; // typed at the selection: sent as the thread's first message
 }
 
-// fetch says only "network error" when the stream breaks, e.g. when the dev
-// server restarts. Say what that means instead.
-function runError(e: unknown) {
-  return e instanceof TypeError
-    ? "Lost the connection to Vlens mid-reply. Claude may still finish: the session updates here when it does."
-    : String(e);
+// The server's boot id (it changes on every start), to tell a restart from a hiccup.
+const bootId = () =>
+  fetch("/api/version")
+    .then((r) => r.json())
+    .then((d: { boot?: string }) => d.boot ?? null)
+    .catch(() => null);
+
+// fetch says only "network error" when the stream breaks. Find out why: if the
+// server restarted (the dev server does that when it runs low on memory), the
+// Claude it was running stopped with it, so don't promise it may still finish.
+async function runError(e: unknown, bootAtStart: Promise<string | null>) {
+  if (!(e instanceof TypeError)) return String(e);
+  const before = await bootAtStart;
+  let now: string | null = null;
+  for (let i = 0; i < 10 && !now; i++) {
+    now = await bootId();
+    if (!now) await new Promise((r) => setTimeout(r, 1500)); // still starting up
+  }
+  return before && now && before !== now
+    ? "Vlens restarted in the middle of this reply, and that stopped Claude. Everything up to here is saved: send a message to carry on."
+    : "Lost the connection to Vlens mid-reply. Claude may still finish: the session updates here when it does.";
 }
 
 // Reads the NDJSON stream from /api/agent or /api/chat and applies it to a LiveRun.
@@ -556,6 +571,7 @@ export function useTreeChat() {
 
       const ac = new AbortController();
       aborts.current[threadId] = ac;
+      const boot = bootId();
       const patchLive = (fn: (r: LiveRun) => LiveRun) =>
         setLive((l) => (l[threadId] ? { ...l, [threadId]: fn(l[threadId]) } : l));
 
@@ -596,7 +612,10 @@ export function useTreeChat() {
           },
         });
       } catch (e) {
-        if ((e as Error).name !== "AbortError") patchLive((r) => ({ ...r, error: runError(e) }));
+        if ((e as Error).name !== "AbortError") {
+          const error = await runError(e, boot);
+          patchLive((r) => ({ ...r, error }));
+        }
       } finally {
         delete aborts.current[threadId];
       }
@@ -646,6 +665,7 @@ export function useTreeChat() {
       setLive((l) => ({ ...l, [runId]: { text: "", tools: [], startedAt: Date.now() } }));
       const ac = new AbortController();
       aborts.current[runId] = ac;
+      const boot = bootId();
       const patch = (fn: (r: LiveRun) => LiveRun) => setLive((l) => (l[runId] ? { ...l, [runId]: fn(l[runId]) } : l));
       // Swap the live view for the saved session only once the new file is loaded, so nothing flickers.
       // Only if you're still looking at it: never pull you back from another session.
@@ -696,7 +716,10 @@ export function useTreeChat() {
         });
       } catch (e) {
         if ((e as Error).name === "AbortError") void finish();
-        else patch((r) => ({ ...r, error: runError(e) }));
+        else {
+          const error = await runError(e, boot);
+          patch((r) => ({ ...r, error }));
+        }
       } finally {
         delete aborts.current[runId];
       }

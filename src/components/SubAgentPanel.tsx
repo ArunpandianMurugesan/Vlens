@@ -99,6 +99,7 @@ export function SubAgentPanel({ thread, depth, chat }: Props) {
             message={m}
             ctx={thread.id}
             compact
+            stopped
             childThreads={chat.threadsFrom(thread.id, m.id)}
             activeThreadIds={active}
             onOpenThread={chat.openThread}

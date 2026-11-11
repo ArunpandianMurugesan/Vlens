@@ -134,7 +134,6 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
   const [confirmHide, setConfirmHide] = useState(false);
   const [merging, setMerging] = useState<{ method: "squash" | "merge" | "rebase"; busy: boolean; error: string | null } | null>(null);
   const [allFiles, setAllFiles] = useState(false);
-  const [bots, setBots] = useState<BotCard[]>([]);
   // Nothing picked yet: open the first PR whose move is yours (else the first one).
   const picked = useRef(false);
   useEffect(() => {
@@ -144,17 +143,11 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
     void review.select(first.url);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the list first loads
   }, [prs.length, pr]);
-  // Your bots' cards about this PR (like PR Reviewer's draft review).
+  // A new PR: start fresh.
   useEffect(() => {
-    setBots([]);
     setMerging(null);
     setAllFiles(false);
-    if (!pr) return;
-    void fetch(`/api/review/bot-cards?url=${encodeURIComponent(pr.url)}`)
-      .then((r) => r.json())
-      .then((d) => setBots(d.cards ?? []))
-      .catch(() => {});
-  }, [pr?.url]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pr?.url]);
 
   if (!pr) {
     const needs = prs.filter((p) => groupOf(p) === "yours").length;
@@ -422,20 +415,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
                         </button>
                       </li>
                     ))}
-                    {bots.map((b) => (
-                      <li key={`${b.bot}:${b.key}`} className="flex items-center gap-2 text-sm">
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-accent-soft text-[0.65rem] text-accent" aria-hidden>
-                          {b.avatar}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate">
-                          {b.botName}: {b.draft ? "draft review" : "card"} <span className="text-muted">· {b.status}</span>
-                        </span>
-                        <button onClick={() => window.dispatchEvent(new CustomEvent("lens:open-bot", { detail: { bot: b.bot, target: { kind: "issue", key: b.key } } }))} className="rounded-md border border-line px-2 py-0.5 text-xs hover:border-accent hover:text-accent">
-                          Open card
-                        </button>
-                      </li>
-                    ))}
-                    {!prSessions.length && !bots.length && <li className="text-sm text-muted">None yet. Review with Claude starts one here.</li>}
+                    {!prSessions.length && <li className="text-sm text-muted">None yet. Review with Claude starts one here.</li>}
                   </ul>
                   <p className="mt-2.5 flex items-center gap-1.5 text-xs text-muted">
                     <FolderGit2 size={12} />
@@ -458,16 +438,6 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
       )}
     </main>
   );
-}
-
-interface BotCard {
-  bot: string;
-  botName: string;
-  avatar: string;
-  key: string;
-  status: string;
-  updated: string;
-  draft: boolean;
 }
 
 function Card({ title, note, children }: { title: string; note?: ReactNode; children: ReactNode }) {

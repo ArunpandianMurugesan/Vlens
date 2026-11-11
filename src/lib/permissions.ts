@@ -50,8 +50,6 @@ export interface AskInfo {
   summary: string; // the command, the file, or the question
   always: boolean; // has an "always allow" choice
   sessionId?: string | null; // a session's run
-  botId?: string; // a bot's chat or card
-  key?: string; // the bot card
   at: number;
 }
 const ga = globalThis as { lensAsks?: Map<string, AskInfo> };
@@ -64,6 +62,6 @@ export function noteAsk(a: Omit<AskInfo, "at" | "summary" | "kind"> & { input?: 
   const summary =
     a.preview?.split("\n")[0] ??
     (kind === "question" ? q : kind === "plan" ? "Plan ready for review" : String(input.command ?? input.file_path ?? input.notebook_path ?? input.url ?? input.pattern ?? ""));
-  asks.set(a.id, { id: a.id, kind, tool: a.tool, summary: summary.slice(0, 160), always: a.always, sessionId: a.sessionId, botId: a.botId, key: a.key, at: Date.now() });
+  asks.set(a.id, { id: a.id, kind, tool: a.tool, summary: summary.slice(0, 160), always: a.always, sessionId: a.sessionId, at: Date.now() });
 }
 export const listAsks = () => [...asks.values()].sort((x, y) => x.at - y.at);

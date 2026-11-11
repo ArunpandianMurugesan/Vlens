@@ -52,6 +52,8 @@ export interface AgentProvider {
   openSession(o: { sessionId: string | null; cwd: string | null; mode: string; model: string; extra: string[]; onSession?: (id: string) => void }): Promise<AgentProcess>;
   liveState(sessionId: string): ReturnType<typeof import("../liveSessions").liveState>;
   interrupt(sessionId: string): Promise<unknown>;
+  // A message for the agent while it's working, taken in at its next step. False when it isn't working.
+  steer(sessionId: string, content: unknown[]): boolean;
   stopTask(sessionId: string, taskId: string): Promise<unknown>;
   release(sessionId: string): Promise<"none" | "closed" | "busy">;
   // A one-off run that returns the final text (slash commands, compact, bots).

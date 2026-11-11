@@ -4,7 +4,7 @@ import { activeSessions, endSession } from "../active";
 import { claudeCmd } from "../cli";
 import { compactSession, handoffNote } from "../context";
 import { getLimits, probe } from "../limits";
-import { interruptLive, liveState, procFor, releaseLive, stopLiveTask } from "../liveSessions";
+import { interruptLive, liveState, procFor, releaseLive, steerLive, stopLiveTask } from "../liveSessions";
 import { deleteSession, renameSession } from "../manage";
 import { runClaudeOnce } from "../runClaude";
 import { findSessionFile, getSession, listSessions } from "../sessions";
@@ -47,6 +47,7 @@ export const claudeCode: AgentProvider = {
   openSession: procFor,
   liveState,
   interrupt: interruptLive,
+  steer: steerLive,
   stopTask: stopLiveTask,
   release: releaseLive,
   runOnce: runClaudeOnce,

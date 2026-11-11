@@ -17,9 +17,8 @@ const nextConfig: NextConfig = {
   // node-pty loads a native binary at runtime, and ws has optional native
   // add-ons: keep both out of the bundle, and ship node-pty's prebuilt files
   // (pty.node, spawn-helper) with the server.
-  // The Agent SDK (bots) starts the claude CLI itself: leave it unbundled too.
-  // The brain's local embedding model (transformers.js) loads onnxruntime's native binary.
-  serverExternalPackages: ["node-pty", "ws", "@anthropic-ai/claude-agent-sdk", "@huggingface/transformers", "onnxruntime-node", "sharp"],
+  // The Agent SDK starts the claude CLI itself: leave it unbundled too.
+  serverExternalPackages: ["node-pty", "ws", "@anthropic-ai/claude-agent-sdk"],
   outputFileTracingIncludes: { "/api/terminal/**": ["./node_modules/node-pty/prebuilds/darwin-*/**"] },
   // Hide the Next.js dev badge (the "N" circle) in the corner; it only shows in dev anyway.
   devIndicators: false,

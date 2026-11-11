@@ -1,18 +1,17 @@
 "use client";
 
-import { Bot, GitPullRequest, MessagesSquare, Settings as SettingsIcon, Store } from "lucide-react";
+import { Cloud, GitPullRequest, MessagesSquare, Settings as SettingsIcon, Store } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Limits } from "@/lib/types";
-import { BotBell } from "./BotBell";
 import { PlanUsage, Ring } from "./Usage";
 
 // The thin bar on the far left: which space you're in (each loads its own
 // data when you open it), and at the bottom what's shared by all of them:
 // Marketplace, Settings and your plan's usage.
-export type Space = "bots" | "sessions" | "review";
+export type Space = "harness" | "sessions" | "review";
 
-const SPACES: { id: Space; label: string; Icon: typeof Bot }[] = [
-  { id: "bots", label: "Bots", Icon: Bot },
+const SPACES: { id: Space; label: string; Icon: typeof Cloud }[] = [
+  { id: "harness", label: "Harness", Icon: Cloud },
   { id: "sessions", label: "Sessions", Icon: MessagesSquare },
   { id: "review", label: "Vlens Review", Icon: GitPullRequest },
 ];
@@ -56,7 +55,6 @@ export function SpaceRail(p: Props) {
         </button>
       ))}
       <div className="flex-1" />
-      <BotBell rail />
       <button onClick={p.onMarketplace} title="Marketplace" aria-label="Marketplace" className={item(p.page === "marketplace")}>
         <Store size={17} />
       </button>

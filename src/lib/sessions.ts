@@ -6,7 +6,6 @@ import path from "node:path";
 import { withoutPastes } from "./pasted";
 import { parseWorktree } from "./worktree";
 import { archivedSessions } from "./archive";
-import { botIdForCwd } from "./bots";
 import type { Block, ChatMessage, ContextUsage, SessionDetail, SessionSummary } from "./types";
 import { activeSessions } from "./active";
 import { contextWindowFor, getLimits } from "./limits";
@@ -131,6 +130,8 @@ function toBlocks(content: unknown, imageSrc?: (n: number) => string): Block[] {
 
 interface Parsed {
   title: string | null;
+  aiTitle: string | null;
+  customTitle: string | null;
   cwd: string | null;
   firstPrompt: string | null;
   messages: ChatMessage[];
@@ -181,6 +182,14 @@ function parseJsonl(raw: string, withMessages: boolean, sessionId?: string): Par
       if (d.uuid) messages.push({ id: d.uuid, parentId: d.parentUuid ?? null, role: "user", blocks: [{ kind: "compact", text }], timestamp: d.timestamp });
       continue;
     }
+    // A message you sent while Claude worked reaches it mid-turn, and is saved as an
+    // attachment, not a user line. (Agents' own messages use it too: those start with a tag.)
+    if (withMessages && d.type === "attachment" && d.attachment?.type === "queued_command" && d.attachment.commandMode === "prompt" && !d.isSidechain && d.uuid) {
+      const text = textOf(d.attachment.prompt);
+      if (text.trim() && !text.trimStart().startsWith("<"))
+        messages.push({ id: d.uuid, parentId: d.parentUuid ?? null, role: "user", blocks: [{ kind: "text", text }], timestamp: d.timestamp });
+      continue;
+    }
     if ((d.type !== "user" && d.type !== "assistant") || d.isSidechain || d.isMeta) continue;
     // A background agent or command finished: the CLI hands Claude a <task-notification>
     // as a user turn. Show it as a short note in Claude's reply, not as something you typed.
@@ -220,6 +229,8 @@ function parseJsonl(raw: string, withMessages: boolean, sessionId?: string): Par
 
   return {
     title: customTitle ?? aiTitle,
+    aiTitle,
+    customTitle,
     cwd,
     branch,
     forkedFrom,
@@ -265,12 +276,10 @@ function summaryTitle(p: Parsed) {
   return "Untitled session";
 }
 
-// Small cache so the sidebar doesn't re-parse hundreds of files every poll.
-const summaryCache = new Map<string, { mtimeMs: number; summary: SessionSummary | null }>();
-
 // Messages per local day, and the time of the last one. A file's mtime isn't
 // enough: long sessions span weeks, and the CLI sometimes touches old files.
 const DAYS_KEPT = 31;
+const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 function activity(raw: string): { days: Record<string, number>; last: string | null } {
   const since = Date.now() - DAYS_KEPT * 86_400_000;
   const days: Record<string, number> = {};
@@ -280,13 +289,120 @@ function activity(raw: string): { days: Record<string, number>; last: string | n
     const ts = line.match(/"timestamp":"([^"]+)"/)?.[1];
     const t = ts ? Date.parse(ts) : NaN;
     if (Number.isNaN(t)) continue;
-    if (!last || ts! > last) last = ts!;
+    // A copy, not the match itself: V8 makes a match a "slice" that keeps the
+    // whole file text alive (hundreds of MB for a long session) for as long as
+    // the sidebar caches this summary.
+    if (!last || ts! > last) last = new Date(t).toISOString();
     if (t < since) continue;
-    const d = new Date(t);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const key = dayKey(new Date(t));
     days[key] = (days[key] ?? 0) + 1;
   }
   return { days, last };
+}
+
+// What the sidebar knows about one session file, read up to `size` bytes. Session
+// files only grow (a long one is hundreds of MB, and the open one changes every
+// second), so a change reads just the new lines, and a file is read in slices:
+// reading whole files, all at once, is what pushed the dev server past its
+// memory limit and restarted it (killing every running Claude).
+interface FileScan {
+  size: number; // bytes read, up to the end of the last whole line
+  mtimeMs: number;
+  p: Parsed;
+  messageCount: number;
+  days: Record<string, number>;
+  last: string | null;
+}
+const gs = globalThis as { lensScans?: Map<string, FileScan>; lensScanJobs?: Map<string, Promise<FileScan | null>> };
+const scans = (gs.lensScans ??= new Map()); // kept across hot reloads, so an edit doesn't re-read every file
+const scanJobs = (gs.lensScanJobs ??= new Map()); // one read per file, however many polls ask at once
+const SLICE = 8 * 1024 * 1024;
+let reading = 0;
+const waiting: (() => void)[] = [];
+async function oneAtATime<T>(fn: () => Promise<T>): Promise<T> {
+  if (reading >= 3) await new Promise<void>((r) => waiting.push(r));
+  reading++;
+  try {
+    return await fn();
+  } finally {
+    reading--;
+    waiting.shift()?.();
+  }
+}
+
+function emptyScan(): FileScan {
+  return { size: 0, mtimeMs: 0, p: parseJsonl("", false), messageCount: 0, days: {}, last: null };
+}
+
+// Fold the summary of some new lines into what's known: first-seen fields stay,
+// last-seen ones move on.
+function addLines(s: FileScan, text: string) {
+  const n = parseJsonl(text, false);
+  const o = s.p;
+  const aiTitle = n.aiTitle ?? o.aiTitle;
+  const customTitle = n.customTitle ?? o.customTitle;
+  s.p = {
+    ...o,
+    aiTitle,
+    customTitle,
+    title: customTitle ?? aiTitle,
+    cwd: o.cwd ?? n.cwd,
+    branch: n.branch ?? o.branch,
+    forkedFrom: o.forkedFrom ?? n.forkedFrom,
+    cwds: [...new Set([...o.cwds, ...n.cwds])].slice(0, 100),
+    firstSessionId: o.firstSessionId ?? n.firstSessionId,
+    firstPrompt: o.firstPrompt ?? n.firstPrompt,
+    context: n.context ?? o.context,
+  };
+  s.messageCount += (text.match(/"type":"(user|assistant)"/g) ?? []).length;
+  const act = activity(text);
+  for (const [k, v] of Object.entries(act.days)) s.days[k] = (s.days[k] ?? 0) + v;
+  if (act.last && (!s.last || act.last > s.last)) s.last = act.last;
+}
+
+function scanFile(fp: string, size: number, mtimeMs: number): Promise<FileScan | null> {
+  const known = scans.get(fp);
+  if (known && known.mtimeMs === mtimeMs) return Promise.resolve(known);
+  const job = scanJobs.get(fp);
+  if (job) return job;
+  const p = oneAtATime(async () => {
+    const prev = scans.get(fp);
+    // A file that got shorter was rewritten: start over.
+    const s: FileScan = prev && prev.size <= size ? { ...prev, p: { ...prev.p }, days: { ...prev.days } } : emptyScan();
+    const fh = await fs.open(fp, "r");
+    try {
+      let carry = "";
+      let pos = s.size;
+      while (pos < size) {
+        const buf = Buffer.alloc(Math.min(SLICE, size - pos));
+        const { bytesRead } = await fh.read(buf, 0, buf.length, pos);
+        if (!bytesRead) break;
+        pos += bytesRead;
+        // Cut at the last newline (a byte, so never inside a UTF-8 character).
+        const nl = buf.lastIndexOf(10, bytesRead - 1);
+        if (nl < 0) {
+          carry += buf.toString("utf8", 0, bytesRead);
+          continue;
+        }
+        addLines(s, carry + buf.toString("utf8", 0, nl + 1));
+        carry = buf.toString("utf8", nl + 1, bytesRead);
+        s.size = pos - Buffer.byteLength(carry);
+      }
+    } finally {
+      await fh.close();
+    }
+    s.mtimeMs = mtimeMs;
+    const since = dayKey(new Date(Date.now() - DAYS_KEPT * 86_400_000));
+    for (const k of Object.keys(s.days)) if (k < since) delete s.days[k];
+    // Fresh copies only, so nothing kept can pin a slice of file text (see activity()).
+    const kept: FileScan = JSON.parse(JSON.stringify(s));
+    scans.set(fp, kept);
+    return kept;
+  })
+    .catch(() => null)
+    .finally(() => scanJobs.delete(fp));
+  scanJobs.set(fp, p);
+  return p;
 }
 
 export async function listSessions(): Promise<SessionSummary[]> {
@@ -321,18 +437,12 @@ export async function listSessions(): Promise<SessionSummary[]> {
           if (hidden.has(id)) return;
           const fp = path.join(full, file);
           const stat = await fs.stat(fp);
-          const cached = summaryCache.get(fp);
-          if (cached && cached.mtimeMs === stat.mtimeMs) {
-            if (cached.summary) results.push(cached.summary);
-            return;
-          }
-          const raw = await fs.readFile(fp, "utf8");
-          const p = parseJsonl(raw, false);
-          const messageCount = (raw.match(/"type":"(user|assistant)"/g) ?? []).length;
-          const act = activity(raw);
+          const scan = await scanFile(fp, stat.size, stat.mtimeMs);
+          if (!scan) return;
+          const p = scan.p;
           // Skip empty shells (sessions opened but never used).
           const summary: SessionSummary | null =
-            messageCount === 0 && !p.firstPrompt
+            scan.messageCount === 0 && !p.firstPrompt
               ? null
               : {
                   id,
@@ -340,13 +450,12 @@ export async function listSessions(): Promise<SessionSummary[]> {
                   projectName: projectNameFromDir(dir, homeCwd(dir, p)),
                   cwd: homeCwd(dir, p),
                   title: summaryTitle(p),
-                  updatedAt: act.last ?? stat.mtime.toISOString(),
-                  messageCount,
-                  days: act.days,
+                  updatedAt: scan.last ?? stat.mtime.toISOString(),
+                  messageCount: scan.messageCount,
+                  days: scan.days,
                   ...forkParent(p, id),
                   context: p.context ? { ...p.context, window: 0, estimated: true } : undefined, // window filled in below
                 };
-          summaryCache.set(fp, { mtimeMs: stat.mtimeMs, summary });
           if (summary) results.push(summary);
         }),
       );
@@ -368,7 +477,6 @@ export async function listSessions(): Promise<SessionSummary[]> {
         pinOrder: pins.includes(s.id) ? pins.indexOf(s.id) : undefined,
         recentAt: recent.get(s.id),
         archivedAt: archived[s.id],
-        botId: botIdForCwd(s.cwd) ?? undefined,
         context: s.context && withWindow(s.context, limits.contextWindows),
       };
     })

@@ -240,7 +240,7 @@ function buildMenu() {
       {
         label: "Go",
         submenu: [
-          item("Bots", "go-bots", "CmdOrCtrl+1"),
+          item("Harness", "go-harness", "CmdOrCtrl+1"),
           item("Sessions", "go-sessions", "CmdOrCtrl+2"),
           item("Review", "go-review", "CmdOrCtrl+3"),
           { type: "separator" },
@@ -284,7 +284,7 @@ function buildMenu() {
 
 // ── Menu bar ───────────────────────────────────────────────────────────────
 // A "V" in the menu bar: what waits on you (answer Vlens's own prompts right
-// there), what's working, your bots and plan usage. Its number is how many
+// there), what's working and plan usage. Its number is how many
 // things need you. Reads the page's server (/api/tray) every few seconds.
 let tray = null;
 let trayKey = "";
@@ -323,11 +323,10 @@ function trayMenu(d) {
   const items = [];
   const u = d.usage;
   items.push({ label: u ? `Vlens · 5h ${u.fiveHour ?? "–"}% · Week ${u.week ?? "–"}%` : "Vlens", enabled: false });
-  const news = d.bots.filter((b) => b.unread);
-  if (d.asks.length || d.waiting.length || news.length) {
+  if (d.asks.length || d.waiting.length) {
     items.push({ type: "separator" }, { label: "Waiting for you", enabled: false });
     for (const a of d.asks) {
-      const open = () => send(a.bot ? `open-bot:${a.bot}` : `open-session:${a.session}`);
+      const open = () => send(`open-session:${a.session}`);
       items.push({
         label: `${cut(a.title, 40)} · ${a.where}`,
         sublabel: cut(a.kind === "tool" ? `${a.tool} ${a.summary}`.trim() : a.summary, 60),
@@ -344,13 +343,11 @@ function trayMenu(d) {
       });
     }
     for (const w of d.waiting) items.push({ label: `${cut(w.title, 40)} · ${w.where}`, sublabel: cut(`${w.why}, answer it there`, 60), click: () => send(`open-session:${w.id}`) });
-    for (const b of news) items.push({ label: `${b.name}: ${cut(b.news ?? "news", 40)}`, sublabel: b.unread > 1 ? `${b.unread} updates` : undefined, click: () => send(`open-bot:${b.id}`) });
   }
   if (d.working.length) {
     items.push({ type: "separator" }, { label: "Working", enabled: false });
     for (const w of d.working.slice(0, 8)) items.push({ label: cut(w.title), sublabel: w.where, click: () => send(`open-session:${w.id}`) });
   }
-  if (d.bots.length) items.push({ type: "separator" }, { label: "Bots", submenu: d.bots.map((b) => ({ label: b.unread ? `${b.name} · ${b.unread} new` : b.name, click: () => send(`open-bot:${b.id}`) })) });
   items.push(
     { type: "separator" },
     { label: "New Session…", click: () => send("new-session") },

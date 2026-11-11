@@ -33,6 +33,11 @@ export async function interruptLive(sessionId: string) {
   return l ? l.proc.control({ subtype: "interrupt" }) : false;
 }
 
+// Hands a message to the session's Claude while it works. False when it isn't working.
+export function steerLive(sessionId: string, content: unknown[]) {
+  return bySession(sessionId)?.proc.steer(content) ?? false;
+}
+
 // Stops one background agent or command, leaving the rest (and the reply) alone.
 export async function stopLiveTask(sessionId: string, taskId: string) {
   const l = bySession(sessionId);

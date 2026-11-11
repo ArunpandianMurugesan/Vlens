@@ -9,7 +9,7 @@ import { useEffect, useRef } from "react";
 //   ChatWindow     next-mode, stop, compact, to-terminal, take-over, fork, fork-terminal
 //   ChatWithFiles  toggle-terminal
 //   PermissionCard allow, always, deny (only the oldest open prompt)
-//   page.tsx also: open-session:<id>, open-bot:<id> (from the menu bar)
+//   page.tsx also: open-session:<id> (from the menu bar)
 export function useMenu(on: Record<string, (arg: string) => void>) {
   const ref = useRef(on);
   ref.current = on;

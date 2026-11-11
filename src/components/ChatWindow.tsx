@@ -22,20 +22,19 @@ import { ContextBadge } from "./Usage";
 import { MenuButton } from "./Sidebar";
 import { CliPane, cliEndedRecently, startCli, stopCli, useCliOn } from "./TerminalPanel";
 
-// botMode: this is a chat with a bot, which always runs in its own mode (set in its settings).
-export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: () => void; botMode?: RootMode | "" }) {
+export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => void }) {
   const { session, loadingSession, stack, threadsFrom, openThread, rootPending, draft } = chat;
   const newDraft = !session ? draft : null; // starting a new session, not yet created
   const files = useFiles();
   // The session's CLI view (claude --resume in place of the chat). Chat is the default;
   // only one of the two drives the session at a time.
-  const cli = useCliOn(session?.id ?? null) && botMode === undefined;
+  const cli = useCliOn(session?.id ?? null);
   const [inspector, setInspector] = useInspector();
   // The inspector is beside the chat (wide window, nothing else open there).
-  const inspectorShown = botMode === undefined && inspector && !files?.tabs.length && !files?.terminal;
+  const inspectorShown = inspector && !files?.tabs.length && !files?.terminal;
   // Folders of existing sessions, most recent first, for the folder picker.
   const recent = useMemo(
-    () => [...new Set(chat.sessions.filter((s) => !s.botId).map((s) => s.cwd).filter((c): c is string => !!c))],
+    () => [...new Set(chat.sessions.map((s) => s.cwd).filter((c): c is string => !!c))],
     [chat.sessions],
   );
   // A new session starts in the folder you used last (or your latest one); the chip changes it.
@@ -50,7 +49,7 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
   }, [draftOpen, draftCwd, recent[0]]);
   // Starts in the mode your terminal claude starts in (permissions.defaultMode), until you pick one.
   const [pickedMode, setMode] = useState<RootMode | null>(null);
-  const mode = (botMode || null) ?? pickedMode ?? chat.settings?.cliMode ?? "default";
+  const mode = pickedMode ?? chat.settings?.cliMode ?? "default";
   const cycleMode = () => setMode(PERMISSION_MODES[(PERMISSION_MODES.findIndex((m) => m.id === mode) + 1) % PERMISSION_MODES.length].id);
   // Per-message model; null = use the default from Settings.
   const [model, setModel] = useState<string | null>(null);
@@ -92,6 +91,9 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
   const elsewhere = proc && !proc.byLens && !ownCli ? proc.entrypoint : null;
   // Your own CLI view writing to it isn't "something else" either.
   const live = session && !justForked(session.id) && !ownCli && !rootPending && !ours && !chat.liveState && !proc?.byLens && Date.now() - updated < 60_000;
+  // Something could still be adding to the last saved message: a Claude this
+  // session has running (ours or a terminal's), or one we're watching write.
+  const working = !!chat.liveState?.busy || !!proc || !!live || cli;
   const toChat = async () => {
     if (!session) return;
     await stopCli(session.id);
@@ -106,12 +108,16 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
   // done, like typing ahead in the terminal. Stopping (or an error) pauses them.
   const [queue, setQueue] = useState<{ text: string; images: ImageInput[] }[]>([]);
   const [paused, setPaused] = useState(false);
+  // Messages that went to Claude while it worked (read at its next step, like the
+  // desktop app). Shown here until the reply ends and the session file has them.
+  const [steered, setSteered] = useState<{ text: string; images: number }[]>([]);
   const lastSession = useRef(session?.id);
   useEffect(() => {
     // A new session getting its id keeps the queue; switching to another session drops it.
     if (lastSession.current && session?.id !== lastSession.current) {
       setQueue([]);
       setPaused(false);
+      setSteered([]);
     }
     lastSession.current = session?.id;
   }, [session?.id]);
@@ -130,6 +136,21 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
   };
   useEffect(() => setSlash(null), [session?.id]);
   const failed = !!run?.error;
+  useEffect(() => {
+    if (!replying) setSteered([]);
+  }, [replying]);
+  // Typed while Claude replies: hand it over now. A bot chat runs differently, and a
+  // reply that's just ending can't take it: those wait in the queue instead.
+  const steer = async (text: string, images: ImageInput[]) => {
+    const id = rootPending && chat.viewSessionId;
+    if (id && !paused) {
+      const ok = await fetch(`/api/sessions/${id}/steer`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: text, images }) })
+        .then((r) => r.ok)
+        .catch(() => false);
+      if (ok) return setSteered((s) => [...s, { text, images: images.length }]);
+    }
+    setQueue((q) => [...q, { text, images }]);
+  };
   useEffect(() => {
     if (replying || paused || failed || !queue.length) return;
     const all = queue;
@@ -178,9 +199,9 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
 
   // The Mac menus' Session items (bot chats too, except the ones about terminals).
   useMenu({
-    fork: () => botMode === undefined && void fork(false),
-    "fork-terminal": () => botMode === undefined && void fork(true),
-    "next-mode": () => botMode === undefined && cycleMode(),
+    fork: () => void fork(false),
+    "fork-terminal": () => void fork(true),
+    "next-mode": () => cycleMode(),
     stop: () => {
       if (rootPending) chat.stop(rootPending.runId);
       else if (chat.liveState?.busy) void chat.stopLive();
@@ -192,16 +213,13 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
         .then((r) => r.json())
         .then((d) => d.error && window.alert(d.error));
     },
-    "to-terminal": () => botMode === undefined && !elsewhere && void toTerminal(),
+    "to-terminal": () => !elsewhere && void toTerminal(),
     "take-over": () => elsewhere && void takeOver(),
   });
 
   return (
     <CwdContext.Provider value={session?.cwd ?? newDraft?.cwd ?? null}>
     <main className="@container/chat flex min-w-0 flex-1 flex-col">
-      {/* A bot chat has the bot's own header instead (BotsView). Its terminal buttons would
-          also run it as plain claude, without its setup tools or connector blocks. */}
-      {botMode === undefined && (
       <header className="@container flex h-14 shrink-0 items-center gap-2 border-b border-line bg-bg/80 px-4 backdrop-blur">
         <MenuButton onClick={onMenu} />
         {session ? (
@@ -227,7 +245,7 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
         ) : (
           <div className="flex-1 text-muted">{loadingSession ? "Loading…" : "Vlens"}</div>
         )}
-        {session && botMode === undefined && (
+        {session && (
           <div role="group" aria-label="Interface" className="flex shrink-0 rounded-lg bg-sunken p-0.5 text-xs">
             <button
               onClick={() => cli && void toChat()}
@@ -334,7 +352,6 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
           </button>
         )}
       </header>
-      )}
 
       {cli && session ? (
         <CliPane sessionId={session.id} cwd={session.cwd} />
@@ -370,11 +387,12 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
         )}
         {(session || rootPending) && (
           <div className="mx-auto max-w-5xl space-y-6 px-6 py-6">
-            {shown.map((m) => (
+            {shown.map((m, i) => (
               <MessageBubble
                 key={m.id}
                 message={m}
                 ctx="root"
+                stopped={!!rootPending || !working || i < shown.length - 1}
                 childThreads={threadsFrom(null, m.id)}
                 activeThreadIds={active}
                 onOpenThread={openThread}
@@ -461,6 +479,20 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
                 This session changed in the last minute. If it&apos;s open in a terminal, send from there instead.
               </p>
             )}
+            {steered.length > 0 && (
+              <div className="mb-2 space-y-1">
+                {steered.map((q, i) => (
+                  <div key={i} className="flex items-center gap-2 rounded-lg border border-line bg-sunken/60 px-3 py-1.5 text-xs">
+                    <Check size={12} className="shrink-0 text-emerald-600" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {q.text || "(image)"}
+                      {q.images > 0 && q.text && <span className="text-muted"> + {q.images} image{q.images > 1 ? "s" : ""}</span>}
+                    </span>
+                  </div>
+                ))}
+                <div className="px-1 text-[0.7rem] text-muted">Sent to Claude: it reads this at its next step, without stopping.</div>
+              </div>
+            )}
             {queue.length > 0 && (
               <div className="mb-2 space-y-1">
                 {queue.map((q, i) => (
@@ -514,7 +546,7 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
               disabled={!session && !newDraft?.cwd}
               running={replying}
               onSend={(text, images) => picked(text, images) || send(text, images)}
-              onQueue={(text, images) => picked(text, images) || setQueue((q) => [...q, { text, images }])}
+              onQueue={(text, images) => picked(text, images) || void steer(text, images)}
               onShiftTab={cycleMode}
               cwd={session?.cwd ?? newDraft?.cwd ?? null}
               onStop={() => {
@@ -534,7 +566,7 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
                       }}
                     />
                   )}
-                  {botMode !== undefined ? <BotMode mode={botMode} /> : elsewhere ? null : <span className="@2xl/chat:hidden"><ModePicker mode={mode} cliMode={chat.settings?.cliMode} onChange={setMode} /></span>}
+                  {elsewhere ? null : <span className="@2xl/chat:hidden"><ModePicker mode={mode} cliMode={chat.settings?.cliMode} onChange={setMode} /></span>}
                   <select
                     value={currentModel}
                     onChange={(e) => setModel(e.target.value)}
@@ -564,16 +596,6 @@ export function ChatWindow({ chat, onMenu, botMode }: { chat: TreeChat; onMenu: 
 }
 
 // A bot's mode, shown but not picked here: the bot's settings decide it.
-function BotMode({ mode }: { mode: RootMode | "" }) {
-  const cur = PERMISSION_MODES.find((m) => m.id === mode) ?? { label: "Same as my Claude Code", hint: "Your Claude Code's default mode and allow rules" };
-  return (
-    <span title={`${cur.hint}. This bot always runs in this mode; change it in the bot's settings.`} className="flex items-center gap-1 rounded-lg bg-sunken px-1.5 py-0.5 text-[0.7rem] text-muted">
-      <ShieldCheck size={11} className="shrink-0" />
-      {cur.label}
-    </span>
-  );
-}
-
 // "claude-opus-5-5" -> "Opus 5.5"
 function prettyModel(m: string | null) {
   const x = m?.match(/(opus|sonnet|haiku|fable)-(\d+)(?:-(\d+))?/i);

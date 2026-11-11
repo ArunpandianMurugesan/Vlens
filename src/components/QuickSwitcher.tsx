@@ -1,10 +1,10 @@
 "use client";
 
-import { Bot as BotIcon, GitFork, GitPullRequest, History, Home, MessageSquare, Plus, Search, Settings, SquareTerminal, Store } from "lucide-react";
+import { GitFork, GitPullRequest, History, Home, MessageSquare, Plus, Search, Settings, SquareTerminal, Store } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { Review } from "@/hooks/useReview";
 import type { TreeChat } from "@/hooks/useTreeChat";
-import type { Bot, SessionSummary } from "@/lib/types";
+import type { SessionSummary } from "@/lib/types";
 import { groupOf } from "./ReviewSidebar";
 
 // ⌘K from anywhere: find a session, a PR, a bot or an app action and go there.
@@ -13,8 +13,7 @@ import { groupOf } from "./ReviewSidebar";
 export interface Go {
   session: (id: string) => void;
   pr: (url: string) => void;
-  bot: (id: string) => void;
-  page: (p: "home" | "history" | "settings" | "marketplace" | "bots" | "review") => void;
+  page: (p: "home" | "history" | "settings" | "marketplace" | "review") => void;
   newIn: (cwd: string) => void;
 }
 
@@ -63,7 +62,6 @@ export function QuickSwitcher({ chat, review, go }: { chat: TreeChat; review: Re
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
-  const [bots, setBots] = useState<Bot[]>([]);
   const list = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -85,16 +83,12 @@ export function QuickSwitcher({ chat, review, go }: { chat: TreeChat; review: Re
     if (!open) return;
     setQ("");
     setSel(0);
-    fetch("/api/bots")
-      .then((r) => r.json())
-      .then((d) => setBots(d.bots ?? []))
-      .catch(() => {});
   }, [open]);
 
   const here = chat.session?.cwd ?? chat.draft?.cwd ?? null;
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
-    const sessions = chat.sessions.filter((s) => !s.botId);
+    const sessions = chat.sessions;
     for (const s of sessions)
       out.push({
         id: `s:${s.id}`,
@@ -120,19 +114,9 @@ export function QuickSwitcher({ chat, review, go }: { chat: TreeChat; review: Re
         rank: g === "yours" ? 0 : g === "ready" ? 1 : 2,
       });
     }
-    for (const b of bots)
-      out.push({
-        id: `b:${b.id}`,
-        group: "Bots",
-        title: b.name,
-        meta: b.about || "Bot",
-        icon: <BotIcon size={14} className="text-muted" />,
-        run: () => go.bot(b.id),
-        rank: 0,
-      });
     const page = (id: Parameters<Go["page"]>[0], title: string, icon: ReactNode, meta = ""): Item => ({ id: `a:${id}`, group: "Actions", title, meta, icon, run: () => go.page(id), rank: 1 });
     const cur = chat.session;
-    if (cur && !cur.botId && cur.messages.length)
+    if (cur && cur.messages.length)
       out.push(
         { id: "a:fork", group: "Actions", title: "Fork this session", meta: `"${cur.title.slice(0, 30)} ↳" · ⇧⌘F`, icon: <GitFork size={14} className="text-muted" />, run: () => window.dispatchEvent(new CustomEvent("lens:menu", { detail: "fork" })), rank: 0 },
         { id: "a:fork-t", group: "Actions", title: "Fork this session in Terminal", meta: "claude --resume … --fork-session", icon: <SquareTerminal size={14} className="text-muted" />, run: () => window.dispatchEvent(new CustomEvent("lens:menu", { detail: "fork-terminal" })), rank: 1 },
@@ -141,13 +125,12 @@ export function QuickSwitcher({ chat, review, go }: { chat: TreeChat; review: Re
       { id: "a:new", group: "Actions", title: "New session", meta: here ? `in ${home(here)}` : "", icon: <Plus size={14} className="text-muted" />, cwd: here, run: () => go.newIn(here ?? ""), rank: 0 },
       page("home", "Home", <Home size={14} className="text-muted" />),
       page("review", "Vlens Review", <GitPullRequest size={14} className="text-muted" />),
-      page("bots", "Bots", <BotIcon size={14} className="text-muted" />),
       page("history", "History", <History size={14} className="text-muted" />),
       page("marketplace", "Marketplace", <Store size={14} className="text-muted" />),
       page("settings", "Settings", <Settings size={14} className="text-muted" />, "⌘,"),
     );
     return out;
-  }, [chat.sessions, chat.session, review, bots, go, here]);
+  }, [chat.sessions, chat.session, review, go, here]);
 
   const shown = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -209,8 +192,8 @@ export function QuickSwitcher({ chat, review, go }: { chat: TreeChat; review: Re
                 pick(withNew[sel], e.metaKey || e.ctrlKey ? "new" : e.altKey ? "terminal" : "open");
               }
             }}
-            placeholder="Search sessions, PRs, bots and actions"
-            aria-label="Search sessions, PRs, bots and actions"
+            placeholder="Search sessions, PRs and actions"
+            aria-label="Search sessions, PRs and actions"
             className="flex-1 bg-transparent text-lg outline-none placeholder:text-muted"
           />
           <kbd className="rounded border border-line px-1.5 text-[0.7rem] text-muted">esc</kbd>

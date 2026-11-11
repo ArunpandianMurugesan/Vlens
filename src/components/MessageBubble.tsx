@@ -1,6 +1,6 @@
 "use client";
 
-import { BellRing, Bot, Brain, Check, ChevronRight, CornerDownRight, ExternalLink, Loader2, Sparkles, Terminal, XCircle } from "lucide-react";
+import { BellRing, Bot, Brain, Check, ChevronRight, CircleSlash, CornerDownRight, ExternalLink, Loader2, Sparkles, Terminal, XCircle } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import type { LiveRun, ToolRun } from "@/hooks/useTreeChat";
 import { useSnippetHighlights } from "@/lib/highlight";
@@ -142,6 +142,7 @@ function ToolGroup({ runs }: { runs: ToolRun[] }) {
   const plain = runs.filter((r) => !special.includes(r));
   const pending = plain.some((r) => !r.result);
   const failed = plain.filter((r) => r.result?.isError).length;
+  const stopped = plain.filter((r) => r.result?.stopped).length;
   const labels = plain.map(runLabel);
   const shown = labels.slice(0, 4).join(" · ");
   return (
@@ -153,6 +154,8 @@ function ToolGroup({ runs }: { runs: ToolRun[] }) {
               <Loader2 size={13} className="shrink-0 animate-spin text-accent" />
             ) : failed ? (
               <XCircle size={13} className="shrink-0 text-red-500" />
+            ) : stopped ? (
+              <CircleSlash size={13} className="shrink-0" />
             ) : (
               <Check size={13} className="shrink-0" />
             )}
@@ -160,6 +163,7 @@ function ToolGroup({ runs }: { runs: ToolRun[] }) {
               {shown}
               {labels.length > 4 && ` · +${labels.length - 4} more`}
               {failed > 0 && <span className="text-red-500"> · {failed} failed</span>}
+              {stopped > 0 && <span> · didn&apos;t finish</span>}
             </span>
             <ChevronRight size={12} className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
           </button>
@@ -255,8 +259,12 @@ function LongText({ text }: { text: string }) {
 }
 
 // Turn the flat block list into renderable pieces, pairing each tool call with its result.
-function groupBlocks(blocks: Block[]) {
-  const results = new Map<string, { text: string; isError: boolean }>();
+// A call with no result in a turn that's over never got one: Claude stopped
+// (closed, killed, restarted) mid-call, so it shows as not finished, not running.
+const STOPPED = { text: "Claude stopped before this finished, so it has no result.", isError: false, stopped: true };
+
+function groupBlocks(blocks: Block[], stopped = false) {
+  const results = new Map<string, NonNullable<ToolRun["result"]>>();
   for (const b of blocks) if (b.kind === "tool_result") results.set(b.toolUseId, { text: b.text, isError: b.isError });
   type Piece =
     | { type: "text"; text: string }
@@ -269,7 +277,7 @@ function groupBlocks(blocks: Block[]) {
     else if (b.kind === "thinking") out.push({ type: "thinking", text: b.text });
     else if (b.kind === "notice") out.push({ type: "notice", text: b.text });
     else if (b.kind === "tool_use") {
-      const run = { id: b.id, name: b.name, input: b.input, result: results.get(b.id) };
+      const run = { id: b.id, name: b.name, input: b.input, result: results.get(b.id) ?? (stopped ? STOPPED : undefined) };
       const last = out[out.length - 1];
       if (last?.type === "tools") last.runs.push(run);
       else out.push({ type: "tools", runs: [run] });
@@ -286,6 +294,7 @@ interface Props {
   onOpenThread?: (id: string) => void;
   streaming?: boolean;
   compact?: boolean;
+  stopped?: boolean; // the turn is over: a tool call still waiting never finished
 }
 
 export function MessageBubble({
@@ -296,9 +305,10 @@ export function MessageBubble({
   onOpenThread,
   streaming,
   compact,
+  stopped,
 }: Props) {
   const textRef = useRef<HTMLDivElement>(null);
-  const pieces = useMemo(() => groupBlocks(message.blocks), [message.blocks]);
+  const pieces = useMemo(() => groupBlocks(message.blocks, stopped), [message.blocks, stopped]);
   const isUser = message.role === "user";
 
   useSnippetHighlights(

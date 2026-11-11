@@ -18,15 +18,14 @@ import { runInTerminal, TerminalPanel } from "@/components/TerminalPanel";
 import { HomeView } from "@/components/HomeView";
 import { MarketplaceView } from "@/components/MarketplaceView";
 import { HistoryView } from "@/components/HistoryView";
-import { BotsView } from "@/components/BotsView";
+import { HarnessView } from "@/components/HarnessView";
 import { SpaceRail } from "@/components/SpaceRail";
-import { BotBell } from "@/components/BotBell";
 import { type Go, QuickSwitcher } from "@/components/QuickSwitcher";
 import { useMenu } from "@/lib/menu";
 import { Inspector, useInspector } from "@/components/Inspector";
 import { LensSettingsContext } from "@/components/LensSettings";
 import { useReview } from "@/hooks/useReview";
-import { type RootMode, useTreeChat } from "@/hooks/useTreeChat";
+import { useTreeChat } from "@/hooks/useTreeChat";
 import { GetStarted, needsSetup } from "@/components/GetStarted";
 import type { SetupStatus } from "@/lib/types";
 
@@ -49,29 +48,16 @@ export default function Home() {
   }, []);
   // The header's menu button: slides the sidebar over on a narrow window, brings it back on a wide one.
   const showSidebar = () => setSidebarOpen(true);
-  const [view, setView] = useState<"chat" | "settings" | "review" | "marketplace" | "history" | "bots">("chat");
+  const [view, setView] = useState<"chat" | "settings" | "review" | "marketplace" | "history" | "harness">("chat");
   const [tab, setTab] = useState<"sessions" | "review">("sessions");
   // Where Settings' back button goes: the space you came from.
-  const [back, setBack] = useState<"chat" | "review" | "bots">("chat");
+  const [back, setBack] = useState<"chat" | "review" | "harness">("chat");
   const openShared = (page: "settings" | "marketplace") => {
     setView((v) => {
-      if (v === "chat" || v === "review" || v === "bots") setBack(v);
+      if (v === "chat" || v === "review" || v === "harness") setBack(v);
       return page;
     });
   };
-  // A bell notification: open the Bots space; BotsView takes it from there.
-  useEffect(() => {
-    const open = (e: Event) => {
-      const d = (e as CustomEvent<{ bot: string; target: unknown }>).detail;
-      try {
-        sessionStorage.setItem("lens.botScreen", JSON.stringify({ kind: "chat", id: d.bot }));
-        sessionStorage.setItem("lens.botFocus", JSON.stringify(d.target ?? null));
-      } catch {}
-      setView("bots");
-    };
-    window.addEventListener("lens:open-bot", open);
-    return () => window.removeEventListener("lens:open-bot", open);
-  }, []);
   // "/mcp" and "/hooks" open their Settings page.
   const [settingsCard, setSettingsCard] = useState<"mcp" | "hooks" | null>(null);
   useEffect(() => {
@@ -81,6 +67,12 @@ export default function Home() {
     };
     window.addEventListener("lens:open-settings", open);
     return () => window.removeEventListener("lens:open-settings", open);
+  }, []);
+  // A bot's Skills card: get more from the Marketplace.
+  useEffect(() => {
+    const open = () => setView("marketplace");
+    window.addEventListener("lens:open-marketplace", open);
+    return () => window.removeEventListener("lens:open-marketplace", open);
   }, []);
   const review = useReview();
   // First launch, or Claude Code missing / signed out: show Get started over the app.
@@ -109,7 +101,7 @@ export default function Home() {
 
   // Opening a session from elsewhere (a notification click) shows the chat.
   useEffect(() => {
-    if (chat.activeId) setView((v) => (v === "review" || v === "bots" ? v : "chat"));
+    if (chat.activeId) setView((v) => (v === "review" || v === "harness" ? v : "chat"));
   }, [chat.activeId]);
 
   const n = chat.stack.length;
@@ -126,7 +118,6 @@ export default function Home() {
         setView("review");
         void review.select(url);
       },
-      bot: (id) => window.dispatchEvent(new CustomEvent("lens:open-bot", { detail: { bot: id, target: null } })),
       page: (p) => {
         if (p === "home") {
           setTab("sessions");
@@ -161,7 +152,7 @@ export default function Home() {
       const id = chat.activeId;
       if (id && window.confirm("Archive this session? You can open it again from Archived.")) void chat.archiveSession(id, true).then(() => chat.goHome());
     },
-    "go-bots": () => setView("bots"),
+    "go-harness": () => setView("harness"),
     "go-sessions": () => {
       setTab("sessions");
       setView("chat");
@@ -173,13 +164,12 @@ export default function Home() {
     settings: () => go.page("settings"),
     switcher: () => window.dispatchEvent(new Event("lens:switcher")),
     "next-waiting": () => {
-      const waiting = chat.sessions.filter((x) => !x.botId && x.active?.waitingFor).sort((a, b) => a.active!.startedAt - b.active!.startedAt);
+      const waiting = chat.sessions.filter((x) => x.active?.waitingFor).sort((a, b) => a.active!.startedAt - b.active!.startedAt);
       if (!waiting.length) return;
       const i = waiting.findIndex((x) => x.id === chat.activeId);
       go.session(waiting[(i + 1) % waiting.length].id);
     },
     "open-session": (id) => id && go.session(id),
-    "open-bot": (id) => id && go.bot(id),
     "toggle-sidebar": () => toggleSidebar(),
     "toggle-inspector": () => setInspectorOn(!inspectorOn),
   });
@@ -191,7 +181,7 @@ export default function Home() {
       <FilesProvider>
       <div className="flex h-dvh overflow-hidden">
         <SpaceRail
-          space={view === "settings" || view === "marketplace" ? null : view === "bots" ? "bots" : view === "review" ? "review" : "sessions"}
+          space={view === "settings" || view === "marketplace" ? null : view === "harness" ? "harness" : view === "review" ? "review" : "sessions"}
           badge={{ review: review.prs.filter((p) => p.lane === "needsYou").length }}
           page={view === "settings" || view === "marketplace" ? view : null}
           onSettings={() => openShared("settings")}
@@ -200,13 +190,13 @@ export default function Home() {
           refreshingLimits={chat.refreshingLimits}
           onRefreshLimits={chat.refreshLimits}
           onSpace={(s) => {
-            if (s === "bots") return setView("bots");
+            if (s === "harness") return setView("harness");
             setTab(s);
             setView(s === "review" ? "review" : "chat");
           }}
         />
         {/* Pages with their own navigation (like the design) don't get the sessions list beside it. */}
-        {view !== "bots" && view !== "settings" && view !== "marketplace" && view !== "history" && (
+        {view !== "harness" && view !== "settings" && view !== "marketplace" && view !== "history" && (
         <Sidebar
           sessions={chat.sessions}
           activeId={chat.activeId}
@@ -244,8 +234,8 @@ export default function Home() {
           onClose={() => setSidebarOpen(false)}
         />
         )}
-        {view === "bots" ? (
-          <BotsView chat={chat} renderChat={(bot) => <ChatWithFiles chat={chat} onMenu={showSidebar} botMode={bot.mode as RootMode | ""} />} />
+        {view === "harness" ? (
+          <HarnessView />
         ) : view === "history" ? (
           <HistoryView
             chat={chat}
@@ -325,7 +315,6 @@ export default function Home() {
         </div>
 
         <SelectionPopover onAsk={onAsk} />
-        <BotBell />
         <UpdateBanner />
         <NewVersion />
       </div>
@@ -337,7 +326,7 @@ export default function Home() {
 // The chat, with the file panel and/or the terminal beside it (files on top,
 // terminal below when both are open). Maximized files fill the space. On a
 // phone-width window the panel covers the chat.
-function ChatWithFiles({ chat, onMenu, botMode }: { chat: ReturnType<typeof useTreeChat>; onMenu: () => void; botMode?: RootMode | "" }) {
+function ChatWithFiles({ chat, onMenu }: { chat: ReturnType<typeof useTreeChat>; onMenu: () => void }) {
   const files = useFiles()!;
   const showFiles = files.tabs.length > 0;
   const open = showFiles || files.terminal;
@@ -374,10 +363,10 @@ function ChatWithFiles({ chat, onMenu, botMode }: { chat: ReturnType<typeof useT
   return (
     <div className="flex min-w-0 flex-1">
       <div className={`min-w-0 flex-1 ${showFiles && files.maximized ? "hidden" : "flex"}`}>
-        <ChatWindow chat={chat} onMenu={onMenu} botMode={botMode} />
+        <ChatWindow chat={chat} onMenu={onMenu} />
       </div>
-      {/* Its inspector, when nothing else is open beside the chat (not in bot chats). */}
-      {!open && inspector && botMode === undefined && chat.session && <Inspector chat={chat} />}
+      {/* Its inspector, when nothing else is open beside the chat. */}
+      {!open && inspector && chat.session && <Inspector chat={chat} />}
       {open && (
         <div
           className={`fixed inset-0 z-40 flex flex-col border-l border-line md:static md:z-auto ${

@@ -165,6 +165,16 @@ export class ClaudeProc {
     });
   }
 
+  // A message for Claude while it's working (a reply, or a turn of its own):
+  // the CLI hands it over at the next step, inside the turn that's running, like
+  // typing while Claude works in the desktop app. False when it isn't working,
+  // so the caller sends it as a new message instead.
+  steer(content: unknown[]): boolean {
+    if (this.exited || this.o.oneShot || (!this.turn && !this.autoBusy)) return false;
+    this.write({ type: "user", message: { role: "user", content } });
+    return true;
+  }
+
   // A control request to the CLI (interrupt, set_permission_mode, set_model). Resolves to whether it worked.
   control(request: Record<string, unknown>): Promise<boolean> {
     return new Promise((resolve) => {

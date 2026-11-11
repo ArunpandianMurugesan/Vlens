@@ -151,7 +151,7 @@ export function Sidebar({
   // in a terminal or the desktop app (that can't hide).
   const isArchived = (s: SessionSummary) => !!s.archivedAt && !(s.active && !s.active.byLens);
   // Chats with your bots live in the Bots space.
-  const shown = sessions.filter((s) => !isArchived(s) && !s.botId);
+  const shown = sessions.filter((s) => !isArchived(s));
   // Stable order, so items don't jump around while you use them.
   const pinned = shown
     .filter((s) => s.pinOrder !== undefined && matches(s))
@@ -207,7 +207,7 @@ export function Sidebar({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [jump]);
-  const archived = sessions.filter((s) => isArchived(s) && !s.botId && matches(s)).sort((a, b) => b.archivedAt!.localeCompare(a.archivedAt!));
+  const archived = sessions.filter((s) => isArchived(s) && matches(s)).sort((a, b) => b.archivedAt!.localeCompare(a.archivedAt!));
   // Folded until you open it (remembered), or while you search or have one open.
   const [showArchived, setShowArchived] = useState(false);
   useEffect(() => {
@@ -461,7 +461,7 @@ export function Sidebar({
             <button
               type="button"
               onClick={() => window.dispatchEvent(new Event("lens:switcher"))}
-              title="Search everything: sessions, PRs, bots, actions"
+              title="Search everything: sessions, PRs, actions"
               className="shrink-0 rounded border border-line px-1 text-[0.65rem] text-muted hover:border-accent hover:text-accent"
             >
               ⌘K

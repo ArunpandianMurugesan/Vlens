@@ -38,7 +38,6 @@ export function HistoryView({ chat, onMenu, onOpen }: { chat: TreeChat; onMenu: 
     const byDay = new Map<string, { s: SessionSummary; count: number }[]>();
     const seen = new Set<string>();
     for (const s of chat.sessions) {
-      if (s.botId) continue; // bot chats and their cards live in Bots
       if (needle && !`${s.title} ${s.cwd ?? s.projectName}`.toLowerCase().includes(needle)) continue;
       for (const [key, count] of Object.entries(s.days ?? {})) {
         if (key < since) continue;
