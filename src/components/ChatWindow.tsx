@@ -72,13 +72,14 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
   const active = new Set(stack);
 
   // Jump to the latest message on open, then follow new ones only if already at the bottom.
+  // (Switching to the CLI and back keeps your place: the chat stays mounted under it.)
   useEffect(() => {
     stickToBottom.current = true;
-  }, [session?.id, cli]);
+  }, [session?.id]);
   useEffect(() => {
     const el = scroller.current;
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [session?.messages.length, session?.id, rootPending, run?.text.length, run?.tools.length, cli]);
+  }, [session?.messages.length, session?.id, rootPending, run?.text.length, run?.tools.length]);
 
   const updated = session ? new Date(session.updatedAt).getTime() : 0;
   const own = chat.ownWrite;
@@ -292,7 +293,12 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
             <Terminal size={12} /> <span className="hidden @4xl:inline">Terminal</span>
           </button>
         )}
-        {(session || newDraft?.cwd) && !elsewhere && !cli && <ModePicker mode={mode} cliMode={chat.settings?.cliMode} onChange={setMode} header />}
+        {/* Hidden, not removed, in the CLI view, so the buttons beside it don't jump when you switch. */}
+        {(session || newDraft?.cwd) && !elsewhere && (
+          <span className={cli ? "invisible" : "contents"} aria-hidden={cli || undefined}>
+            <ModePicker mode={mode} cliMode={chat.settings?.cliMode} onChange={setMode} header />
+          </span>
+        )}
         {/* Continue in Terminal.app lives in the Session menu and ⌘K; the CLI toggle covers it here. */}
         {session && session.messages.length > 0 && (
           <div className="relative hidden sm:block">
@@ -353,17 +359,21 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
         )}
       </header>
 
-      {cli && session ? (
-        <CliPane sessionId={session.id} cwd={session.cwd} />
-      ) : (
-      <>
+      {/* The CLI view lies over the chat instead of replacing it, so switching
+          back is instant and you're where you left off (no rebuild, no jumps). */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+      {cli && session && (
+        <div className="absolute inset-0 z-20 flex">
+          <CliPane sessionId={session.id} cwd={session.cwd} />
+        </div>
+      )}
+      <div className="flex min-h-0 flex-1 flex-col" inert={!!(cli && session)}>
       <div
         ref={scroller}
         onScroll={(e) => {
           const el = e.currentTarget;
           stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
         }}
-        // On wide screens, make room for the sub-agent panels instead of hiding under them.
         className="flex-1 overflow-y-auto scroll-thin"
       >
         {newDraft && !rootPending && (
@@ -588,8 +598,8 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
           </div>
         </div>
       )}
-      </>
-      )}
+      </div>
+      </div>
     </main>
     </CwdContext.Provider>
   );

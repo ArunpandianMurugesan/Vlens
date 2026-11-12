@@ -3,7 +3,7 @@
 import "@xterm/xterm/css/xterm.css";
 import type { FitAddon } from "@xterm/addon-fit";
 import type { Terminal } from "@xterm/xterm";
-import { FolderOpen, RotateCcw, X } from "lucide-react";
+import { FolderOpen, Loader2, RotateCcw, X } from "lucide-react";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useFiles } from "./FileContext";
 
@@ -32,6 +32,8 @@ const remember = (owner: string, id: string | null) => {
   } catch {}
 };
 
+const XTERM_VERSION = "6.0.0"; // @xterm/xterm in package.json
+
 // The server closes the socket with 4000 + the exit code when the shell ends (lib/terminals.ts).
 const EXIT_BASE = 4000;
 
@@ -44,6 +46,7 @@ interface Shell {
   ws?: WebSocket;
   ended: number | null;
   err: string | null;
+  ready: boolean; // has printed something yet
   dispose: () => void;
 }
 
@@ -64,6 +67,7 @@ function openShell(owner: string, cwd: string | null, resume: string | null = nu
     el,
     ended: null,
     err: null,
+    ready: false,
     dispose: () => {
       gone = true;
       s.ws?.close();
@@ -93,6 +97,14 @@ function openShell(owner: string, cwd: string | null, resume: string | null = nu
       gl.onContextLoss(() => gl.dispose()); // back to the DOM renderer if the GPU drops it
       term.loadAddon(gl);
     } catch {}
+    // Answer "which terminal are you?" (XTVERSION, CSI > q), which xterm.js
+    // leaves unanswered. claude asks it to pick its mouse-wheel handling, and
+    // without a reply it treats this as an unknown terminal: jumpy scrolling.
+    term.parser.registerCsiHandler({ prefix: ">", final: "q" }, (params) => {
+      if (((params[0] as number | undefined) ?? 0) !== 0) return false;
+      if (s.ws?.readyState === WebSocket.OPEN) s.ws.send(`\x1bP>|xterm.js(${XTERM_VERSION})\x1b\\`);
+      return true;
+    });
     s.term = term;
     s.fit = fit;
     if (el.isConnected && el.offsetWidth) fit.fit();
@@ -113,9 +125,30 @@ function openShell(owner: string, cwd: string | null, resume: string | null = nu
       sendSize(s);
       if (el.isConnected) term.focus(); // ready to type as soon as the shell is there
     };
-    ws.onmessage = (e) => term.write(e.data as string);
+    // Paint at most once a frame, with everything that came in since the last one,
+    // so a screen that arrives in pieces is never drawn half done.
+    let incoming = "";
+    let frame = 0;
+    const paint = () => {
+      frame = 0;
+      const out = incoming;
+      incoming = "";
+      if (out && !gone) term.write(out);
+    };
+    ws.onmessage = (e) => {
+      incoming += e.data as string;
+      // A hidden page gets no animation frames: write right away there.
+      if (document.hidden) paint();
+      else frame ||= requestAnimationFrame(paint);
+      if (!s.ready) {
+        s.ready = true;
+        changed();
+      }
+    };
     ws.onclose = (e) => {
       if (gone) return;
+      if (frame) cancelAnimationFrame(frame);
+      paint(); // whatever came in last
       if (e.code >= EXIT_BASE && e.code < EXIT_BASE + 256) {
         remember(owner, null);
         if (owner.startsWith("cli:")) cliEnds.set(owner, Date.now());
@@ -235,7 +268,15 @@ export function CliPane({ sessionId, cwd }: { sessionId: string; cwd: string | n
           </button>
         </div>
       )}
-      <div ref={box} className="min-h-0 flex-1 px-3 py-2" />
+      <div className="relative min-h-0 flex-1">
+        <div ref={box} className="absolute inset-0 px-3 py-2" />
+        {/* claude takes a second to draw its first screen: say so instead of a blank box. */}
+        {!shell.ready && !shell.err && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-xs text-term-ink/60">
+            <Loader2 size={13} className="animate-spin" /> Starting claude…
+          </div>
+        )}
+      </div>
     </section>
   );
 }

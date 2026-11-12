@@ -105,11 +105,27 @@ export async function openTerminal(o: { id?: string | null; cwd: string | null; 
   const pty = spawnPty(shell, args, { name: "xterm-256color", cols: fit(o.cols, 80), rows: fit(o.rows, 24), cwd: dir, env });
   const id = randomUUID();
   const t: Term = { pty, cwd: dir, token: randomBytes(24).toString("hex"), backlog: "", sockets: new Set(), exited: null };
+  // A full-screen app (claude) writes each new screen in several pieces. Sent
+  // one by one, the panel paints half-drawn screens while you scroll. So gather
+  // what comes out within a few ms and send it as one message.
+  let pending = "";
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  const flush = () => {
+    flushTimer = null;
+    if (!pending) return;
+    const out = pending;
+    pending = "";
+    for (const ws of t.sockets) ws.send(out);
+  };
   pty.onData((data) => {
     t.backlog = (t.backlog + data).slice(-BACKLOG);
-    for (const ws of t.sockets) ws.send(data);
+    pending += data;
+    if (pending.length > 256 * 1024) flush();
+    else flushTimer ??= setTimeout(flush, 8);
   });
   pty.onExit(({ exitCode }) => {
+    if (flushTimer) clearTimeout(flushTimer);
+    flush();
     t.exited = exitCode;
     for (const ws of t.sockets) ws.close(EXIT_CODE_BASE + (exitCode & 0xff), "exited");
     // Keep it a moment so a reconnecting panel still learns that it ended.
