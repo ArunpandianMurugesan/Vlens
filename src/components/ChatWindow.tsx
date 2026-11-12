@@ -364,7 +364,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
           stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
         }}
         // On wide screens, make room for the sub-agent panels instead of hiding under them.
-        className={`flex-1 overflow-y-auto transition-[padding] duration-300 scroll-thin ${stack.length ? "xl:pr-[540px]" : ""}`}
+        className="flex-1 overflow-y-auto scroll-thin"
       >
         {newDraft && !rootPending && (
           <div className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center px-4 text-center">
@@ -431,7 +431,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
       </div>
 
       {(session || newDraft) && (
-        <div className={`px-4 pb-4 pt-2 transition-[padding] duration-300 ${stack.length ? "xl:pr-[556px]" : ""}`}>
+        <div className="px-4 pb-4 pt-2">
           <div className="mx-auto max-w-5xl">
             {handoffErr && <p className="mb-2 text-xs text-red-600">{handoffErr}</p>}
             {archivedAt && !rootPending && (

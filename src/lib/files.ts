@@ -52,9 +52,44 @@ async function highlight(code: string, lang: string): Promise<string> {
   });
 }
 
+// A path like `internal/x/service.go` is often relative to a repo inside the
+// session's folder (a session in org_repos/ talking about org_repos/…/embeddings).
+// When it isn't found directly, look up to two folders down for it.
+async function inChildRepo(input: string, cwd?: string | null): Promise<string | null> {
+  const p = input.trim();
+  if (!cwd || !path.isAbsolute(cwd) || path.isAbsolute(p) || p.startsWith("~") || p.startsWith(".")) return null;
+  const subdirs = async (dir: string) =>
+    (await fs.readdir(dir, { withFileTypes: true }).catch(() => []))
+      .filter((k) => k.isDirectory() && !k.name.startsWith(".") && !k.name.startsWith("_") && k.name !== "node_modules")
+      .map((k) => path.join(dir, k.name));
+  const exists = async (dir: string) => {
+    try {
+      const abs = resolvePath(p, dir);
+      return (await fs.stat(abs).catch(() => null)) ? abs : null;
+    } catch {
+      return null;
+    }
+  };
+  const level1 = await subdirs(cwd);
+  for (const d of level1) {
+    const hit = await exists(d);
+    if (hit) return hit;
+  }
+  for (const d of level1)
+    for (const d2 of await subdirs(d)) {
+      const hit = await exists(d2);
+      if (hit) return hit;
+    }
+  return null;
+}
+
 export async function readView(input: string, cwd?: string | null): Promise<FileView> {
-  const abs = resolvePath(input, cwd);
-  const st = await fs.stat(abs).catch(() => null);
+  let abs = resolvePath(input, cwd);
+  let st = await fs.stat(abs).catch(() => null);
+  if (!st) {
+    const found = await inChildRepo(input, cwd);
+    if (found) [abs, st] = [found, await fs.stat(found)];
+  }
   const base = { path: abs, name: path.basename(abs), home: HOME, mtime: st?.mtime.toISOString() ?? null };
   if (!st) return { ...base, kind: "missing" };
 

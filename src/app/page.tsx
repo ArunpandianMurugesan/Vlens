@@ -360,7 +360,9 @@ function ChatWithFiles({ chat, onMenu }: { chat: ReturnType<typeof useTreeChat>;
     return () => window.removeEventListener("keydown", onKey);
   }, [files]);
   return (
-    <div className="flex min-w-0 flex-1">
+    // An open sub-agent sheet covers the right side on wide screens: move the
+    // chat and its file/terminal pane left of it, so neither hides under it.
+    <div className={`flex min-w-0 flex-1 transition-[padding] duration-300 ${chat.stack.length ? "xl:pr-[560px]" : ""}`}>
       <div className={`min-w-0 flex-1 ${showFiles && files.maximized ? "hidden" : "flex"}`}>
         <ChatWindow chat={chat} onMenu={onMenu} />
       </div>
