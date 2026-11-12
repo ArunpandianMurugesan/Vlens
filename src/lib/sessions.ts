@@ -405,6 +405,13 @@ function scanFile(fp: string, size: number, mtimeMs: number): Promise<FileScan |
   return p;
 }
 
+// Sessions the Review space starts open with one of its own prompts (ReviewView.tsx).
+const PR_PROMPT = /^(?:Review pull request #\d+ in \S+: |Use the galaxy-before-after skill to show what pull request #\d+ changes on screen: |This is my pull request: )(https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/pull\/\d+)/;
+function prOf(first: string | null): { prUrl?: string } {
+  const m = first && PR_PROMPT.exec(first);
+  return m ? { prUrl: m[1] } : {};
+}
+
 export async function listSessions(): Promise<SessionSummary[]> {
   const [hidden, active, pins, recent, limits, archived] = await Promise.all([
     subThreadSessionIds(),
@@ -454,6 +461,7 @@ export async function listSessions(): Promise<SessionSummary[]> {
                   messageCount: scan.messageCount,
                   days: scan.days,
                   ...forkParent(p, id),
+                  ...prOf(p.firstPrompt),
                   context: p.context ? { ...p.context, window: 0, estimated: true } : undefined, // window filled in below
                 };
           if (summary) results.push(summary);

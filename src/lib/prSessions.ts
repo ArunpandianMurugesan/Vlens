@@ -43,3 +43,19 @@ export function usePrSessions(url: string | undefined) {
     () => EMPTY,
   );
 }
+
+// Every session started from a PR, so the main sessions list can leave them
+// out (they live under their PR in Review instead).
+let idsCache: { from: Record<string, PrSession[]>; ids: Set<string> } | null = null;
+const NO_IDS = new Set<string>();
+export function usePrSessionIds() {
+  return useSyncExternalStore(
+    (l) => (listeners.add(l), () => listeners.delete(l)),
+    () => {
+      const all = read();
+      if (idsCache?.from !== all) idsCache = { from: all, ids: new Set(Object.values(all).flat().map((s) => s.id)) };
+      return idsCache.ids;
+    },
+    () => NO_IDS,
+  );
+}

@@ -169,7 +169,7 @@ export function HomeView({ chat, onMenu, onNew, onReview }: { chat: TreeChat; on
   const waiting = people.filter((s) => s.active?.waitingFor);
   const running = people.filter((s) => s.active && !s.active.waitingFor);
   const recent = people
-    .filter((s) => !s.active)
+    .filter((s) => !s.active && !s.prUrl) // PR reviews live under their PR in Review
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, 6);
   const open = (id: string) => chat.selectSession(id);

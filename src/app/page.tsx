@@ -27,12 +27,16 @@ import { useReview } from "@/hooks/useReview";
 import { useTreeChat } from "@/hooks/useTreeChat";
 import { GetStarted, needsSetup } from "@/components/GetStarted";
 import type { SetupStatus } from "@/lib/types";
+import { usePrSessionIds } from "@/lib/prSessions";
 
 // How far each panel underneath peeks out to the left of the one on top.
 const PEEK = 28;
 
 export default function Home() {
   const chat = useTreeChat();
+  // PR review sessions live under their PR in Review, not in the main list.
+  const prIds = usePrSessionIds();
+  const mainSessions = useMemo(() => chat.sessions.filter((s) => !s.prUrl && !prIds.has(s.id)), [chat.sessions, prIds]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // ⌘B slides the sidebar away and back on a wide window.
   useEffect(() => {
@@ -195,7 +199,7 @@ export default function Home() {
         {/* Pages with their own navigation (like the design) don't get the sessions list beside it. */}
         {view !== "settings" && view !== "marketplace" && view !== "history" && (
         <Sidebar
-          sessions={chat.sessions}
+          sessions={mainSessions}
           activeId={chat.activeId}
           onSelect={(id) => {
             setView("chat");

@@ -34,6 +34,7 @@ export interface SessionSummary {
   days?: Record<string, number>; // local date (YYYY-MM-DD) → messages that day, for the last few weeks (History)
   context?: ContextUsage;
   forkedFrom?: string; // the session this one was forked from (shown nested under it)
+  prUrl?: string; // started from a PR in Review (its first prompt names the PR); lives under that PR, not the main list
 }
 
 // How full the session's context window was at its last reply.

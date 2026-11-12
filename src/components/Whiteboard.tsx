@@ -140,8 +140,8 @@ export function WhiteboardModal({ elements, title, onClose }: { elements: Elemen
   const btn = "inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1 text-xs hover:border-accent hover:text-accent disabled:opacity-50";
 
   return createPortal(
-    <div className="fixed inset-0 z-[200] flex flex-col bg-bg">
-      <div className="flex items-center gap-2 border-b border-line px-4 py-2">
+    <div className="lens-wb-modal fixed inset-0 z-[200] flex flex-col bg-bg">
+      <div className="lens-wb-bar flex items-center gap-2 border-b border-line px-4 py-2">
         <PenLine size={15} className="text-accent" />
         <span className="flex-1 truncate text-sm font-medium">{title}</span>
         <button className={btn} disabled={!api} onClick={exportPng}>

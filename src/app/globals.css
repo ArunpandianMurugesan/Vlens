@@ -360,3 +360,15 @@ body {
 .mac-app [data-drag] :is(button, a, input, select, label) {
   -webkit-app-region: no-drag;
 }
+
+/* The full-screen whiteboard sits over headers that drag the window. Electron
+   applies drag areas even under an overlay, so they'd swallow its Close click. */
+.mac-app .lens-wb-modal,
+.mac-app .lens-wb-modal * {
+  -webkit-app-region: no-drag;
+}
+/* Leave room for the traffic lights at the top left. */
+.mac-app .lens-wb-bar {
+  padding-left: 84px;
+  min-height: 52px;
+}
