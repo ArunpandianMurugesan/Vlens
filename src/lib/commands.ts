@@ -33,11 +33,12 @@ const BUILT_IN: Record<string, string> = {
   status: "Session, model, folder and account",
   hooks: "Manage hooks",
   permissions: "Permission rules",
+  reload: "Restart Claude on this conversation (re-reads CLAUDE.md, settings, skills, MCP)",
 };
 
 // Vlens shows its own menu or screen for these (lib/slash.ts), so offer them
 // even when the CLI leaves them out of its list.
-const OWN = ["model", "effort", "output-style", "config", "resume", "memory", "status", "mcp", "hooks", "permissions"];
+const OWN = ["model", "effort", "output-style", "config", "resume", "memory", "status", "mcp", "hooks", "permissions", "reload"];
 
 const probing = new Map<string, number>(); // folder -> when we last fetched its list
 

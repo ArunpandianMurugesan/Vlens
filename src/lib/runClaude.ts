@@ -55,6 +55,7 @@ export class ClaudeProc {
   readonly child: ChildProcessWithoutNullStreams;
   sessionId: string | null;
   exited = false;
+  exitError: string | null = null; // why it stopped, when it failed
   autoBusy = false; // Claude is in a turn it started itself (a background task reported back)
   idleSince = Date.now();
   private stderr = "";
@@ -216,6 +217,7 @@ export class ClaudeProc {
   private exit(error: string | null) {
     if (this.exited) return;
     this.exited = true;
+    this.exitError = error;
     for (const id of this.asks.keys()) settle(id, "deny"); // the run ended; drop open questions
     for (const r of this.controls.values()) r(false);
     this.controls.clear();

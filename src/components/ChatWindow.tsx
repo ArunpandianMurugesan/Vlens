@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Check, ChevronDown, Clock, Copy, Eye, GitFork, Loader2, MessageSquare, PanelRight, Pencil, Power, ShieldCheck, ShieldOff, Sparkles, SquareTerminal, Terminal, X } from "lucide-react";
+import { Archive, Check, ChevronDown, Clock, Copy, Eye, GitFork, Loader2, MessageSquare, PanelRight, Pencil, Power, RotateCw, ShieldCheck, ShieldOff, Sparkles, SquareTerminal, Terminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type LiveRun, type RootMode, type TreeChat } from "@/hooks/useTreeChat";
 import { PERMISSION_MODES } from "@/lib/modes";
@@ -130,7 +130,26 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
   };
   // "/model", "/config", … open Vlens's own menu: Claude here has no screen for them.
   const [slash, setSlash] = useState<SlashUi | null>(null);
+  // "/reload": restart Claude on this conversation, so it re-reads its setup.
+  const [reload, setReload] = useState<{ state: "busy" | "done" | "error"; text: string } | null>(null);
+  useEffect(() => setReload(null), [session?.id]);
+  const doReload = async () => {
+    if (!session) return;
+    if (replying) return setReload({ state: "error", text: "Claude is still replying. Wait for it to finish (or stop it), then /reload." });
+    setReload({ state: "busy", text: "Restarting Claude on this conversation…" });
+    try {
+      await chat.reloadSession(session.id, mode, currentModel);
+      setReload({ state: "done", text: "Reloaded. Claude re-read CLAUDE.md, settings, skills, hooks and MCP servers." });
+      setTimeout(() => setReload((r) => (r?.state === "done" ? null : r)), 6_000);
+    } catch (e) {
+      setReload({ state: "error", text: `Couldn't reload: ${(e as Error).message}` });
+    }
+  };
   const picked = (text: string, images: ImageInput[]) => {
+    if (!images.length && text.trim() === "/reload" && session) {
+      void doReload();
+      return true;
+    }
     const ui = images.length ? null : slashUi(text);
     if (ui) setSlash(ui);
     return !!ui;
@@ -529,6 +548,22 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
                     "Queued: sends when Claude is done."
                   )}
                 </div>
+              </div>
+            )}
+            {reload && (
+              <div
+                role="status"
+                className={`mb-2 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs ${
+                  reload.state === "error" ? "border-red-500/40 text-red-600" : "border-line text-muted"
+                }`}
+              >
+                {reload.state === "busy" ? <Loader2 size={12} className="animate-spin" /> : <RotateCw size={12} />}
+                <span className="flex-1">{reload.text}</span>
+                {reload.state !== "busy" && (
+                  <button onClick={() => setReload(null)} aria-label="Dismiss" className="rounded p-0.5 hover:bg-sunken hover:text-ink">
+                    <X size={12} />
+                  </button>
+                )}
               </div>
             )}
             {slash && (

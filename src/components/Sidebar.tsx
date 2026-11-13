@@ -21,6 +21,7 @@ import {
   PinOff,
   Plus,
   Power,
+  RotateCw,
   Search,
   Settings as SettingsIcon,
   SquareTerminal,
@@ -72,6 +73,7 @@ type Actions = Pick<
   | "archiveSession"
   | "forgetRecent"
   | "endSession"
+  | "reloadSession"
   | "deleteSession"
   | "limits"
   | "refreshingLimits"
@@ -862,6 +864,20 @@ function SessionItem({
               {s.recentAt && !s.active && s.pinOrder === undefined && !s.archivedAt && (
                 <button className={menuItem} onClick={() => act(() => actions.forgetRecent(s.id))}>
                   <X size={13} /> Remove from Recent
+                </button>
+              )}
+              {(!s.active || s.active.byLens) && (
+                <button
+                  className={menuItem}
+                  disabled={s.active?.status === "busy" || !s.messageCount}
+                  title={
+                    s.active?.status === "busy"
+                      ? "Wait for Claude to finish (or stop it) first"
+                      : "Restart Claude on this conversation, so it re-reads CLAUDE.md, settings, skills, hooks and MCP servers"
+                  }
+                  onClick={() => act(() => actions.reloadSession(s.id))}
+                >
+                  <RotateCw size={13} /> Reload
                 </button>
               )}
               {(!s.active || s.active.byLens) && (

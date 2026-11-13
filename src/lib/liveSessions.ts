@@ -58,6 +58,32 @@ export async function releaseLive(sessionId: string): Promise<"none" | "closed" 
   return "closed";
 }
 
+// Ends the session's open process and starts a fresh `claude --resume` in its
+// place, so it re-reads what it only loads at start (CLAUDE.md, settings,
+// skills, hooks, MCP servers, plugins). Keeps the mode and model it had.
+// "busy" while Claude is working: a reload never cuts a reply short.
+export async function reloadLive(o: {
+  sessionId: string;
+  cwd: string | null;
+  mode: string;
+  model: string;
+  extra: string[];
+}): Promise<{ ok: true } | { ok: false; busy?: boolean; error: string }> {
+  const l = bySession(o.sessionId);
+  if (l && !l.proc.idle) return { ok: false, busy: true, error: "Claude is still working in this session. Wait for it to finish (or stop it), then reload." };
+  const mode = l?.mode ?? o.mode;
+  const model = l?.model ?? o.model;
+  if (l) await releaseLive(o.sessionId);
+  const proc = await procFor({ sessionId: o.sessionId, cwd: o.cwd, mode, model, extra: o.extra });
+  // A broken setting or MCP config often stops it at once: say so now, not on your next message.
+  await new Promise<void>((done) => {
+    proc.onExit(done);
+    setTimeout(done, 2_500);
+  });
+  if (proc.exited) return { ok: false, error: proc.exitError ?? "Claude stopped right after starting." };
+  return { ok: true };
+}
+
 // The process to send this message to: the session's open one, switched to
 // this message's mode and model, or a new one.
 export async function procFor(o: {

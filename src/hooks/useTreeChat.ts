@@ -369,6 +369,9 @@ export function useTreeChat() {
   const archiveSession = (id: string, archived: boolean) =>
     manage(`/api/sessions/${id}`, { method: "PATCH", body: JSON.stringify({ archived }) });
   const endSession = (id: string) => manage(`/api/sessions/${id}/end`, { method: "POST" });
+  // End this session's Claude and start it again on the same conversation (re-reads its setup).
+  const reloadSession = (id: string, mode?: string, model?: string) =>
+    manage(`/api/sessions/${id}/reload`, { method: "POST", body: JSON.stringify({ mode, model }) });
   const deleteSession = async (id: string) => {
     await manage(`/api/sessions/${id}`, { method: "DELETE" });
     if (id === activeId) {
@@ -774,6 +777,7 @@ export function useTreeChat() {
     archiveSession,
     forgetRecent,
     endSession,
+    reloadSession,
     deleteSession,
   };
 }
