@@ -1,7 +1,7 @@
 "use client";
 
 import { Archive, Check, ChevronDown, Clock, Copy, Eye, GitFork, Loader2, MessageSquare, PanelRight, Pencil, Power, RotateCw, ShieldCheck, ShieldOff, Sparkles, SquareTerminal, Terminal, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type LiveRun, type RootMode, type TreeChat } from "@/hooks/useTreeChat";
 import { PERMISSION_MODES } from "@/lib/modes";
 import { MODELS } from "@/lib/models";
@@ -21,6 +21,8 @@ import { lastWorktree, rememberWorktree, WorktreeToggle } from "./WorktreeToggle
 import { ContextBadge } from "./Usage";
 import { MenuButton } from "./Sidebar";
 import { CliPane, cliEndedRecently, startCli, stopCli, useCliOn } from "./TerminalPanel";
+
+const PAGE = 80; // messages drawn at first in a long session
 
 export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => void }) {
   const { session, loadingSession, stack, threadsFrom, openThread, rootPending, draft } = chat;
@@ -68,6 +70,23 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
   const shown = session ? (rootPending ? session.messages.slice(0, rootPending.base) : session.messages) : [];
   const scroller = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  // A long session has thousands of messages; drawing them all made opening it
+  // (and every refresh while it works) slow. Draw the latest ones, and more on ask.
+  const [limit, setLimit] = useState(PAGE);
+  useEffect(() => setLimit(PAGE), [session?.id]);
+  const from = Math.max(0, shown.length - limit);
+  const visible = from ? shown.slice(from) : shown;
+  // Showing earlier messages adds them above: keep what you were reading in place.
+  const grewFrom = useRef<number | null>(null);
+  const showEarlier = () => {
+    grewFrom.current = scroller.current?.scrollHeight ?? null;
+    setLimit((l) => l + PAGE * 2);
+  };
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el && grewFrom.current !== null) el.scrollTop += el.scrollHeight - grewFrom.current;
+    grewFrom.current = null;
+  }, [limit]);
   const [copied, setCopied] = useState(false);
   const active = new Set(stack);
 
@@ -416,12 +435,19 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
         )}
         {(session || rootPending) && (
           <div className="mx-auto max-w-5xl space-y-6 px-6 py-6">
-            {shown.map((m, i) => (
+            {from > 0 && (
+              <div className="flex justify-center">
+                <button type="button" onClick={showEarlier} className="rounded-full border border-line px-3 py-1 text-xs text-muted hover:bg-sunken hover:text-ink">
+                  Show earlier messages ({from})
+                </button>
+              </div>
+            )}
+            {visible.map((m, i) => (
               <MessageBubble
                 key={m.id}
                 message={m}
                 ctx="root"
-                stopped={!!rootPending || !working || i < shown.length - 1}
+                stopped={!!rootPending || !working || i < visible.length - 1}
                 childThreads={threadsFrom(null, m.id)}
                 activeThreadIds={active}
                 onOpenThread={openThread}

@@ -168,13 +168,26 @@ export function Sidebar({
     .sort((a, b) => b.recentAt!.localeCompare(a.recentAt!));
   // Running ones first, then the ones Vlens touched lately: one list, by folder.
   const both = [...active, ...recent];
-  // A fork shows under the session it came from, wherever that one is (Pinned or Sessions).
-  const visible = new Set([...pinned, ...both].map((s) => s.id));
+  // A fork shows under the session it came from, wherever that one is (Pinned or
+  // Sessions), even when the fork itself is older than the Recent window.
+  // (Worked out before the search filter, so a search still finds such a fork.)
+  const inBar = new Set(shown.filter((s) => s.pinOrder !== undefined || s.active || s.id === activeId || s.recentAt).map((s) => s.id));
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const s of shown)
+      if (!inBar.has(s.id) && s.forkedFrom && inBar.has(s.forkedFrom) && s.pinOrder === undefined) {
+        inBar.add(s.id);
+        grew = true;
+      }
+  }
+  const oldForks = shown.filter((s) => inBar.has(s.id) && !s.recentAt && !s.active && s.pinOrder === undefined && s.id !== activeId && matches(s));
+  const listed = [...pinned, ...both, ...oldForks];
+  const visible = new Set(listed.map((s) => s.id));
   const kids = new Map<string, SessionSummary[]>();
-  for (const s of [...pinned, ...both])
+  for (const s of listed)
     if (s.forkedFrom && s.forkedFrom !== s.id && visible.has(s.forkedFrom) && s.pinOrder === undefined) kids.set(s.forkedFrom, [...(kids.get(s.forkedFrom) ?? []), s]);
   const nested = new Set([...kids.values()].flat().map((s) => s.id));
-  const current = both.filter((s) => !nested.has(s.id));
+  const current = [...both, ...oldForks].filter((s) => !nested.has(s.id));
   // Sections you folded (remembered).
   const [folded, setFolded] = useState<Set<string>>(new Set());
   useEffect(() => {

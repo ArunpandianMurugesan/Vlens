@@ -337,11 +337,18 @@ function emptyScan(): FileScan {
 // Fold the summary of some new lines into what's known: first-seen fields stay,
 // last-seen ones move on.
 function addLines(s: FileScan, text: string) {
-  const n = parseJsonl(text, false);
-  const o = s.p;
+  s.p = mergeParsed(s.p, parseJsonl(text, false));
+  s.messageCount += (text.match(/"type":"(user|assistant)"/g) ?? []).length;
+  const act = activity(text);
+  for (const [k, v] of Object.entries(act.days)) s.days[k] = (s.days[k] ?? 0) + v;
+  if (act.last && (!s.last || act.last > s.last)) s.last = act.last;
+}
+
+// What's known after more lines `n` come after `o` (messages stay `o`'s).
+function mergeParsed(o: Parsed, n: Parsed): Parsed {
   const aiTitle = n.aiTitle ?? o.aiTitle;
   const customTitle = n.customTitle ?? o.customTitle;
-  s.p = {
+  return {
     ...o,
     aiTitle,
     customTitle,
@@ -354,10 +361,6 @@ function addLines(s: FileScan, text: string) {
     firstPrompt: o.firstPrompt ?? n.firstPrompt,
     context: n.context ?? o.context,
   };
-  s.messageCount += (text.match(/"type":"(user|assistant)"/g) ?? []).length;
-  const act = activity(text);
-  for (const [k, v] of Object.entries(act.days)) s.days[k] = (s.days[k] ?? 0) + v;
-  if (act.last && (!s.last || act.last > s.last)) s.last = act.last;
 }
 
 function scanFile(fp: string, size: number, mtimeMs: number): Promise<FileScan | null> {
@@ -530,9 +533,28 @@ export async function getSession(id: string): Promise<SessionDetail | null> {
   const stat = await fs.stat(found.file);
   // The open session is polled every few seconds, and a long one is tens of MB.
   // Re-parse it only when the file has changed.
+  // A file that grew (the usual case: Claude is writing to it) is read from where
+  // we stopped, not from the start: a long session is 150 MB, re-read every second.
   let p = parsedCache.get(found.file);
   if (!p || p.mtimeMs !== stat.mtimeMs || p.size !== stat.size) {
-    p = { ...parseJsonl(await fs.readFile(found.file, "utf8"), true, id), mtimeMs: stat.mtimeMs, size: stat.size };
+    const grew = p && stat.size > p.size ? p : null;
+    const from = grew?.size ?? 0;
+    const buf = Buffer.alloc(stat.size - from);
+    const fh = await fs.open(found.file, "r");
+    try {
+      await fh.read(buf, 0, buf.length, from);
+    } finally {
+      await fh.close();
+    }
+    // Up to the last whole line (a half-written one is read next time).
+    const end = buf.lastIndexOf(10) + 1;
+    const n = parseJsonl(buf.toString("utf8", 0, end), true, id);
+    if (grew) {
+      const messages = grew.messages.slice();
+      const tail = messages.pop();
+      messages.push(...(tail ? mergeAssistantTurns([tail, ...n.messages]) : n.messages));
+      p = { ...mergeParsed(grew, n), messages, mtimeMs: stat.mtimeMs, size: from + end };
+    } else p = { ...n, mtimeMs: stat.mtimeMs, size: end };
     parsedCache.delete(found.file);
     parsedCache.set(found.file, p);
     if (parsedCache.size > 3) parsedCache.delete(parsedCache.keys().next().value!);
