@@ -33,9 +33,19 @@ import { MenuButton } from "./Sidebar";
 // ReviewResults.tsx); addressing your own PR may edit files.
 const RESULT_JSON = [
   "End your reply with the result as one ```json block, exactly this shape:",
-  '{"verdict": "COMMENT | REQUEST_CHANGES | APPROVE", "summary": "two or three plain sentences for the review\'s top comment", "findings": [{"id": "1", "file": "path/in/repo.ts", "line": 42, "body": "what is wrong, why it matters, a suggested fix", "severity": "high | medium | low"}]}',
+  '{"verdict": "COMMENT | REQUEST_CHANGES", "summary": "two or three plain sentences for the review\'s top comment", "findings": [{"id": "1", "file": "path/in/repo.ts", "line": 42, "severity": "blocker | should | question | nit", "body": "what is wrong, why it matters, a suggested fix"}], "priorChecks": [{"commentId": 123456, "file": "path/in/repo.ts", "line": 40, "author": "login", "status": "fixed | unfixed | unverified", "evidence": "what in the code now shows it"}]}',
   "`line` is a line in the PR's new version of the file, inside the diff. Write each body as a reviewer's comment, kind and specific.",
+  "Severity: blocker = breaks something real; should = worth fixing before merge; question = you aren't sure, ask; nit = small polish. A blocker or should must name the concrete case that triggers it and what goes wrong; if you can't, make it a question.",
+  "One finding per root cause. Never approve: the verdict is COMMENT or REQUEST_CHANGES.",
 ].join("\n");
+
+// Earlier inline review comments, so a re-review checks them instead of repeating them.
+function priorCommentsStep(p: PrSummary) {
+  return [
+    `First read the earlier inline review comments: \`gh api repos/${p.repo}/pulls/${p.number}/comments --paginate\`. For each top-level one (no in_reply_to_id) that asks for a change, check the current code and put it in "priorChecks": fixed (cite the code that fixes it), unfixed, or unverified (can't tell from the code). Use the comment's id as commentId.`,
+    "Don't add a new finding that repeats an earlier comment; it is covered by priorChecks.",
+  ].join("\n");
+}
 
 export function reviewPrompt(p: PrSummary, hasClone: boolean) {
   return [
@@ -45,6 +55,7 @@ export function reviewPrompt(p: PrSummary, hasClone: boolean) {
       ? "Use the lens:review skill in its PR Studio mode: run Steps 1 to 7 on this repo (its `.claude/review.md` overlay applies), and post nothing. Never post, approve, comment or push on GitHub."
       : "Read it with the gh CLI (gh pr view, gh pr diff). Look for real bugs and risks first. Never post, approve, comment or push on GitHub.",
     "If the PR links a Jira ticket, check the change against its acceptance criteria and say which are met.",
+    priorCommentsStep(p),
     "",
     RESULT_JSON,
   ].join("\n");
@@ -136,6 +147,9 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
       .sendRoot(prompt, mode, undefined, [], cwd, (id) => {
         fresh.current = id;
         addPrSession(url, { id, kind, at: Date.now() });
+        // A review: note which commit it reads, so Post can tell if the PR moves on.
+        if (kind === "Review" || kind === "Self-review")
+          void fetch("/api/review/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, sessionId: id }) }).catch(() => {});
         setTabOf((all) => (all[url] === "new" ? { ...all, [url]: id } : all));
         setStarting(null);
       })
@@ -330,7 +344,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
 
       {tab !== "overview" ? (
         <div className="flex min-h-0 flex-1 flex-col">
-          {chat.session?.id === tab && <ReviewResults pr={pr} messages={chat.session.messages} />}
+          {chat.session?.id === tab && <ReviewResults pr={pr} sessionId={tab} messages={chat.session.messages} />}
           <div className="flex min-h-0 flex-1">{renderChat()}</div>
         </div>
       ) : (

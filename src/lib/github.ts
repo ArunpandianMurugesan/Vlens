@@ -16,7 +16,7 @@ import { getProvider } from "@/lib/providers";
 // search can't reach). A handful of small calls per refresh keeps us far below
 // GitHub's rate limits and its 10-second limit per query.
 
-function gh(args: string[], timeout = 25_000): Promise<{ ok: boolean; out: string; err: string }> {
+export function gh(args: string[], timeout = 25_000): Promise<{ ok: boolean; out: string; err: string }> {
   return new Promise((resolve) =>
     execFile("gh", args, { timeout, maxBuffer: 16 * 1024 * 1024 }, (e, stdout, stderr) =>
       resolve({ ok: !e, out: String(stdout), err: String(stderr || (e as Error | null)?.message || "") }),
