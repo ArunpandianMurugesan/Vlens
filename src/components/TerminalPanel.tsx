@@ -2,9 +2,10 @@
 
 import "@xterm/xterm/css/xterm.css";
 import type { FitAddon } from "@xterm/addon-fit";
-import type { Terminal } from "@xterm/xterm";
+import type { ITheme, Terminal } from "@xterm/xterm";
 import { FolderOpen, Loader2, RotateCcw, X } from "lucide-react";
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import { currentProfile, DEFAULT_FONT, profileColors, subscribeProfiles } from "@/lib/termProfiles";
 import { useFiles } from "./FileContext";
 
 // A real shell beside the chat (like the file panel). Each session gets its own
@@ -38,6 +39,50 @@ const XTERM_VERSION = "6.0.0"; // @xterm/xterm in package.json
 const EXIT_BASE = 4000;
 
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+// The chosen terminal profile (Settings > Appearance) as xterm options. A
+// "match app" profile takes the app's terminal colours, with the accent as cursor.
+function profileOptions() {
+  const p = currentProfile();
+  const theme: ITheme = {
+    background: css("--term-bg"),
+    foreground: css("--term-text"),
+    cursor: css("--accent"),
+    ...profileColors(p),
+  };
+  return {
+    theme,
+    fontFamily: p.fontFamily || DEFAULT_FONT,
+    fontSize: p.fontSize,
+    lineHeight: p.lineHeight,
+    cursorStyle: p.cursorStyle,
+    cursorBlink: p.cursorBlink,
+  };
+}
+
+// Restyle every open terminal when the profile, light/dark or accent changes,
+// and refit it, since a new font or size changes how many cells fit.
+let watching = false;
+function watchProfile() {
+  if (watching) return;
+  watching = true;
+  const restyle = () => {
+    const opts = profileOptions();
+    for (const s of shells.values()) {
+      if (!s.term) continue;
+      Object.assign(s.term.options, opts);
+      if (s.el.isConnected && s.el.offsetWidth) {
+        s.fit?.fit();
+        sendSize(s);
+      }
+    }
+  };
+  subscribeProfiles(restyle);
+  new MutationObserver(restyle).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme", "data-accent", "style"],
+  });
+}
 
 interface Shell {
   el: HTMLDivElement; // the terminal's own element, moved into whichever panel shows it
@@ -82,13 +127,11 @@ function openShell(owner: string, cwd: string | null, resume: string | null = nu
     ]);
     if (gone) return;
     const term = new Terminal({
-      fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
-      fontSize: 12.5,
-      cursorBlink: true,
+      ...profileOptions(),
       allowProposedApi: true,
       scrollback: 5000,
-      theme: { background: css("--term-bg"), foreground: css("--term-text"), cursor: css("--accent") },
     });
+    watchProfile();
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(el);
@@ -261,7 +304,7 @@ export function CliPane({ sessionId, cwd }: { sessionId: string; cwd: string | n
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-term text-term-ink">
       {shell.err && (
-        <div className="flex items-center gap-2 border-b border-white/10 px-3 py-1.5 text-xs text-term-ink/70">
+        <div className="flex items-center gap-2 border-b border-term-ink/10 px-3 py-1.5 text-xs text-term-ink/70">
           {shell.err}
           <button className="font-medium text-accent hover:underline" onClick={() => void stopCli(sessionId)}>
             Back to chat
@@ -310,10 +353,10 @@ export function TerminalPanel({ owner, cwd }: { owner: string; cwd: string | nul
     changed();
   };
 
-  const icon = "rounded-md p-1.5 text-term-ink/60 hover:bg-white/10 hover:text-term-ink";
+  const icon = "rounded-md p-1.5 text-term-ink/60 hover:bg-term-ink/10 hover:text-term-ink";
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-term text-term-ink">
-      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-white/10 px-3 text-xs">
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-term-ink/10 px-3 text-xs">
         <span className="font-medium">Terminal</span>
         <span className="flex min-w-0 items-center gap-1 truncate text-term-ink/60" title={folder}>
           <FolderOpen size={11} className="shrink-0" />
@@ -328,7 +371,7 @@ export function TerminalPanel({ owner, cwd }: { owner: string; cwd: string | nul
         </button>
       </div>
       {(shell.ended !== null || shell.err) && (
-        <div className="flex items-center gap-2 border-b border-white/10 px-3 py-1.5 text-xs text-term-ink/70">
+        <div className="flex items-center gap-2 border-b border-term-ink/10 px-3 py-1.5 text-xs text-term-ink/70">
           {shell.err ?? `The shell ended (code ${shell.ended}).`}
           <button className="font-medium text-accent hover:underline" onClick={restart}>
             Start a new one

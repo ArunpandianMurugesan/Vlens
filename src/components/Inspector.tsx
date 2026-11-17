@@ -186,7 +186,7 @@ export function Inspector({ chat }: { chat: TreeChat }) {
           <Heading>Terminal</Heading>
           <button
             onClick={() => files.setTerminal((t) => !t)}
-            className="flex w-full items-center gap-2 rounded-lg bg-term px-3 py-2 text-left font-mono text-[0.7rem] text-[#e8e2d4] hover:opacity-90"
+            className="flex w-full items-center gap-2 rounded-lg bg-term px-3 py-2 text-left font-mono text-[0.7rem] text-term-ink hover:opacity-90"
             title="A shell in this session's folder (Ctrl+`)"
           >
             <Terminal size={12} className="shrink-0" />
