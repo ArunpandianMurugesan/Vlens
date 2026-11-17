@@ -4,7 +4,7 @@ Every Vlens release (called Claude Lens up to 1.0.1), newest first. The version 
 
 Versions follow [semantic versioning](https://semver.org): **major** for big changes in how Vlens works, **minor** for new features, **patch** for fixes.
 
-## Unreleased
+## 1.2.0 — 2026-11-17
 
 **Terminal profiles**
 - Settings → Appearance → **Terminal profile** sets the colours, font, size, line height and cursor for the Terminal panel and the CLI view. Open terminals change right away.
