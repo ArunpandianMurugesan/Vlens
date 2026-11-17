@@ -4,6 +4,15 @@ Every Vlens release (called Claude Lens up to 1.0.1), newest first. The version 
 
 Versions follow [semantic versioning](https://semver.org): **major** for big changes in how Vlens works, **minor** for new features, **patch** for fixes.
 
+## Unreleased
+
+**Terminal profiles**
+- Settings → Appearance → **Terminal profile** sets the colours, font, size, line height and cursor for the Terminal panel and the CLI view. Open terminals change right away.
+- Built in: Vlens (matches the app, the default), Dracula, Nord, One Dark, Tokyo Night, Catppuccin Mocha, Gruvbox Dark, Solarized Dark and Light, and GitHub Light.
+- macOS Terminal's own profiles too: Basic, Clear Dark, Clear Light, Grass, Homebrew, Man Page, Novel, Ocean, Pro, Red Sands, Silver Aerogel and Solid Colors, with their colours, fonts and cursors. Basic follows light and dark like it does in Terminal. Translucent ones are solid here, and Solid Colors has no background picture.
+- **Customize a copy** of any profile to make your own: name, colour scheme, font, size, line height, cursor style and blink, and your own background, text and cursor colours.
+- Open terminals now also follow light/dark and accent changes, instead of keeping the colours they started with.
+
 ## 1.1.0 — 2026-10-28
 
 **Claude Lens is now Vlens**
