@@ -1,11 +1,13 @@
 "use client";
 
 import { Copy, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import {
   type CursorStyle,
   deleteProfile,
   duplicateProfile,
   FONT_SUGGESTIONS,
+  isLightProfile,
   profileColors,
   selectProfile,
   type TermProfile,
@@ -21,8 +23,9 @@ const btn = "inline-flex items-center gap-1.5 rounded-lg border border-line px-2
 const input = "rounded-lg border border-line bg-bg px-2 py-1.5 text-sm outline-none focus:border-accent";
 
 function Preview({ p }: { p: TermProfile }) {
-  const c = profileColors(p);
-  const app = useTheme() === "dark" ? VLENS_TERM.dark : VLENS_TERM.light;
+  const dark = useTheme() === "dark";
+  const c = profileColors(p, dark);
+  const app = dark ? VLENS_TERM.dark : VLENS_TERM.light;
   const fg = c?.foreground ?? app.foreground;
   const dots = c?.red ? [c.red, c.green, c.yellow, c.blue, c.magenta, c.cyan] : [c?.cursor ?? "var(--accent)"];
   return (
@@ -54,6 +57,44 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {label}
       {children}
     </label>
+  );
+}
+
+// A number box you can type into: the text is yours while you type (so "1" on
+// the way to "14" isn't thrown away), and an in-range value applies right away
+// (so the arrows still work live). On blur or Enter it's clamped and applied.
+function NumberField({ value, min, max, step, onChange }: { value: number; min: number; max: number; step: number; onChange: (v: number) => void }) {
+  const [text, setText] = useState(String(value));
+  const editing = useRef(false);
+  useEffect(() => {
+    if (!editing.current) setText(String(value));
+  }, [value]);
+  const commit = () => {
+    editing.current = false;
+    const v = Number(text);
+    const next = text.trim() === "" || !Number.isFinite(v) ? value : Math.min(max, Math.max(min, v));
+    setText(String(next));
+    if (next !== value) onChange(next);
+  };
+  return (
+    <input
+      className={`${input} w-20`}
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={text}
+      onFocus={() => (editing.current = true)}
+      onChange={(e) => {
+        setText(e.target.value);
+        const v = Number(e.target.value);
+        if (e.target.value.trim() !== "" && v >= min && v <= max && v !== value) onChange(v);
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+      }}
+    />
   );
 }
 
@@ -120,32 +161,10 @@ function Editor({ p }: { p: TermProfile }) {
       </Field>
       <div className="flex gap-3">
         <Field label="Size">
-          <input
-            className={`${input} w-20`}
-            type="number"
-            min={8}
-            max={32}
-            step={0.5}
-            value={p.fontSize}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              if (v >= 8 && v <= 32) set({ fontSize: v });
-            }}
-          />
+          <NumberField value={p.fontSize} min={8} max={32} step={0.5} onChange={(fontSize) => set({ fontSize })} />
         </Field>
         <Field label="Line height">
-          <input
-            className={`${input} w-20`}
-            type="number"
-            min={1}
-            max={2}
-            step={0.05}
-            value={p.lineHeight}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              if (v >= 1 && v <= 2) set({ lineHeight: v });
-            }}
-          />
+          <NumberField value={p.lineHeight} min={1} max={2} step={0.05} onChange={(lineHeight) => set({ lineHeight })} />
         </Field>
       </div>
       <Field label="Cursor">
@@ -179,6 +198,7 @@ function Editor({ p }: { p: TermProfile }) {
 
 export function TermProfileSettings() {
   const { profiles, current } = useTermProfiles();
+  const dark = useTheme() === "dark";
   const group = (p: TermProfile) => (p.builtin ? termThemeById(p.scheme).group : "custom");
   const groups: [string, TermProfile[]][] = [
     ["Popular schemes", profiles.filter((p) => p.builtin && !group(p))],
@@ -222,6 +242,12 @@ export function TermProfileSettings() {
         )}
         {current.builtin && <span className="text-xs text-muted">Built-in profiles can&apos;t be edited. Copy one to set your own font, size, cursor and colours.</span>}
       </div>
+      {isLightProfile(current, dark) && (
+        <p className="mt-2 text-xs text-muted">
+          The CLI view shows Claude Code&apos;s own screen, which takes its colours from Claude&apos;s theme, not the terminal&apos;s. With a light profile, set a light
+          theme in Claude too (<code>/theme</code>), or its text can be faint.
+        </p>
+      )}
       {!current.builtin && <Editor p={current} />}
     </div>
   );

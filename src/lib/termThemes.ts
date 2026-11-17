@@ -543,7 +543,7 @@ export const TERMINAL_APP_THEMES: TermTheme[] = [
 TERM_THEMES.push(...TERMINAL_APP_THEMES);
 
 // The app's own terminal colours (--term-bg / --term-text in globals.css; keep in
-// sync). For previews, since the variables show the chosen profile's colours.
+// sync). For previews and the editor's colour fallbacks.
 export const VLENS_TERM = { light: { background: "#16140f", foreground: "#e8e2d4" }, dark: { background: "#121110", foreground: "#e8e2d4" } };
 
 export const termThemeById = (id: string | null | undefined) => TERM_THEMES.find((t) => t.id === id) ?? TERM_THEMES[0];
@@ -551,4 +551,4 @@ export const termThemeById = (id: string | null | undefined) => TERM_THEMES.find
 // The chosen profile's background and text colours (light, then dark), saved alongside it, so the
 // boot script can set them before the first paint (no flash of the wrong colours).
 export const TERM_COLORS_KEY = "lens.termColors";
-export const TERM_BOOT_SNIPPET = `try{var tc=JSON.parse(localStorage.getItem("${TERM_COLORS_KEY}")||"null");if(tc){var dk=document.documentElement.dataset.theme==="dark"?2:0,rs=document.documentElement.style;if(tc[dk])rs.setProperty("--term-bg",tc[dk]);if(tc[dk+1])rs.setProperty("--term-text",tc[dk+1])}}catch(e){}`;
+export const TERM_BOOT_SNIPPET = `try{var tc=JSON.parse(localStorage.getItem("${TERM_COLORS_KEY}")||"null");if(tc){var dk=document.documentElement.dataset.theme==="dark"?2:0,rs=document.documentElement.style;if(tc[dk])rs.setProperty("--term-profile-bg",tc[dk]);if(tc[dk+1])rs.setProperty("--term-profile-text",tc[dk+1])}}catch(e){}`;

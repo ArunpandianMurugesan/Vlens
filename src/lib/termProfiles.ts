@@ -101,24 +101,35 @@ export function profileColors(p: TermProfile, dark = isDark()): Partial<TermPale
 
 const isDark = () => typeof document !== "undefined" && document.documentElement.dataset.theme === "dark";
 
-// Puts the chosen profile's background and text colours on <html> (the panels
-// around the terminal and code blocks use them), and saves them, for light and
-// for dark, for the boot script.
+// Puts the chosen profile's background and text colours on <html> as
+// --term-profile-bg / --term-profile-text, which only the Terminal panel and CLI
+// view use (the app's own --term-* stay as they are for code blocks and tool
+// output), and saves them, for light and for dark, for the boot script.
 function applyColors() {
   const p = currentProfile();
   const light = profileColors(p, false);
   const dark = profileColors(p, true);
   const c = isDark() ? dark : light;
   const rs = document.documentElement.style;
-  const pair = [c?.background, c?.foreground];
   try {
     if (light || dark) localStorage.setItem(TERM_COLORS_KEY, JSON.stringify([light?.background, light?.foreground, dark?.background, dark?.foreground]));
     else localStorage.removeItem(TERM_COLORS_KEY);
   } catch {}
-  if (pair[0]) rs.setProperty("--term-bg", pair[0]);
-  else rs.removeProperty("--term-bg");
-  if (pair[1]) rs.setProperty("--term-text", pair[1]);
-  else rs.removeProperty("--term-text");
+  if (c?.background) rs.setProperty("--term-profile-bg", c.background);
+  else rs.removeProperty("--term-profile-bg");
+  if (c?.foreground) rs.setProperty("--term-profile-text", c.foreground);
+  else rs.removeProperty("--term-profile-text");
+}
+
+// Is this profile's background light? Claude's own screen (the CLI view) takes
+// its colours from Claude's theme setting, not the terminal's, so it can be faint
+// on a light background.
+export function isLightProfile(p: TermProfile, dark = isDark()) {
+  const m = /^#([0-9a-f]{6})$/i.exec(profileColors(p, dark)?.background ?? "");
+  if (!m) return false;
+  const n = parseInt(m[1], 16);
+  const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 140;
 }
 
 function saveCustom(list: TermProfile[]) {
@@ -139,7 +150,7 @@ export function selectProfile(id: string) {
 // A new profile copied from `from`, chosen right away.
 export function duplicateProfile(from: TermProfile): TermProfile {
   const custom = readCustom();
-  const copy: TermProfile = { ...from, builtin: false, id: `custom-${Date.now().toString(36)}`, name: `${from.name.replace(/ \(match app\)$/, "")} copy` };
+  const copy: TermProfile = { ...from, builtin: false, id: `custom-${crypto.randomUUID()}`, name: `${from.name.replace(/ \(match app\)$/, "")} copy` };
   saveCustom([...custom, copy]);
   selectProfile(copy.id);
   return copy;
@@ -162,32 +173,31 @@ export function deleteProfile(id: string) {
 }
 
 // A profile can look different in light and dark (Terminal.app's Basic does):
-// follow the app when it switches.
-let followingTheme = false;
-function followTheme() {
-  if (followingTheme) return;
-  followingTheme = true;
+// follow the app when it switches. And another Vlens window can change the
+// profiles: drop the cached snapshot even when nothing here is subscribed yet,
+// so new terminals open with the current profile.
+let following = false;
+function follow() {
+  if (following) return;
+  following = true;
   new MutationObserver(applyColors).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-}
-
-export function subscribeProfiles(cb: () => void) {
-  followTheme();
-  listeners.add(cb);
-  // Another Vlens window changed them.
-  const onStorage = (e: StorageEvent) => {
-    if (e.key === PROFILE_KEY || e.key === CUSTOM_KEY) {
+  window.addEventListener("storage", (e) => {
+    if (e.key === PROFILE_KEY || e.key === CUSTOM_KEY || e.key === null) {
       emit();
       applyColors();
     }
-  };
-  window.addEventListener("storage", onStorage);
+  });
+}
+
+export function subscribeProfiles(cb: () => void) {
+  follow();
+  listeners.add(cb);
   return () => {
     listeners.delete(cb);
-    window.removeEventListener("storage", onStorage);
   };
 }
 
 const server = { profiles: BUILTIN_PROFILES, current: BUILTIN_PROFILES[0] };
 export const useTermProfiles = () => useSyncExternalStore(subscribeProfiles, snapshot, () => server);
 
-if (typeof window !== "undefined") followTheme();
+if (typeof window !== "undefined") follow();

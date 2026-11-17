@@ -60,18 +60,32 @@ function profileOptions() {
   };
 }
 
-// Restyle every open terminal when the profile, light/dark or accent changes,
-// and refit it, since a new font or size changes how many cells fit.
+// Restyle every open terminal when the profile, light/dark or accent changes.
+// Only options that actually changed are set (typing a profile name changes
+// none), and only a new font, size or line height refits, since only those
+// change how many cells fit. xterm's colours come from profileOptions(), not
+// from the CSS variables applyColors() writes, so there's nothing to wait for.
+const FIT_KEYS = new Set(["fontFamily", "fontSize", "lineHeight"]);
 let watching = false;
 function watchProfile() {
   if (watching) return;
   watching = true;
+  let last = "";
   const restyle = () => {
     const opts = profileOptions();
+    const key = JSON.stringify(opts);
+    if (key === last) return;
+    last = key;
     for (const s of shells.values()) {
       if (!s.term) continue;
-      Object.assign(s.term.options, opts);
-      if (s.el.isConnected && s.el.offsetWidth) {
+      const o = s.term.options as Record<string, unknown>;
+      let refit = false;
+      for (const [k, v] of Object.entries(opts)) {
+        if (JSON.stringify(o[k]) === JSON.stringify(v)) continue;
+        o[k] = v;
+        if (FIT_KEYS.has(k)) refit = true;
+      }
+      if (refit && s.el.isConnected && s.el.offsetWidth) {
         s.fit?.fit();
         sendSize(s);
       }
@@ -80,7 +94,7 @@ function watchProfile() {
   subscribeProfiles(restyle);
   new MutationObserver(restyle).observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ["data-theme", "data-accent", "style"],
+    attributeFilter: ["data-theme", "data-accent"],
   });
 }
 
@@ -302,9 +316,9 @@ export function CliPane({ sessionId, cwd }: { sessionId: string; cwd: string | n
   const shell = shellFor(cliOwner(sessionId), cwd, sessionId);
   useShellIn(shell, box);
   return (
-    <section className="flex min-h-0 flex-1 flex-col bg-term text-term-ink">
+    <section className="flex min-h-0 flex-1 flex-col bg-term-profile text-term-profile-ink">
       {shell.err && (
-        <div className="flex items-center gap-2 border-b border-term-ink/10 px-3 py-1.5 text-xs text-term-ink/70">
+        <div className="flex items-center gap-2 border-b border-term-profile-ink/10 px-3 py-1.5 text-xs text-term-profile-ink/70">
           {shell.err}
           <button className="font-medium text-accent hover:underline" onClick={() => void stopCli(sessionId)}>
             Back to chat
@@ -315,7 +329,7 @@ export function CliPane({ sessionId, cwd }: { sessionId: string; cwd: string | n
         <div ref={box} className="absolute inset-0 px-3 py-2" />
         {/* claude takes a second to draw its first screen: say so instead of a blank box. */}
         {!shell.ready && !shell.err && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-xs text-term-ink/60">
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-xs text-term-profile-ink/60">
             <Loader2 size={13} className="animate-spin" /> Starting claude…
           </div>
         )}
@@ -353,12 +367,12 @@ export function TerminalPanel({ owner, cwd }: { owner: string; cwd: string | nul
     changed();
   };
 
-  const icon = "rounded-md p-1.5 text-term-ink/60 hover:bg-term-ink/10 hover:text-term-ink";
+  const icon = "rounded-md p-1.5 text-term-profile-ink/60 hover:bg-term-profile-ink/10 hover:text-term-profile-ink";
   return (
-    <section className="flex h-full min-h-0 min-w-0 flex-col bg-term text-term-ink">
-      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-term-ink/10 px-3 text-xs">
+    <section className="flex h-full min-h-0 min-w-0 flex-col bg-term-profile text-term-profile-ink">
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-term-profile-ink/10 px-3 text-xs">
         <span className="font-medium">Terminal</span>
-        <span className="flex min-w-0 items-center gap-1 truncate text-term-ink/60" title={folder}>
+        <span className="flex min-w-0 items-center gap-1 truncate text-term-profile-ink/60" title={folder}>
           <FolderOpen size={11} className="shrink-0" />
           <span className="truncate">{folder}</span>
         </span>
@@ -371,7 +385,7 @@ export function TerminalPanel({ owner, cwd }: { owner: string; cwd: string | nul
         </button>
       </div>
       {(shell.ended !== null || shell.err) && (
-        <div className="flex items-center gap-2 border-b border-term-ink/10 px-3 py-1.5 text-xs text-term-ink/70">
+        <div className="flex items-center gap-2 border-b border-term-profile-ink/10 px-3 py-1.5 text-xs text-term-profile-ink/70">
           {shell.err ?? `The shell ended (code ${shell.ended}).`}
           <button className="font-medium text-accent hover:underline" onClick={restart}>
             Start a new one
