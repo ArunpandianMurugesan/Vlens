@@ -253,13 +253,18 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
   const files = d?.data?.files ?? [];
   const changes = d?.data?.reviews.filter((r) => r.state === "CHANGES_REQUESTED").length ?? 0;
 
+  const compact = tab !== "overview";
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <header className="flex items-start gap-3 border-b border-line px-5 py-3.5">
-        <MenuButton onClick={onMenu} className="mt-1" />
+      {/* On a session tab the header shrinks to one line: the review and chat need the room. */}
+      <header className={`flex gap-3 border-b border-line ${compact ? "items-center px-4 py-2" : "items-start px-5 py-3.5"}`}>
+        <MenuButton onClick={onMenu} className={compact ? "" : "mt-1"} />
         <div className="min-w-0 flex-1">
-          <h1 className="text-lg font-semibold leading-snug">{pr.title}</h1>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted">
+          <h1 className={compact ? "truncate text-sm font-semibold" : "text-lg font-semibold leading-snug"} title={compact ? pr.title : undefined}>
+            {pr.title}
+            {compact && <span className="ml-2 font-normal text-muted">{pr.repo.split("/")[1]} #{pr.number}</span>}
+          </h1>
+          <div className={`mt-0.5 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted ${compact ? "hidden" : "flex"}`}>
             <a href={pr.url} target="_blank" rel="noreferrer" className="hover:text-accent hover:underline">
               {pr.repo.split("/")[1]} #{pr.number}
             </a>

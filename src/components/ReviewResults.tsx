@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Check, ChevronDown, ExternalLink, GitCommit, ImageIcon, Loader2, Send } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ExternalLink, GitCommit, ImageIcon, Loader2, Maximize2, Minimize2, Send } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ChatMessage, PrSummary } from "@/lib/types";
 import { Markdown } from "./Markdown";
@@ -51,6 +51,7 @@ export function resultOf(messages: ChatMessage[]): ReviewResult | ShotsResult | 
 // Reviews you posted, by PR and review content, so a refresh or coming back later
 // still shows them as posted (kept in this browser).
 const POSTED_KEY = "lens.reviewPosted";
+const BIG_KEY = "lens.reviewBig";
 type Posted = { url: string; note?: string; at: string };
 function readPosted(): Record<string, Posted> {
   try {
@@ -110,6 +111,20 @@ export function ReviewResults({ pr, sessionId, messages }: { pr: PrSummary; sess
   const [track, retrack] = useTrack(pr.url, sessionId);
   const [posted, setPosted] = useState<Posted | null>(null);
   const [open, setOpen] = useState(true);
+  // Big: the panel takes most of the height (the chat keeps a strip below it). Remembered.
+  const [big, setBig] = useState(false);
+  useEffect(() => {
+    try {
+      setBig(localStorage.getItem(BIG_KEY) === "1");
+    } catch {}
+  }, []);
+  const toggleBig = () =>
+    setBig((v) => {
+      try {
+        localStorage.setItem(BIG_KEY, v ? "0" : "1");
+      } catch {}
+      return !v;
+    });
   useEffect(() => {
     const p = readPosted()[key] ?? null;
     setPosted(p);
@@ -130,7 +145,7 @@ export function ReviewResults({ pr, sessionId, messages }: { pr: PrSummary; sess
     retrack();
   };
   return (
-    <section className="flex max-h-[60vh] shrink-0 flex-col border-b border-line bg-sunken/30">
+    <section className={`flex flex-col border-b border-line bg-sunken/30 ${open && big ? "min-h-0 flex-[5]" : "max-h-[72vh] shrink-0"}`}>
       <div className="flex items-center gap-2 px-4 py-2 text-sm">
         <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-2 text-left">
           {result.kind === "review" ? <Check size={14} className="shrink-0 text-accent" /> : <ImageIcon size={14} className="shrink-0 text-accent" />}
@@ -149,6 +164,11 @@ export function ReviewResults({ pr, sessionId, messages }: { pr: PrSummary; sess
               </a>
             )}
           </span>
+        )}
+        {open && (
+          <button onClick={toggleBig} title={big ? "Smaller: show more of the chat" : "Bigger: give the review most of the screen"} aria-label={big ? "Make the review panel smaller" : "Make the review panel bigger"} className="shrink-0 rounded p-1 text-muted hover:bg-sunken hover:text-ink">
+            {big ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          </button>
         )}
       </div>
       {open && (result.kind === "review" ? <Findings key={key} reviewKey={key} sessionId={sessionId} track={track} pr={pr} r={result} posted={posted} onPosted={onPosted} /> : <div className="overflow-y-auto px-4 pb-3 scroll-thin"><Shots r={result} /></div>)}
