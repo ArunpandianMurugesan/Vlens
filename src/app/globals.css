@@ -148,6 +148,10 @@
   --color-user: var(--user-bubble);
   --color-term: var(--term-bg);
   --color-term-ink: var(--term-text);
+  /* The Terminal panel and CLI view: the chosen terminal profile's colours
+     (set on <html> by lib/termProfiles.ts), else the app's. */
+  --color-term-profile: var(--term-profile-bg, var(--term-bg));
+  --color-term-profile-ink: var(--term-profile-text, var(--term-text));
   /* SF Pro and SF Mono, the Mac's own fonts (not bundled: Apple doesn't allow
      it). -apple-system picks SF Pro Text or Display by size. */
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, "Helvetica Neue", sans-serif;

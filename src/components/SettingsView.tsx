@@ -33,6 +33,7 @@ import { askNotificationPermission, notificationPermission, notify } from "@/lib
 import type { Account, HookEntry, McpServer, Settings, Skill, UpdateInfo } from "@/lib/types";
 import { MermaidBlock } from "./Mermaid";
 import { WhiteboardBlock } from "./Whiteboard";
+import { TermProfileSettings } from "./TermProfileSettings";
 import { AccentPicker, ThemePicker } from "./ThemeToggle";
 
 async function post<T = unknown>(url: string, body: object): Promise<T> {
@@ -1235,7 +1236,7 @@ const CARDS: { id: CardId; icon: typeof User; title: string; hint: string }[] = 
   { id: "account", icon: User, title: "Account", hint: "Who Claude is signed in as. Switch or sign out." },
   { id: "agent", icon: BrainCircuit, title: "AI agent", hint: "Which coding agent Vlens drives: Claude Code today." },
   { id: "model", icon: Cpu, title: "Model", hint: "The default model for replies and new sessions." },
-  { id: "appearance", icon: Palette, title: "Appearance", hint: "Light or dark, and the accent colour." },
+  { id: "appearance", icon: Palette, title: "Appearance", hint: "Light or dark, the accent colour and terminal profiles." },
   { id: "notify", icon: Bell, title: "Notifications", hint: "When Claude needs you or finishes." },
   { id: "skills", icon: Wand2, title: "Skills", hint: "Your skills and each project's. Create, edit, switch off." },
   { id: "hooks", icon: Webhook, title: "Hooks", hint: "Commands Claude runs on events. Add, edit, pause." },
@@ -1261,6 +1262,9 @@ export function SettingsView({ chat, onBack, initial }: { chat: TreeChat; onBack
             </Row>
             <Row label="Accent colour" hint="Buttons, links, highlights and charts.">
               <AccentPicker />
+            </Row>
+            <Row label="Terminal profile" hint="Colours, font, size and cursor for the Terminal panel and the CLI view. Open terminals change right away.">
+              <TermProfileSettings />
             </Row>
           </Section>
         );

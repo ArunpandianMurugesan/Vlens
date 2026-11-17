@@ -1,7 +1,7 @@
 {
   "name": "vlens-desktop",
   "productName": "Vlens",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Vlens as a Mac app.",
   "private": true,
   "main": "main.cjs",

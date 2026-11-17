@@ -385,7 +385,7 @@ function ChatWithFiles({ chat, onMenu }: { chat: ReturnType<typeof useTreeChat>;
               {!chat.activeId || chat.session?.id === chat.activeId ? (
                 <TerminalPanel owner={chat.activeId ?? `folder:${cwd ?? "~"}`} cwd={cwd} />
               ) : (
-                <div className="h-full bg-term" />
+                <div className="h-full bg-term-profile" />
               )}
             </div>
           )}
