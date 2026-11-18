@@ -35,7 +35,7 @@ import { forkSession } from "@/lib/fork";
 import { setCollapsed, toggleSidebar, useSidebarCollapsed } from "@/lib/sidebar";
 import type { Review } from "@/hooks/useReview";
 import type { TreeChat } from "@/hooks/useTreeChat";
-import { ReviewSidebar } from "./ReviewSidebar";
+import { ReviewSidebar, ReviewSidebarTitle } from "./ReviewSidebar";
 import { PlanUsage } from "./Usage";
 import type { SessionSummary } from "@/lib/types";
 
@@ -398,18 +398,25 @@ export function Sidebar({
       >
         {/* Like a Mac window's title area: room for the traffic lights, what needs you, hide. */}
         <div data-drag className="flex h-[52px] shrink-0 items-center gap-1 px-3">
-          <button
-            onClick={() => {
-              onHome();
-              onClose();
-            }}
-            className="rounded-md p-1 text-muted hover:bg-panel hover:text-ink"
-            title="Home (⇧⌘H)"
-            aria-label="Home"
-          >
-            <HomeIcon size={15} />
-          </button>
-          <span className="flex-1" />
+          {/* In PR Review this row is its title (Home is a Sessions page; the rail goes there). */}
+          {tab === "review" ? (
+            <ReviewSidebarTitle review={review} />
+          ) : (
+            <>
+              <button
+                onClick={() => {
+                  onHome();
+                  onClose();
+                }}
+                className="rounded-md p-1 text-muted hover:bg-panel hover:text-ink"
+                title="Home (⇧⌘H)"
+                aria-label="Home"
+              >
+                <HomeIcon size={15} />
+              </button>
+              <span className="flex-1" />
+            </>
+          )}
           {waiting.length > 0 && (
             <button
               onClick={jump}
@@ -519,7 +526,8 @@ export function Sidebar({
           </>
         )}
 
-        <div className="flex items-center gap-1.5 border-t border-line px-3 py-2.5">
+        {/* New session and History belong to Sessions; PR Review keeps them only on a narrow window. */}
+        <div className={`items-center gap-1.5 border-t border-line px-3 py-2.5 ${tab === "review" ? "flex md:hidden" : "flex"}`}>
           <button
             onClick={() => {
               onNew();

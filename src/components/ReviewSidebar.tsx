@@ -91,9 +91,26 @@ export function statusLine(p: PrSummary) {
 
 // The PR Review left panel: where to go, not the lists themselves (those fill the
 // main area, PrInbox.tsx). New, My PRs, Needs my review, then Autopilot and how its day
+// The sidebar's top row in PR Review (in place of Home): the title, when GitHub was
+// last read, and a refresh.
+export function ReviewSidebarTitle({ review }: { review: Review }) {
+  const { board, loading, refresh } = review;
+  return (
+    <span className="flex min-w-0 flex-1 items-center gap-2 pl-1 text-[0.7rem] text-muted">
+      <strong className="flex-1 truncate text-[0.95rem] text-ink">PR Review</strong>
+      <span title={board?.login ? `Signed in to GitHub as @${board.login}` : undefined}>
+        {loading ? "Syncing…" : !board?.fetchedAt ? "" : Date.now() - Date.parse(board.fetchedAt) < 60_000 ? "Synced now" : `Synced ${ago(board.fetchedAt)} ago`}
+      </span>
+      <button onClick={() => void refresh()} disabled={loading} aria-label="Get the latest from GitHub" title="Get the latest from GitHub" className="rounded-md p-1 hover:bg-panel hover:text-ink disabled:opacity-60">
+        <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+      </button>
+    </span>
+  );
+}
+
 // is going.
 export function ReviewSidebar({ review, onDone }: { review: Review; onDone: () => void }) {
-  const { board, prs, loading, refresh, inbox, goInbox, news, auto, selected, boardOpen, rulesOpen, setBoardOpen, planOf } = review;
+  const { prs, inbox, goInbox, news, auto, selected, boardOpen, rulesOpen, setBoardOpen, planOf } = review;
   const away = !!selected || boardOpen || rulesOpen; // a PR, the board or settings is open
   const count = {
     new: news.length,
@@ -111,15 +128,6 @@ export function ReviewSidebar({ review, onDone }: { review: Review; onDone: () =
   ] as const;
   return (
     <div className="flex min-h-0 flex-1 flex-col px-2.5">
-      <div className="flex items-center gap-2 px-2 pb-2 text-[0.7rem] text-muted">
-        <strong className="flex-1 text-[0.95rem] text-ink">PR Review</strong>
-        <span title={board?.login ? `Signed in to GitHub as @${board.login}` : undefined}>
-          {loading ? "Syncing…" : !board?.fetchedAt ? "" : Date.now() - Date.parse(board.fetchedAt) < 60_000 ? "Synced now" : `Synced ${ago(board.fetchedAt)} ago`}
-        </span>
-        <button onClick={() => void refresh()} disabled={loading} aria-label="Get the latest from GitHub" title="Get the latest from GitHub" className="rounded-md p-1 hover:bg-panel hover:text-ink disabled:opacity-60">
-          <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
-        </button>
-      </div>
       <nav aria-label="PR lists" className="space-y-0.5">
         {items.map(({ id, label, Icon, hot }) => {
           const on = inbox === id && !away;
