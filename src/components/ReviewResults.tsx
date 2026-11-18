@@ -3,6 +3,7 @@
 import { AlertTriangle, Check, ChevronDown, ExternalLink, GitCommit, ImageIcon, Loader2, Maximize2, Minimize2, Send } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ChatMessage, PrSummary } from "@/lib/types";
+import { type PriorCheck, parseResult, type ReviewResult, type ShotsResult } from "@/lib/reviewResult";
 import { Markdown } from "./Markdown";
 
 // What a PR session's skill handed back, shown above its chat on the Review page:
@@ -11,12 +12,7 @@ import { Markdown } from "./Markdown";
 // Both come from a ```json block at the end of Claude's reply (see reviewPrompt and
 // beforeAfterPrompt in ReviewView.tsx).
 
-export type Finding = { id?: string; file: string; line: number; body: string; severity?: string };
-// An earlier inline comment, checked against the code now (see reviewPrompt).
-export type PriorCheck = { commentId?: number; file?: string; line?: number; author?: string; status: "fixed" | "unfixed" | "unverified"; evidence?: string };
-type ReviewResult = { kind: "review"; verdict: string; summary: string; findings: Finding[]; priorChecks: PriorCheck[] };
-type Shot = { label: string; before?: string; after?: string };
-type ShotsResult = { kind: "shots"; verdict: string; summary: string; shots: Shot[] };
+export type { Finding, PriorCheck } from "@/lib/reviewResult";
 
 const btn = "inline-flex items-center gap-1 rounded-lg border border-line bg-bg px-2.5 py-1 text-xs hover:border-accent hover:text-accent disabled:opacity-50";
 const primary = "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50";
@@ -26,24 +22,8 @@ export function resultOf(messages: ChatMessage[]): ReviewResult | ShotsResult | 
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (m.role !== "assistant") continue;
-    const text = m.blocks.map((b) => (b.kind === "text" ? b.text : "")).join("\n");
-    const blocks = [...text.matchAll(/```json\s*([\s\S]*?)```/g)].map((x) => x[1]).reverse();
-    for (const raw of blocks) {
-      try {
-        const j = JSON.parse(raw);
-        if (Array.isArray(j.findings))
-          return {
-            kind: "review",
-            verdict: String(j.verdict ?? "COMMENT").toUpperCase(),
-            summary: String(j.summary ?? ""),
-            findings: j.findings.filter((f: Finding) => f && f.file && f.body).map((f: Finding) => ({ ...f, line: Number(f.line) || 0 })),
-            priorChecks: (Array.isArray(j.priorChecks) ? j.priorChecks : [])
-              .filter((c: PriorCheck) => c && ["fixed", "unfixed", "unverified"].includes(c.status))
-              .map((c: PriorCheck) => ({ ...c, commentId: Number(c.commentId) || undefined, line: Number(c.line) || undefined })),
-          };
-        if (Array.isArray(j.shots)) return { kind: "shots", verdict: String(j.verdict ?? ""), summary: String(j.summary ?? ""), shots: j.shots };
-      } catch {}
-    }
+    const r = parseResult(m.blocks.map((b) => (b.kind === "text" ? b.text : "")).join("\n"));
+    if (r) return r;
   }
   return null;
 }

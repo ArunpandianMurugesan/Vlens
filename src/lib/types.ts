@@ -243,6 +243,7 @@ export interface PrSummary {
   createdAt: string;
   updatedAt: string;
   head: string;
+  headSha: string; // the head commit
   base: string;
   additions: number;
   deletions: number;

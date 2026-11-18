@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/autopilot";
 import { isPrUrl, prSnapshot, recordRun, recordsFor } from "@/lib/reviewRecords";
 
 export const dynamic = "force-dynamic";
@@ -19,13 +20,14 @@ export async function GET(req: Request) {
 // POST { url, sessionId }: a review just started in that session. Notes which
 // commit (and diff) it is looking at.
 export async function POST(req: Request) {
-  const b = (await req.json().catch(() => ({}))) as { url?: string; sessionId?: string };
+  const b = (await req.json().catch(() => ({}))) as { url?: string; sessionId?: string; title?: string };
   const url = String(b.url ?? "");
   const sessionId = String(b.sessionId ?? "");
   if (!isPrUrl(url) || !/^[0-9a-f-]{36}$/.test(sessionId)) return Response.json({ error: "Expected a PR link and a session id." }, { status: 400 });
   try {
     const snap = await prSnapshot(url, true);
     await recordRun(url, { sessionId, ...snap, at: new Date().toISOString() });
+    await logActivity({ kind: "reviewed", url, title: typeof b.title === "string" ? b.title.slice(0, 200) : undefined, detail: `You started a review at ${snap.headSha.slice(0, 7)}` });
     return Response.json({ ok: true, ...snap });
   } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 502 });

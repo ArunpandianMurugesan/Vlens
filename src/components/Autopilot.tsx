@@ -1,0 +1,799 @@
+"use client";
+
+import { ArrowDown, ArrowUp, Bot, ChevronLeft, ChevronRight, Hand, LayoutGrid, Pause, Play, Plus, RotateCcw, Settings2, Trash2, Zap } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
+import type { Review } from "@/hooks/useReview";
+import {
+  type Activity,
+  type AutopilotRules,
+  DEFAULT_RULES,
+  type Depth,
+  DEPTH_LABEL,
+  LANE_LABEL,
+  type Plan,
+  PLAN_LABEL,
+  type PlanState,
+  planFor,
+  THEN_LABEL,
+  type Workflow,
+  type WorkflowLane,
+  type WorkflowThen,
+} from "@/lib/autopilotPlan";
+import type { PrSummary } from "@/lib/types";
+import { ago } from "./ReviewSidebar";
+import { MenuButton } from "./Sidebar";
+
+// Autopilot in Vlens Review: a status chip on each PR, its own sidebar tab (what it
+// handed back, what's queued, what it did), the Rules page, and a card on a PR's
+// Overview. Autopilot only plans for now: it shows what it would do, and reviews still
+// start from your click.
+
+const CHIP: Record<PlanState, string> = {
+  handoff: "bg-red-500/10 text-red-700 dark:text-red-300",
+  changed: "bg-amber-500/15 text-amber-800 dark:text-amber-300",
+  queued: "bg-violet-500/10 text-violet-700 dark:text-violet-300",
+  reviewed: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
+  posted: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+  paused: "bg-sunken text-muted",
+  skip: "bg-sunken text-muted",
+};
+
+// Rows in the Reviews and My PRs lists show only what's news: not "skipped", and
+// "queued" only while autopilot is on.
+export function PlanChip({ plan, enabled, always = false }: { plan: Plan | null; enabled: boolean; always?: boolean }) {
+  if (!plan) return null;
+  if (!always && (plan.state === "skip" || (plan.state === "queued" && !enabled))) return null;
+  return (
+    <span title={`Autopilot: ${plan.why}`} className={`inline-flex shrink-0 items-center gap-0.5 rounded px-1 text-[0.65rem] ${CHIP[plan.state]}`}>
+      <Bot size={10} /> {PLAN_LABEL[plan.state]}
+    </span>
+  );
+}
+
+const SECTIONS: { id: PlanState | "done"; label: string; tone: string; folded?: boolean; states: PlanState[] }[] = [
+  { id: "handoff", label: "Handed to you", tone: "text-red-700 dark:text-red-400", states: ["handoff"] },
+  { id: "changed", label: "New changes since review", tone: "text-amber-700 dark:text-amber-400", states: ["changed"] },
+  { id: "queued", label: "Queue", tone: "text-violet-700 dark:text-violet-400", states: ["queued"] },
+  { id: "done", label: "Reviewed", tone: "text-emerald-700 dark:text-emerald-400", states: ["reviewed", "posted"] },
+  { id: "paused", label: "Paused", tone: "text-muted", folded: true, states: ["paused"] },
+  { id: "skip", label: "Skipped by the rules", tone: "text-muted", folded: true, states: ["skip"] },
+];
+
+const ACT_ICON: Record<Activity["kind"], string> = {
+  reviewed: "🔍",
+  posted: "📮",
+  handed: "✋",
+  skipped: "⏭",
+  paused: "⏸",
+  resumed: "▶️",
+  rules: "⚙️",
+  error: "⚠️",
+};
+
+// The sidebar's Autopilot tab.
+export function AutopilotPanel({ review, prs, onPick }: { review: Review; prs: PrSummary[]; onPick: (url: string) => void }) {
+  const { auto, selected, setRulesOpen, rulesOpen } = review;
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const plans = useMemo(() => (auto ? prs.map((p) => ({ p, plan: planFor(p, auto) })) : []), [prs, auto]);
+  if (!auto) return <p className="px-3 py-4 text-center text-xs text-muted">Loading autopilot…</p>;
+  const r = auto.rules;
+  return (
+    <nav className="mt-1 flex-1 overflow-y-auto px-2 pb-3 scroll-thin" aria-label="Autopilot">
+      <div className="m-1 space-y-2 rounded-xl border border-line bg-panel px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm">
+          <Bot size={15} className={r.enabled ? "text-accent" : "text-muted"} />
+          <span className="font-semibold">Autopilot</span>
+          <span className={`rounded-full px-1.5 text-[0.65rem] ${r.enabled ? "bg-accent/15 text-accent" : "bg-sunken text-muted"}`}>{r.enabled ? "on" : "off"}</span>
+          <button
+            onClick={() => review.setBoardOpen(true)}
+            aria-pressed={review.boardOpen && !rulesOpen}
+            className={`ml-auto inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${review.boardOpen && !rulesOpen ? "border-accent text-accent" : "border-line hover:border-accent hover:text-accent"}`}
+          >
+            <LayoutGrid size={11} /> Board
+          </button>
+          <button
+            onClick={() => setRulesOpen(true)}
+            aria-pressed={rulesOpen}
+            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${rulesOpen ? "border-accent text-accent" : "border-line hover:border-accent hover:text-accent"}`}
+          >
+            <Settings2 size={11} /> Settings
+          </button>
+        </div>
+        <p className="text-[0.7rem] leading-relaxed text-muted">
+          {r.workflows.filter((w) => w.enabled).length} of {r.workflows.length} workflows on · {auto.today}/{r.dailyCap} reviews today. It plans only for now.
+        </p>
+      </div>
+
+      {SECTIONS.map((g) => {
+        const list = plans.filter((x) => g.states.includes(x.plan.state));
+        if (!list.length) return null;
+        const folded = !!g.folded && !open[g.id];
+        return (
+          <div key={g.id} className="pt-2">
+            <button
+              onClick={() => g.folded && setOpen((o) => ({ ...o, [g.id]: !o[g.id] }))}
+              className={`flex w-full items-center gap-1.5 px-2 pb-1 text-left text-[0.75rem] font-bold ${g.tone} ${g.folded ? "hover:text-ink" : "cursor-default"}`}
+            >
+              {g.folded && <ChevronRight size={12} className={`transition-transform ${folded ? "" : "rotate-90"}`} />}
+              {g.label}
+              <span className="font-normal text-muted">{list.length}</span>
+            </button>
+            {!folded && (
+              <div className="space-y-1">
+                {list.map(({ p, plan }) => (
+                  <button
+                    key={p.url}
+                    onClick={() => onPick(p.url)}
+                    aria-current={p.url === selected}
+                    className={`flex w-full flex-col gap-1 rounded-lg border px-2.5 py-2 text-left transition ${p.url === selected ? "border-accent/40 bg-panel shadow-sm" : "border-transparent hover:bg-panel/60"}`}
+                  >
+                    <span className="line-clamp-2 w-full text-sm font-medium leading-snug">{p.title}</span>
+                    <span className="flex w-full items-center gap-1.5 text-[0.7rem]">
+                      <span className="shrink-0 text-muted">
+                        {p.repo.split("/")[1]} #{p.number}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-muted">{plan.why}</span>
+                      <PlanChip plan={plan} enabled={r.enabled} always />
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      <div className="pt-3">
+        <div className="px-2 pb-1 text-[0.75rem] font-bold text-muted">Activity</div>
+        {!auto.activity.length && <p className="px-2 text-xs text-muted">Nothing yet. Reviews you start and post show up here.</p>}
+        <ul className="space-y-0.5">
+          {auto.activity.slice(0, 25).map((a, i) => {
+            const known = a.url && prs.some((p) => p.url === a.url);
+            const body = (
+              <>
+                <span aria-hidden className="w-4 shrink-0 text-center">
+                  {ACT_ICON[a.kind]}
+                </span>
+                <span className="min-w-0 flex-1">
+                  {a.title && <span className="block truncate font-medium text-ink">{a.title}</span>}
+                  <span className="text-muted">{a.detail}</span>
+                </span>
+                <span className="shrink-0 text-muted">{ago(a.at)}</span>
+              </>
+            );
+            return (
+              <li key={`${a.at}-${i}`}>
+                {known ? (
+                  <button onClick={() => onPick(a.url!)} className="flex w-full items-start gap-1.5 rounded-md px-2 py-1 text-left text-[0.7rem] hover:bg-panel/60">
+                    {body}
+                  </button>
+                ) : (
+                  <div className="flex items-start gap-1.5 px-2 py-1 text-[0.7rem]">{body}</div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </nav>
+  );
+}
+
+// On a PR's Overview: what autopilot thinks of this PR, and a Pause for it.
+export function AutomationCard({ review, pr }: { review: Review; pr: PrSummary }) {
+  const { auto, planOf, setPaused, setRulesOpen } = review;
+  const [busy, setBusy] = useState(false);
+  const plan = planOf(pr);
+  if (!auto || !plan) return null;
+  const t = auto.tracks[pr.url];
+  const paused = !!auto.paused[pr.url];
+  const wf = auto.rules.workflows.find((w) => w.id === plan.workflow?.id);
+  const toggle = async () => {
+    setBusy(true);
+    await setPaused(pr, !paused).catch(() => {});
+    setBusy(false);
+  };
+  return (
+    <section className="rounded-2xl border border-line bg-panel px-4 py-3.5">
+      <div className="mb-2.5 flex items-center gap-2">
+        <Bot size={14} className={auto.rules.enabled ? "text-accent" : "text-muted"} />
+        <h2 className="text-sm font-semibold">Automation</h2>
+        <PlanChip plan={plan} enabled={auto.rules.enabled} always />
+        <button onClick={() => setRulesOpen(true)} className="ml-auto text-xs text-muted hover:text-accent">
+          Settings
+        </button>
+      </div>
+      <p className="text-sm">{sentence(plan, auto.rules.enabled)}</p>
+      {wf && (
+        <p className="mt-1 text-xs text-muted">
+          Workflow: {wf.name} · {THEN_LABEL[wf.then]} · {DEPTH_LABEL[wf.depth].split(":")[0]}
+        </p>
+      )}
+      <ul className="mt-2 space-y-0.5 text-xs text-muted">
+        <li>Last review: {t?.lastRun ? `${ago(t.lastRun.at)} ago, at ${t.lastRun.headSha.slice(0, 7)}` : "none yet"}</li>
+        <li>
+          Last posted:{" "}
+          {t?.lastPost ? (
+            <a href={t.lastPost.url} target="_blank" rel="noreferrer" className="hover:text-accent hover:underline">
+              {ago(t.lastPost.at)} ago, at {t.lastPost.headSha.slice(0, 7)}
+            </a>
+          ) : (
+            "never"
+          )}
+        </li>
+        <li>PR now at {pr.headSha.slice(0, 7) || "?"}</li>
+      </ul>
+      <button onClick={() => void toggle()} disabled={busy} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs hover:border-accent hover:text-accent disabled:opacity-50">
+        {paused ? <Play size={12} /> : <Pause size={12} />} {paused ? "Resume autopilot here" : "Pause autopilot for this PR"}
+      </button>
+    </section>
+  );
+}
+
+function sentence(plan: Plan, enabled: boolean) {
+  switch (plan.state) {
+    case "posted":
+      return "Done: a review is posted at the PR's current commit.";
+    case "reviewed":
+      return "Reviewed at the current commit. The findings wait for you in the Review tab.";
+    case "changed":
+      return `The PR moved on since the last review (${plan.why}). ${enabled ? "Autopilot would review it again." : "Worth another review."}`;
+    case "queued":
+      return enabled ? "In the queue: autopilot would review it next." : "Autopilot would review this one once it's on.";
+    case "handoff":
+      return `This one is yours: ${plan.why}.`;
+    case "paused":
+      return "Paused: autopilot leaves this PR alone.";
+    case "skip":
+      return `Autopilot skips it: ${plan.why}.`;
+  }
+}
+
+// ── The board: what autopilot does with every PR, in the main area ──
+
+export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () => void }) {
+  const { auto, prs, setRulesOpen, saveRules, setPaused, select } = review;
+  const [busy, setBusy] = useState(false);
+  const [folded, setFolded] = useState(true);
+  const plans = useMemo(() => (auto ? prs.map((p) => ({ p, plan: planFor(p, auto) })) : []), [prs, auto]);
+  if (!auto) return <main className="flex flex-1 items-center justify-center text-sm text-muted">Loading autopilot…</main>;
+  const r = auto.rules;
+  const by = (...states: PlanState[]) => plans.filter((x) => states.includes(x.plan.state));
+  const wfOf = (id?: string) => r.workflows.find((w) => w.id === id);
+  // Re-checks of PRs that moved on wait in the queue when their workflow re-checks; otherwise they need you.
+  const changed = by("changed");
+  const needsYou = [...by("handoff"), ...changed.filter((x) => !wfOf(x.plan.workflow?.id)?.recheck)];
+  const queue = [...changed.filter((x) => wfOf(x.plan.workflow?.id)?.recheck), ...by("queued")];
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const today = Object.entries(auto.tracks)
+    .filter(([, t]) => t.lastRun && Date.parse(t.lastRun.at) >= startOfDay.getTime())
+    .sort(([, a], [, b]) => b.lastRun!.at.localeCompare(a.lastRun!.at));
+  const toggle = async () => {
+    setBusy(true);
+    await saveRules({ ...r, enabled: !r.enabled }).catch(() => {});
+    setBusy(false);
+  };
+  const open = (url: string) => void select(url);
+  const label = (url: string) => {
+    const p = prs.find((x) => x.url === url);
+    const m = url.match(/github\.com\/[^/]+\/([^/]+)\/pull\/(\d+)/);
+    return { title: p?.title ?? (m ? `${m[1]} #${m[2]}` : url), where: m ? `${m[1]} #${m[2]}` : "" };
+  };
+  const skipped = by("skip");
+  const paused = by("paused");
+
+  return (
+    <main className="flex min-w-0 flex-1 flex-col">
+      <header className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2.5">
+        <MenuButton onClick={onMenu} />
+        <Bot size={16} className={r.enabled ? "text-accent" : "text-muted"} />
+        <h1 className="text-sm font-semibold">Autopilot</h1>
+        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${r.enabled ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-sunken text-muted"}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${r.enabled ? "bg-emerald-500" : "bg-muted"}`} aria-hidden /> {r.enabled ? "On" : "Off"}
+        </span>
+        <span className="text-xs text-muted">
+          {auto.today} of {r.dailyCap} reviews today · checks every {r.intervalMinutes} min
+        </span>
+        <span className="ml-auto flex items-center gap-2">
+          <button disabled title="Comes with the runner: autopilot doesn't start reviews by itself yet" className={btnS}>
+            <Zap size={12} /> Run now
+          </button>
+          <button onClick={() => void toggle()} disabled={busy} className={btnS}>
+            {r.enabled ? <Pause size={12} /> : <Play size={12} />} {r.enabled ? "Pause" : "Turn on"}
+          </button>
+          <button onClick={() => setRulesOpen(true)} className={btnS}>
+            <Settings2 size={12} /> Settings
+          </button>
+        </span>
+      </header>
+      <div className="flex-1 overflow-y-auto scroll-thin">
+        <div className="grid gap-4 px-5 py-5 lg:grid-cols-2 2xl:grid-cols-4">
+          <Column title="Needs you" n={needsYou.length} tone="text-red-700 dark:text-red-400" empty="Nothing handed to you.">
+            {needsYou.map(({ p, plan }) => (
+              <BoardCard key={p.url} title={p.title} where={`${p.repo.split("/")[1]} #${p.number}`} wf={plan.workflow?.name} why={plan.state === "handoff" ? `Handed to you: ${plan.why}` : plan.why} tone="border-red-500/30 bg-red-500/5">
+                <button onClick={() => open(p.url)} className={btnS}>
+                  Review it myself
+                </button>
+                <button onClick={() => void setPaused(p, true)} className={btnS}>
+                  Leave it
+                </button>
+              </BoardCard>
+            ))}
+          </Column>
+          <Column title="Running" n={0} tone="text-sky-700 dark:text-sky-400" empty="Nothing running. Autopilot doesn't start reviews by itself yet; reviews you start run in the PR's session tab." />
+          <Column title="In queue" n={queue.length} tone="text-violet-700 dark:text-violet-400" empty="The queue is empty.">
+            {queue.map(({ p, plan }, i) => (
+              <BoardCard key={p.url} n={i + 1} title={p.title} where={`${p.repo.split("/")[1]} #${p.number}`} wf={plan.workflow?.name} why={plan.state === "changed" ? "re-check after new commits" : i === 0 ? "next up" : "waiting"}>
+                <button onClick={() => open(p.url)} className={btnS}>
+                  Open
+                </button>
+                <button onClick={() => void setPaused(p, true)} className={btnS}>
+                  Skip
+                </button>
+              </BoardCard>
+            ))}
+            {(skipped.length > 0 || paused.length > 0) && (
+              <div className="rounded-xl border border-dashed border-line px-3 py-2 text-xs">
+                <button onClick={() => setFolded((f) => !f)} className="flex w-full items-center gap-1 text-left text-muted hover:text-ink">
+                  <ChevronRight size={12} className={`transition-transform ${folded ? "" : "rotate-90"}`} /> Skipped or paused ({skipped.length + paused.length})
+                </button>
+                {!folded && (
+                  <ul className="mt-1.5 space-y-1">
+                    {[...paused, ...skipped].map(({ p, plan }) => (
+                      <li key={p.url} className="flex items-center gap-1.5">
+                        <button onClick={() => open(p.url)} className="min-w-0 flex-1 truncate text-left hover:text-accent" title={p.title}>
+                          {p.title}
+                        </button>
+                        <span className="shrink-0 text-muted">{plan.why}</span>
+                        {plan.state === "paused" && (
+                          <button onClick={() => void setPaused(p, false)} className="shrink-0 text-accent hover:underline">
+                            Resume
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </Column>
+          <Column title="Reviewed today" n={today.length} tone="text-emerald-700 dark:text-emerald-400" empty="No reviews yet today.">
+            {today.map(([url, t]) => {
+              const l = label(url);
+              const posted = t.lastPost && Date.parse(t.lastPost.at) >= Date.parse(t.lastRun!.at);
+              const known = prs.some((x) => x.url === url);
+              return (
+                <BoardCard key={url} title={l.title} where={`${l.where} · ${new Date(t.lastRun!.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`} why={posted ? "you posted it" : "drafts waiting for you"}>
+                  {known && (
+                    <button onClick={() => open(url)} className={btnS}>
+                      Open
+                    </button>
+                  )}
+                </BoardCard>
+              );
+            })}
+          </Column>
+        </div>
+        <section className="mx-5 mb-6 rounded-2xl border border-line bg-panel px-4 py-3">
+          <h2 className="mb-2 text-sm font-semibold">Activity</h2>
+          {!auto.activity.length && <p className="text-xs text-muted">Nothing yet. Reviews you start and post show up here.</p>}
+          <ul className="space-y-1">
+            {auto.activity.slice(0, 40).map((a, i) => (
+              <li key={`${a.at}-${i}`} className="flex items-start gap-2 text-xs">
+                <span aria-hidden className="w-4 shrink-0 text-center">
+                  {ACT_ICON[a.kind]}
+                </span>
+                <span className="min-w-0 flex-1">
+                  {a.title && <span className="font-medium">{a.title} · </span>}
+                  <span className="text-muted">{a.detail}</span>
+                </span>
+                <span className="shrink-0 text-muted">{ago(a.at)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+const btnS = "inline-flex items-center gap-1 rounded-lg border border-line bg-panel px-2.5 py-1 text-xs hover:border-accent hover:text-accent disabled:opacity-50";
+
+function Column({ title, n, tone, empty, children }: { title: string; n: number; tone: string; empty: string; children?: ReactNode }) {
+  return (
+    <section className="flex min-w-0 flex-col gap-2.5 rounded-2xl bg-sunken/50 p-3">
+      <h2 className={`flex items-center gap-1.5 px-1 text-sm font-semibold ${tone}`}>
+        {title} <span className="rounded-full bg-panel px-1.5 text-xs font-normal text-muted">{n}</span>
+      </h2>
+      {children}
+      {!n && <p className="px-1 text-xs leading-relaxed text-muted">{empty}</p>}
+    </section>
+  );
+}
+
+function BoardCard({ n, title, where, wf, why, tone = "border-line bg-panel", children }: { n?: number; title: string; where: string; wf?: string; why: string; tone?: string; children?: ReactNode }) {
+  return (
+    <article className={`space-y-1.5 rounded-xl border px-3 py-2.5 ${tone}`}>
+      <div className="flex items-start gap-2">
+        {n !== undefined && <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-sunken text-[0.65rem] font-semibold">{n}</span>}
+        <div className="min-w-0 flex-1">
+          <div className="line-clamp-2 text-sm font-medium leading-snug">{title}</div>
+          <div className="truncate text-[0.7rem] text-muted">
+            {where}
+            {wf ? ` · ${wf}` : ""}
+          </div>
+        </div>
+      </div>
+      <p className="text-xs">{why}</p>
+      {children && <div className="flex flex-wrap gap-1.5 pt-0.5">{children}</div>}
+    </article>
+  );
+}
+
+// ── Settings: workflows, hand-off rules and limits ──
+
+const lines = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
+const commaList = (s: string) => s.split(/[,\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+
+export function RulesPage({ review, onMenu }: { review: Review; onMenu: () => void }) {
+  const { auto, saveRules, prs, setRulesOpen } = review;
+  const [draft, setDraft] = useState<AutopilotRules | null>(null);
+  const [text, setText] = useState({ sensitive: "", include: "", exclude: "" });
+  const [editing, setEditing] = useState<string | null>(null); // workflow id
+  const [state, setState] = useState<{ busy?: boolean; saved?: boolean; error?: string }>({});
+  const load = (r: AutopilotRules) => {
+    setDraft(r);
+    setText({ sensitive: r.sensitivePaths.join("\n"), include: r.repos.include.join("\n"), exclude: r.repos.exclude.join("\n") });
+  };
+  useEffect(() => {
+    if (auto && !draft) load(auto.rules);
+  }, [auto, draft]);
+  const rules = useMemo<AutopilotRules | null>(
+    () => draft && { ...draft, sensitivePaths: lines(text.sensitive), repos: { include: lines(text.include).map((s) => s.toLowerCase()), exclude: lines(text.exclude).map((s) => s.toLowerCase()) } },
+    [draft, text],
+  );
+  // What these settings would do to today's PRs, before you save them: overall, and per workflow.
+  const preview = useMemo(() => {
+    if (!rules || !auto) return null;
+    const n: Partial<Record<PlanState, number>> = {};
+    const per: Record<string, { picks: number; handed: number }> = {};
+    for (const p of prs) {
+      const plan = planFor(p, { ...auto, rules });
+      n[plan.state] = (n[plan.state] ?? 0) + 1;
+      if (plan.workflow && plan.state !== "skip") {
+        const w = (per[plan.workflow.id] ??= { picks: 0, handed: 0 });
+        w.picks++;
+        if (plan.state === "handoff") w.handed++;
+      }
+    }
+    return { n, per };
+  }, [rules, auto, prs]);
+  const badRegex = rules?.sensitivePaths.filter((s) => {
+    try {
+      new RegExp(s);
+      return false;
+    } catch {
+      return true;
+    }
+  });
+  if (!rules || !draft) return <main className="flex flex-1 items-center justify-center text-sm text-muted">Loading settings…</main>;
+  const set = (patch: Partial<AutopilotRules>) => {
+    setDraft({ ...draft, ...patch });
+    setState({});
+  };
+  const setWorkflows = (workflows: Workflow[]) => set({ workflows });
+  const patchWf = (id: string, patch: Partial<Workflow>) => setWorkflows(draft.workflows.map((w) => (w.id === id ? { ...w, ...patch } : w)));
+  const moveWf = (id: string, by: number) => {
+    const i = draft.workflows.findIndex((w) => w.id === id);
+    const j = i + by;
+    if (i < 0 || j < 0 || j >= draft.workflows.length) return;
+    const next = [...draft.workflows];
+    [next[i], next[j]] = [next[j], next[i]];
+    setWorkflows(next);
+  };
+  const addWf = () => {
+    const id = `wf-${Date.now().toString(36)}`;
+    setWorkflows([...draft.workflows, { id, name: "New workflow", enabled: false, lane: "needsYou", repos: [], depth: "standard", then: "draft", recheck: true }]);
+    setEditing(id);
+  };
+  const removeWf = (id: string) => {
+    setWorkflows(draft.workflows.filter((w) => w.id !== id));
+    setEditing(null);
+  };
+  const save = async () => {
+    setState({ busy: true });
+    try {
+      await saveRules(rules);
+      setDraft(null); // reload from what the server kept
+      setEditing(null);
+      setState({ saved: true });
+    } catch (e) {
+      setState({ error: (e as Error).message });
+    }
+  };
+  const changed = JSON.stringify(rules) !== JSON.stringify(auto?.rules);
+
+  return (
+    <main className="flex min-w-0 flex-1 flex-col">
+      <header className="flex items-center gap-3 border-b border-line px-4 py-2.5">
+        <MenuButton onClick={onMenu} />
+        <button
+          onClick={() => {
+            setRulesOpen(false);
+            review.setBoardOpen(true);
+          }}
+          className="inline-flex items-center gap-1 rounded-md bg-sunken px-2 py-1 text-xs hover:text-accent"
+        >
+          <ChevronLeft size={13} /> Back to Autopilot
+        </button>
+      </header>
+      <div className="flex-1 overflow-y-auto scroll-thin">
+        <div className="mx-auto max-w-5xl space-y-5 px-6 py-5">
+          <section className="flex items-center gap-4 rounded-2xl border border-line bg-panel px-5 py-4">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-700 dark:text-violet-300">
+              <Bot size={22} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-lg font-semibold">Autopilot settings</h1>
+              <p className="text-sm text-muted">Which PRs it picks, how hard it looks, and what it does with what it finds. It never approves.</p>
+            </div>
+            <span className="text-xs text-muted">Autopilot is {draft.enabled ? "on" : "off"}</span>
+            <Switch on={draft.enabled} onChange={(v) => set({ enabled: v })} label="Autopilot" big />
+          </section>
+          <p className="-mt-2 px-1 text-xs text-muted">For now, switching it on only fills the queue and the status chips. Running reviews by itself comes next; until then reviews start when you click.</p>
+
+          <div className="flex items-center">
+            <h2 className="flex-1 text-base font-semibold">Workflows</h2>
+            <button onClick={addWf} className="inline-flex items-center gap-1 rounded-lg border border-line bg-panel px-3 py-1 text-xs hover:border-accent hover:text-accent">
+              <Plus size={12} /> New workflow
+            </button>
+          </div>
+          <p className="-mt-3 text-xs text-muted">Checked top to bottom: when a PR fits more than one, the first one handles it.</p>
+          <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-3">
+            {draft.workflows.map((w, i) => (
+              <WorkflowCard
+                key={w.id}
+                w={w}
+                first={i === 0}
+                last={i === draft.workflows.length - 1}
+                stats={preview?.per[w.id]}
+                editing={editing === w.id}
+                onEdit={(on) => setEditing(on ? w.id : null)}
+                onChange={(patch) => patchWf(w.id, patch)}
+                onMove={(by) => moveWf(w.id, by)}
+                onRemove={() => removeWf(w.id)}
+              />
+            ))}
+            {!draft.workflows.length && <p className="text-sm text-muted">No workflows: autopilot won&apos;t pick any PR. Add one to start.</p>}
+          </div>
+
+          <div className="grid gap-3.5 md:grid-cols-2">
+            <Box title="Hand it to me when…" hint="Applies to every workflow. These PRs come to you instead.">
+              <Field label="It touches these paths (regular expressions, one per line; checked when it runs)">
+                <textarea value={text.sensitive} onChange={(e) => setText({ ...text, sensitive: e.target.value })} rows={4} className={`${input} font-mono text-xs`} />
+                {!!badRegex?.length && <span className="text-xs text-red-600">Not valid, will be dropped: {badRegex.join(", ")}</span>}
+              </Field>
+              <Row label="More changed lines than">
+                <input type="number" min={50} value={draft.maxChangedLines} onChange={(e) => set({ maxChangedLines: Number(e.target.value) })} className={`${field} w-24`} />
+              </Row>
+              <Row label="Skip PRs with this label">
+                <input value={draft.skipLabel} onChange={(e) => set({ skipLabel: e.target.value })} className={`${field} w-40 font-mono text-xs`} />
+              </Row>
+              <Row label="Skip draft PRs">
+                <Switch on={draft.skipDrafts} onChange={(v) => set({ skipDrafts: v })} label="Skip draft PRs" />
+              </Row>
+              <Field label="In my own words (Claude reads this)">
+                <textarea value={draft.handoffNotes} onChange={(e) => set({ handoffNotes: e.target.value })} rows={2} className={input} placeholder="e.g. anything that changes the public API" />
+              </Field>
+            </Box>
+            <Box title="Limits" hint="Reviews use your Claude plan, the same limit as your own chats.">
+              <Row label="Look for PRs every (min)">
+                <input type="number" min={5} max={240} value={draft.intervalMinutes} onChange={(e) => set({ intervalMinutes: Number(e.target.value) })} className={`${field} w-24`} />
+              </Row>
+              <Row label="At most, reviews per day">
+                <input type="number" min={1} max={100} value={draft.dailyCap} onChange={(e) => set({ dailyCap: Number(e.target.value) })} className={`${field} w-24`} />
+              </Row>
+              <Field label="Only these repos (owner/name, one per line; empty = all)">
+                <textarea value={text.include} onChange={(e) => setText({ ...text, include: e.target.value })} rows={2} className={`${input} font-mono text-xs`} placeholder="vendasta/galaxy" />
+              </Field>
+              <Field label="Never these repos">
+                <textarea value={text.exclude} onChange={(e) => setText({ ...text, exclude: e.target.value })} rows={2} className={`${input} font-mono text-xs`} />
+              </Field>
+            </Box>
+          </div>
+        </div>
+      </div>
+      <footer className="flex flex-wrap items-center gap-3 border-t border-line px-6 py-2.5">
+        {preview && (
+          <span className="text-xs text-muted">
+            With these settings: {preview.n.queued ?? 0} queued · {preview.n.handoff ?? 0} handed to you · {(preview.n.reviewed ?? 0) + (preview.n.posted ?? 0)} reviewed · {preview.n.skip ?? 0} skipped
+          </span>
+        )}
+        <span className="ml-auto flex items-center gap-2">
+          {state.error && <span className="text-xs text-red-600">{state.error}</span>}
+          {state.saved && !changed && <span className="text-xs text-emerald-700 dark:text-emerald-400">Saved.</span>}
+          <button onClick={() => load({ ...DEFAULT_RULES, enabled: draft.enabled })} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-xs hover:border-accent hover:text-accent">
+            <RotateCcw size={12} /> Defaults
+          </button>
+          <button onClick={() => void save()} disabled={state.busy || !changed} className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">
+            <Hand size={12} /> Save settings
+          </button>
+        </span>
+      </footer>
+    </main>
+  );
+}
+
+function WorkflowCard({
+  w,
+  first,
+  last,
+  stats,
+  editing,
+  onEdit,
+  onChange,
+  onMove,
+  onRemove,
+}: {
+  w: Workflow;
+  first: boolean;
+  last: boolean;
+  stats?: { picks: number; handed: number };
+  editing: boolean;
+  onEdit: (on: boolean) => void;
+  onChange: (patch: Partial<Workflow>) => void;
+  onMove: (by: number) => void;
+  onRemove: () => void;
+}) {
+  const [repos, setRepos] = useState(w.repos.join(", "));
+  useEffect(() => {
+    if (!editing) setRepos(w.repos.join(", "));
+  }, [editing, w.repos]);
+  return (
+    <article className={`flex flex-col gap-3 rounded-2xl border px-4 py-3.5 ${editing ? "border-accent bg-panel" : w.enabled ? "border-line bg-panel" : "border-line bg-sunken/60"}`}>
+      <div className="flex items-center gap-2">
+        {editing ? (
+          <input value={w.name} onChange={(e) => onChange({ name: e.target.value })} aria-label="Workflow name" className={`${input} font-semibold`} />
+        ) : (
+          <strong className="flex-1 text-sm">{w.name}</strong>
+        )}
+        <Switch on={w.enabled} onChange={(v) => onChange({ enabled: v })} label={w.name} />
+      </div>
+      {editing ? (
+        <div className="space-y-2.5 text-xs">
+          <Field label="When">
+            <select value={w.lane} onChange={(e) => onChange({ lane: e.target.value as WorkflowLane })} className={input}>
+              {Object.entries(LANE_LABEL).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Only in these repos (owner/name, comma separated; empty = any)">
+            <input
+              value={repos}
+              onChange={(e) => {
+                setRepos(e.target.value);
+                onChange({ repos: commaList(e.target.value) });
+              }}
+              className={`${input} font-mono text-xs`}
+              placeholder="vendasta/vlens"
+            />
+          </Field>
+          <Field label="Review">
+            <select value={w.depth} onChange={(e) => onChange({ depth: e.target.value as Depth })} className={input}>
+              {Object.entries(DEPTH_LABEL).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Then">
+            <select value={w.then} onChange={(e) => onChange({ then: e.target.value as WorkflowThen })} className={input}>
+              {Object.entries(THEN_LABEL).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </select>
+            {w.then === "comment" && <span className="text-amber-700 dark:text-amber-400">Posts from your GitHub account without asking you first. Still never approves.</span>}
+          </Field>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={w.recheck} onChange={(e) => onChange({ recheck: e.target.checked })} /> Review again on new pushes
+          </label>
+        </div>
+      ) : (
+        <dl className="grid grid-cols-[4.5rem_1fr] gap-x-2 gap-y-1.5 text-xs">
+          <dt className="text-muted">When</dt>
+          <dd>
+            {LANE_LABEL[w.lane]}
+            {w.repos.length ? <span className="text-muted"> · in {w.repos.map((r) => r.split("/")[1] ?? r).join(", ")}</span> : null}
+          </dd>
+          <dt className="text-muted">Review</dt>
+          <dd>{DEPTH_LABEL[w.depth]}</dd>
+          <dt className="text-muted">Then</dt>
+          <dd className={w.then === "comment" ? "font-semibold text-amber-800 dark:text-amber-300" : w.then === "draft" ? "font-semibold" : ""}>{THEN_LABEL[w.then]}</dd>
+          <dt className="text-muted">Re-check</dt>
+          <dd>{w.recheck ? "On new pushes" : "No"}</dd>
+        </dl>
+      )}
+      <div className="flex gap-2 border-t border-line pt-2 text-[0.7rem] text-muted">
+        {w.enabled ? (
+          <>
+            <span>{stats?.picks ?? 0} {stats?.picks === 1 ? "PR" : "PRs"} right now</span>
+            <span>·</span>
+            <span>{stats?.handed ?? 0} handed to you</span>
+          </>
+        ) : (
+          <span>Off</span>
+        )}
+      </div>
+      <div className="flex items-center gap-1.5">
+        <button onClick={() => onEdit(!editing)} className="flex-1 rounded-lg border border-line px-2 py-1 text-xs hover:border-accent hover:text-accent">
+          {editing ? "Done" : "Edit workflow"}
+        </button>
+        <button onClick={() => onMove(-1)} disabled={first} aria-label={`Move ${w.name} up`} title="Move up (checked earlier)" className="rounded-lg border border-line p-1.5 hover:border-accent hover:text-accent disabled:opacity-30">
+          <ArrowUp size={12} />
+        </button>
+        <button onClick={() => onMove(1)} disabled={last} aria-label={`Move ${w.name} down`} title="Move down" className="rounded-lg border border-line p-1.5 hover:border-accent hover:text-accent disabled:opacity-30">
+          <ArrowDown size={12} />
+        </button>
+        {editing && (
+          <button onClick={onRemove} aria-label={`Delete ${w.name}`} title="Delete" className="rounded-lg border border-line p-1.5 text-red-600 hover:border-red-500">
+            <Trash2 size={12} />
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function Switch({ on, onChange, label, big = false }: { on: boolean; onChange: (v: boolean) => void; label: string; big?: boolean }) {
+  return (
+    <button
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={() => onChange(!on)}
+      className={`flex shrink-0 items-center rounded-full p-0.5 transition ${big ? "h-6 w-11" : "h-[18px] w-8"} ${on ? "justify-end bg-accent" : "justify-start bg-line"}`}
+    >
+      <span className={`rounded-full bg-white shadow-sm ${big ? "h-5 w-5" : "h-3.5 w-3.5"}`} />
+    </button>
+  );
+}
+
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex min-h-9 items-center gap-3 border-t border-line pt-2 text-sm">
+      <span className="min-w-0 flex-1">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+const field = "rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm outline-none focus:border-accent";
+const input = `w-full ${field}`;
+
+function Box({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <section className="space-y-3 rounded-2xl border border-line bg-panel px-4 py-3.5">
+      <div>
+        <h2 className="text-sm font-semibold">{title}</h2>
+        {hint && <p className="text-xs text-muted">{hint}</p>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-xs text-muted">{label}</span>
+      {children}
+    </label>
+  );
+}

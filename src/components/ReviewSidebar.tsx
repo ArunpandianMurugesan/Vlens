@@ -1,9 +1,11 @@
 "use client";
 
-import { ChevronRight, GitPullRequest, RefreshCw, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Bot, Check, ChevronRight, CircleDot, GitCommit, GitPullRequest, MessageSquare, RefreshCw, Search, Sparkles, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Review } from "@/hooks/useReview";
 import type { PrLane, PrSummary } from "@/lib/types";
+import { type News, type NewsTone, newsFor, readSeen, type Seen, snapshot, writeSeen } from "@/lib/prSeen";
+import { AutopilotPanel, PlanChip } from "./Autopilot";
 
 // vTower's lanes (vendasta/vtower, renderer/app.js LANES), in its order.
 export const LANES: Record<PrLane, { label: string; dot: string; text: string }> = {
@@ -46,10 +48,11 @@ export function groupOf(p: PrSummary): Group {
   if (p.lane === "approvedWaiting" || p.lane === "waitingAuthor") return "waiting";
   return "radar"; // team, fyi
 }
-// The sidebar's two tabs: reviews you (or your team) owe, and your own PRs.
-type Tab = "reviews" | "mine";
+// The sidebar's tabs: what's new since you last looked, reviews you (or your team) owe,
+// your own PRs, and autopilot.
+type Tab = "new" | "reviews" | "mine" | "auto";
 type Section = { id: string; label: string; tone: string; head?: string; folded?: boolean; test: (p: PrSummary) => boolean };
-const SECTIONS: Record<Tab, Section[]> = {
+const SECTIONS: Record<Exclude<Tab, "auto" | "new">, Section[]> = {
   reviews: [
     { id: "needsYou", label: "Needs you", tone: "text-amber-700 dark:text-amber-400", test: (p) => p.lane === "needsYou" },
     { id: "team", label: "Needs your team", tone: "text-sky-700 dark:text-sky-400", test: (p) => p.lane === "team" },
@@ -95,9 +98,10 @@ export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url
   const [open, setOpen] = useState<Record<string, boolean>>({}); // folded sections opened
   const [tab, setTabState] = useState<Tab>(() => {
     try {
-      return localStorage.getItem("lens.prTab") === "mine" ? "mine" : "reviews";
+      const t = localStorage.getItem("lens.prTab");
+      return t === "reviews" || t === "mine" || t === "auto" ? t : "new";
     } catch {
-      return "reviews";
+      return "new";
     }
   });
   const setTab = (t: Tab) => {
@@ -109,13 +113,57 @@ export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url
   // Opening a PR from elsewhere (search, a card) shows the tab it's in.
   const selectedPr = prs.find((p) => p.url === selected);
   useEffect(() => {
-    if (selectedPr) setTabState(tabOf(selectedPr));
+    if (selectedPr) setTabState((t) => (t === "auto" || t === "new" ? t : tabOf(selectedPr)));
   }, [selectedPr?.url]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const shown = prs.filter((p) => !q || `${p.title} ${p.repo} #${p.number} ${p.author} ${(p.teams ?? []).join(" ")}`.toLowerCase().includes(q.toLowerCase()));
-  const count = { reviews: shown.filter((p) => p.lane === "needsYou" || p.lane === "team").length, mine: shown.filter((p) => p.lane === "mine").length };
+  const { planOf, auto } = review;
+
+  // "New": compare each PR with how it was when you last had it open.
+  const [seen, setSeen] = useState<Record<string, Seen> | null>(null);
+  useEffect(() => {
+    if (seen || !board?.fetchedAt) return;
+    let s = readSeen();
+    // First time: everything you have now counts as seen, except reviews asked of you.
+    if (!s) {
+      s = Object.fromEntries(prs.filter((p) => p.lane !== "needsYou" && p.lane !== "team").map((p) => [p.url, snapshot(p)]));
+      writeSeen(s);
+    }
+    setSeen(s);
+  }, [board?.fetchedAt, prs, seen]);
+  const markSeen = (list: PrSummary[]) =>
+    setSeen((cur) => {
+      const next = { ...(cur ?? {}), ...Object.fromEntries(list.map((p) => [p.url, snapshot(p)])) };
+      writeSeen(next);
+      return next;
+    });
+  // A PR counts as seen once you leave it (so it stays in "New" while you read it).
+  const prev = useRef<PrSummary | null>(null);
+  useEffect(() => {
+    const was = prev.current;
+    if (was && was.url !== selectedPr?.url) markSeen([was]);
+    prev.current = selectedPr ?? null;
+  }, [selectedPr?.url]); // eslint-disable-line react-hooks/exhaustive-deps
+  const news = useMemo(
+    () =>
+      seen
+        ? shown
+            .map((p) => ({ p, n: newsFor(p, seen[p.url], auto?.tracks[p.url]) }))
+            .filter((x): x is { p: PrSummary; n: News } => !!x.n)
+            .sort((a, b) => NEWS_RANK[a.n.tone] - NEWS_RANK[b.n.tone] || b.p.updatedAt.localeCompare(a.p.updatedAt))
+        : [],
+    [seen, shown, auto],
+  );
+
+  const count = {
+    new: news.length,
+    reviews: shown.filter((p) => p.lane === "needsYou" || p.lane === "team").length,
+    mine: shown.filter((p) => p.lane === "mine").length,
+    // What autopilot needs you for: PRs it handed back, or that moved on since a review.
+    auto: shown.filter((p) => ["handoff", "changed"].includes(planOf(p)?.state ?? "")).length,
+  };
   const groups = useMemo(
-    () => SECTIONS[tab].map((g) => ({ ...g, list: shown.filter(g.test).sort((a, b) => RANK[a.priority] - RANK[b.priority] || b.updatedAt.localeCompare(a.updatedAt)) })),
+    () => (tab === "auto" || tab === "new" ? [] : SECTIONS[tab]).map((g) => ({ ...g, list: shown.filter(g.test).sort((a, b) => RANK[a.priority] - RANK[b.priority] || b.updatedAt.localeCompare(a.updatedAt)) })),
     [shown, tab],
   );
 
@@ -149,19 +197,59 @@ export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url
         <div role="tablist" className="flex rounded-lg bg-sunken p-0.5 text-xs">
           {(
             [
+              ["new", "New"],
               ["reviews", "Reviews"],
               ["mine", "My PRs"],
+              ["auto", "Autopilot"],
             ] as const
           ).map(([id, label]) => (
-            <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={`flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 ${tab === id ? "bg-panel font-semibold text-ink shadow-sm" : "text-muted hover:text-ink"}`}>
-              {label}
-              {count[id] > 0 && <span className={`rounded-full px-1.5 text-[0.65rem] ${id === "reviews" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" : "bg-line/60 text-muted"}`}>{count[id]}</span>}
+            <button key={id} role="tab" aria-selected={tab === id} aria-label={id === "auto" ? `Autopilot${count.auto ? `, ${count.auto} need you` : ""}` : undefined} title={label} onClick={() => setTab(id)} className={`flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-md px-1 py-1.5 ${tab === id ? "bg-panel font-semibold text-ink shadow-sm" : "text-muted hover:text-ink"}`}>
+              {id === "auto" ? <Bot size={13} /> : label}
+              {count[id] > 0 && <span className={`rounded-full px-1 text-[0.65rem] ${id === "new" ? "bg-accent text-white" : id === "reviews" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" : id === "auto" ? "bg-red-500/10 text-red-700 dark:text-red-300" : "bg-line/60 text-muted"}`}>{count[id]}</span>}
             </button>
           ))}
         </div>
       </div>
 
-      <nav className="mt-1 flex-1 overflow-y-auto px-2 pb-3 scroll-thin" aria-label="Your pull requests">
+      {tab === "auto" ? (
+        <AutopilotPanel review={review} prs={shown} onPick={onPick} />
+      ) : tab === "new" ? (
+        <nav className="mt-1 flex-1 overflow-y-auto px-2 pb-3 scroll-thin" aria-label="What's new">
+          <div className="flex items-center px-2 pb-1 pt-2 text-[0.7rem] text-muted">
+            <span className="flex-1">Since you last looked</span>
+            {news.length > 0 && (
+              <button onClick={() => markSeen(news.map((x) => x.p))} className="hover:text-accent">
+                Mark all seen
+              </button>
+            )}
+          </div>
+          {!board && <p className="px-3 py-4 text-center text-xs text-muted">Loading PRs from GitHub…</p>}
+          {board && !news.length && <p className="px-3 py-4 text-center text-xs text-muted">{q ? "Nothing new matches." : "You're caught up. Changes on your PRs and reviews show up here."}</p>}
+          <div className="space-y-1.5">
+            {news.map(({ p, n }) => (
+              <button
+                key={p.url}
+                onClick={() => onPick(p.url)}
+                aria-current={p.url === selected}
+                className={`flex w-full items-start gap-2.5 rounded-xl border px-2.5 py-2 text-left transition ${p.url === selected ? "border-accent/40 bg-panel shadow-sm" : n.tone === "orange" ? "border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10" : "border-line/70 bg-panel/40 hover:bg-panel"}`}
+              >
+                <NewsIcon n={n} />
+                <span className="min-w-0 flex-1">
+                  <span className="line-clamp-2 text-sm font-medium leading-snug">{p.title}</span>
+                  <span className="block truncate text-[0.7rem] text-muted">
+                    {p.repo.split("/")[1]} #{p.number} · {n.detail}
+                  </span>
+                  <span className="mt-1 flex items-center gap-1.5 text-[0.65rem]">
+                    <span className={`rounded px-1.5 font-semibold ${NEWS_TONE[n.tone]}`}>{n.chip}</span>
+                    <span className="text-muted">{ago(p.updatedAt)}</span>
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </nav>
+      ) : (
+        <nav className="mt-1 flex-1 overflow-y-auto px-2 pb-3 scroll-thin" aria-label="Your pull requests">
         {board?.error && <p className="m-1 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600">{board.error}</p>}
         {!board && <p className="px-3 py-4 text-center text-xs text-muted">Loading PRs from GitHub…</p>}
         {board && !groups.some((g) => g.list.length) && !board.error && (
@@ -200,6 +288,7 @@ export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url
                             {meter(p)}
                           </span>
                         )}
+                        <PlanChip plan={planOf(p)} enabled={!!auto?.rules.enabled} />
                         {p.ci !== "none" && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${CI_DOT[p.ci]}`} title={`CI ${p.ci}`} />}
                         <span className="shrink-0 text-muted">{ago(p.updatedAt)}</span>
                       </span>
@@ -210,7 +299,26 @@ export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url
             </div>
           );
         })}
-      </nav>
+        </nav>
+      )}
     </div>
+  );
+}
+
+const NEWS_RANK: Record<NewsTone, number> = { orange: 0, red: 1, green: 2, violet: 3, blue: 4 };
+const NEWS_TONE: Record<NewsTone, string> = {
+  orange: "bg-amber-500/15 text-amber-800 dark:text-amber-300",
+  red: "bg-red-500/10 text-red-700 dark:text-red-300",
+  green: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+  violet: "bg-violet-500/10 text-violet-700 dark:text-violet-300",
+  blue: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
+};
+
+function NewsIcon({ n }: { n: News }) {
+  const Icon = { claude: Bot, ci: X, approved: Check, commits: GitCommit, activity: MessageSquare, new: Sparkles }[n.icon] ?? CircleDot;
+  return (
+    <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${NEWS_TONE[n.tone]}`}>
+      <Icon size={14} />
+    </span>
   );
 }

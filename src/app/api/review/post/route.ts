@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { logActivity } from "@/lib/autopilot";
 import { prSnapshot, recordPost, recordsFor } from "@/lib/reviewRecords";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +60,7 @@ export async function POST(req: Request) {
       );
     const sha = moved ? reviewed.headSha : now.headSha;
     const done = async (url: string, inline: number, note?: string) => {
+      await logActivity({ kind: "posted", url: prUrl, detail: `You posted a ${event === "REQUEST_CHANGES" ? "request-changes" : "comment"} review with ${inline} inline finding${inline === 1 ? "" : "s"}${moved ? ` on ${sha.slice(0, 7)} (the commit it read)` : ""}` });
       await recordPost(prUrl, { sessionId, key: typeof b.key === "string" ? b.key : null, headSha: sha, diffHash: moved ? reviewed.diffHash : now.diffHash, url, event, inline, at: new Date().toISOString() });
       return Response.json({ ok: true, url, inline, note });
     };

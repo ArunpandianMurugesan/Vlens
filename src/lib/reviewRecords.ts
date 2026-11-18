@@ -86,3 +86,7 @@ export function recordPost(url: string, post: ReviewPost) {
     r.posts = [...r.posts, post].slice(-KEEP);
   });
 }
+
+export async function allRecords(): Promise<Record<string, PrRecord>> {
+  return store.load();
+}

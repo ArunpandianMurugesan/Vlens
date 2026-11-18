@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { type AutopilotRules, type AutopilotState, type Plan, planFor } from "@/lib/autopilotPlan";
 import type { PrDetail, PrSummary, ReviewBoard } from "@/lib/types";
 
 const DISMISSED_KEY = "lens.dismissedPRs";
@@ -25,6 +26,36 @@ export function useReview() {
 
   useEffect(() => setDismissed(readDismissed()), []);
 
+  // Autopilot: its rules, log and each PR's past reviews (all local, so polled often).
+  const [auto, setAuto] = useState<AutopilotState | null>(null);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [boardOpen, setBoardOpen] = useState(false); // the Autopilot board, in the main area
+  const loadAuto = useCallback(async () => {
+    const d = await fetch("/api/autopilot").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (d?.rules) setAuto(d);
+  }, []);
+  useEffect(() => {
+    void loadAuto();
+    const t = setInterval(() => void loadAuto(), 30_000);
+    return () => clearInterval(t);
+  }, [loadAuto]);
+  const saveRules = useCallback(
+    async (rules: AutopilotRules) => {
+      const r = await fetch("/api/autopilot/rules", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(rules) });
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? r.statusText);
+      await loadAuto();
+    },
+    [loadAuto],
+  );
+  const setPaused = useCallback(
+    async (p: PrSummary, paused: boolean) => {
+      await fetch("/api/autopilot/pause", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: p.url, title: p.title, paused }) });
+      await loadAuto();
+    },
+    [loadAuto],
+  );
+  const planOf = useCallback((p: PrSummary): Plan | null => (auto ? planFor(p, auto) : null), [auto]);
+
   const load = useCallback(async (fresh = false) => {
     setLoading(true);
     try {
@@ -43,6 +74,8 @@ export function useReview() {
 
   const select = useCallback(async (url: string) => {
     setSelected(url);
+    setRulesOpen(false);
+    setBoardOpen(false);
     // Same PR (a refresh): keep showing what we have until the new data lands.
     setDetail((cur) => (cur?.url === url && cur.data ? cur : { url }));
     const d = await fetch(`/api/review/pr?url=${encodeURIComponent(url)}`).then((r) => r.json()).catch(() => ({ error: "Couldn't load this PR." }));
@@ -51,8 +84,8 @@ export function useReview() {
 
   // Fresh from GitHub: the PR list, plus the details of the PR you have open.
   const refresh = useCallback(async () => {
-    await Promise.all([load(true), selected ? select(selected) : Promise.resolve()]);
-  }, [load, select, selected]);
+    await Promise.all([load(true), loadAuto(), selected ? select(selected) : Promise.resolve()]);
+  }, [load, loadAuto, select, selected]);
 
   const dismiss = useCallback((url: string) => {
     setDismissed((prev) => {
@@ -69,7 +102,7 @@ export function useReview() {
   const pr = prs.find((p) => p.url === selected) ?? null;
   const cloneFor = (p: PrSummary) => board?.clones[p.repo.toLowerCase()] ?? null;
 
-  return { board, prs, loading, load, refresh, selected, pr, detail, select, dismiss, cloneFor };
+  return { board, prs, loading, load, refresh, selected, pr, detail, select, dismiss, cloneFor, auto, loadAuto, saveRules, setPaused, planOf, rulesOpen, setRulesOpen, boardOpen, setBoardOpen };
 }
 
 export type Review = ReturnType<typeof useReview>;

@@ -71,6 +71,7 @@ function toSummary(n: any, login: string, sources: Set<string>): PrSummary | nul
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
     head: n.headRefName,
+    headSha: n.headRefOid ?? "",
     base: n.baseRefName,
     additions: n.additions ?? 0,
     deletions: n.deletions ?? 0,

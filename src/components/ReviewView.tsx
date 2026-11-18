@@ -2,21 +2,14 @@
 
 import {
   Check,
-  ChevronRight,
-  CircleDot,
   ExternalLink,
-  EyeOff,
-  FileCode,
-  FolderGit2,
   GitBranch,
   GitMerge,
   GitPullRequest,
   Loader2,
-  MessageSquare,
   RefreshCw,
   Sparkles,
   Wrench,
-  X,
   ImageIcon,
 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -24,9 +17,10 @@ import type { Review } from "@/hooks/useReview";
 import type { TreeChat } from "@/hooks/useTreeChat";
 import { addPrSession, usePrSessions } from "@/lib/prSessions";
 import type { PrSummary } from "@/lib/types";
-import { Markdown } from "./Markdown";
-import { ago, GROUPS, groupOf } from "./ReviewSidebar";
+import { ago, groupOf } from "./ReviewSidebar";
 import { ReviewResults } from "./ReviewResults";
+import { AutopilotBoard, RulesPage } from "./Autopilot";
+import { isPrTab, PR_TABS, PrPage, TabNavLabel, usePrExtras } from "./PrPage";
 import { MenuButton } from "./Sidebar";
 
 // What Claude is asked to do. Reviews post nothing (you post from the results panel,
@@ -81,33 +75,6 @@ export function addressPrompt(p: PrSummary) {
   ].join("\n");
 }
 
-const REVIEW_STATE: Record<string, string> = {
-  APPROVED: "approved",
-  CHANGES_REQUESTED: "requested changes",
-  COMMENTED: "commented",
-  DISMISSED: "dismissed",
-};
-
-function checkTone(state: string) {
-  if (["SUCCESS", "NEUTRAL", "SKIPPED"].includes(state)) return "bg-emerald-500";
-  if (["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"].includes(state)) return "bg-red-500";
-  return "bg-amber-500";
-}
-
-function Fold({ title, count, open: start = false, children }: { title: string; count?: number; open?: boolean; children: ReactNode }) {
-  const [open, setOpen] = useState(start);
-  return (
-    <section className="rounded-2xl border border-line bg-panel">
-      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium">
-        <ChevronRight size={14} className={`transition-transform ${open ? "rotate-90" : ""}`} />
-        {title}
-        {count !== undefined && <span className="rounded-full bg-sunken px-1.5 text-xs font-normal text-muted">{count}</span>}
-      </button>
-      {open && <div className="border-t border-line px-4 py-3">{children}</div>}
-    </section>
-  );
-}
-
 interface Props {
   review: Review;
   onMenu: () => void;
@@ -117,22 +84,23 @@ interface Props {
   home: string;
 }
 
-// "overview" (the PR itself), "new" (a session that's starting), or a session id.
+// One of the PR's own tabs (PR_TABS), "new" (a session that's starting), or a session id.
 type Tab = string;
 
 export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
-  const { pr, detail, cloneFor, dismiss, prs, refresh, loading } = review;
+  const { pr, detail, cloneFor, prs, refresh, loading } = review;
   // Each PR keeps its own tabs: the sessions its buttons started, carried on right here.
   const prSessions = usePrSessions(pr?.url);
+  const extras = usePrExtras(pr?.url);
   const [tabOf, setTabOf] = useState<Record<string, Tab>>({});
   const [starting, setStarting] = useState<{ url: string; kind: string } | null>(null);
-  const tab = (pr && tabOf[pr.url]) || "overview";
+  const tab = (pr && tabOf[pr.url]) || "summary";
   const setTab = (url: string, t: Tab) => setTabOf((all) => ({ ...all, [url]: t }));
   // Coming back to a session tab (from another PR, or after opening a session elsewhere): load it again.
   // Not the one just started, though: it's still streaming in as a draft until its first reply ends.
   const fresh = useRef<string | null>(null);
   useEffect(() => {
-    if (tab === "overview" || tab === "new" || chat.activeId === tab) return;
+    if (isPrTab(tab) || tab === "new" || chat.activeId === tab) return;
     if (tab === fresh.current && !chat.activeId && chat.rootPending) return;
     chat.selectSession(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the tab changes
@@ -149,7 +117,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
         addPrSession(url, { id, kind, at: Date.now() });
         // A review: note which commit it reads, so Post can tell if the PR moves on.
         if (kind === "Review" || kind === "Self-review")
-          void fetch("/api/review/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, sessionId: id }) }).catch(() => {});
+          void fetch("/api/review/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, sessionId: id, title: pr.title }) }).catch(() => {});
         setTabOf((all) => (all[url] === "new" ? { ...all, [url]: id } : all));
         setStarting(null);
       })
@@ -161,7 +129,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
     <button
       onClick={() => {
         setLoadingDetail(true);
-        void refresh().finally(() => setLoadingDetail(false));
+        void Promise.all([refresh(), extras.reload()]).finally(() => setLoadingDetail(false));
       }}
       disabled={refreshing}
       title="Get the latest from GitHub"
@@ -170,9 +138,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
       <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} /> Refresh
     </button>
   );
-  const [confirmHide, setConfirmHide] = useState(false);
   const [merging, setMerging] = useState<{ method: "squash" | "merge" | "rebase"; busy: boolean; error: string | null } | null>(null);
-  const [allFiles, setAllFiles] = useState(false);
   // Nothing picked yet: open the first PR whose move is yours (else the first one).
   const picked = useRef(false);
   useEffect(() => {
@@ -185,9 +151,10 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
   // A new PR: start fresh.
   useEffect(() => {
     setMerging(null);
-    setAllFiles(false);
   }, [pr?.url]);
 
+  if (review.rulesOpen) return <RulesPage review={review} onMenu={onMenu} />;
+  if (review.boardOpen) return <AutopilotBoard review={review} onMenu={onMenu} />;
   if (!pr) {
     const needs = prs.filter((p) => groupOf(p) === "yours").length;
     return (
@@ -221,11 +188,8 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
         <ImageIcon size={14} /> Before/after
       </button>
     ) : null;
-  const group = GROUPS.find((g) => g.id === groupOf(pr))!;
   const mine = pr.lane === "mine";
   const d = detail?.url === pr.url ? detail : null;
-  const shortPath = (p: string) => (p.startsWith(home) ? `~${p.slice(home.length)}` : p);
-  const need = pr.requiredApprovals;
   const approved = pr.reviewDecision === "APPROVED" || (pr.reviewDecision === null && pr.approvals > 0);
   const mergeBlock = !mine
     ? "Only your own PRs merge from here."
@@ -250,10 +214,8 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
       void refresh();
     }
   };
-  const files = d?.data?.files ?? [];
-  const changes = d?.data?.reviews.filter((r) => r.state === "CHANGES_REQUESTED").length ?? 0;
 
-  const compact = tab !== "overview";
+  const compact = !isPrTab(tab);
   return (
     <main className="flex min-w-0 flex-1 flex-col">
       {/* On a session tab the header shrinks to one line: the review and chat need the room. */}
@@ -328,203 +290,49 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
         </div>
       )}
 
-      {(prSessions.length > 0 || tab === "new") && (
-        <nav className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-3 py-1.5 scroll-thin" aria-label="This PR's sessions">
-          <TabButton on={tab === "overview"} onClick={() => setTab(pr.url, "overview")}>
-            <GitPullRequest size={12} /> Overview
+      <nav className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-3 py-1.5 scroll-thin" aria-label="This PR">
+        {PR_TABS.map((t) => (
+          <TabButton key={t} on={tab === t} onClick={() => setTab(pr.url, t)}>
+            <TabNavLabel tab={t} extras={extras} detail={d?.data} />
           </TabButton>
-          {prSessions.map((s) => (
-            <TabButton key={s.id} on={tab === s.id} onClick={() => setTab(pr.url, s.id)} title={`Started ${ago(new Date(s.at).toISOString())} ago`}>
-              <Sparkles size={12} /> {s.kind}
-              <span className="text-muted">· {ago(new Date(s.at).toISOString())}</span>
-            </TabButton>
-          ))}
-          {starting?.url === pr.url && (
-            <TabButton on={tab === "new"} onClick={() => setTab(pr.url, "new")}>
-              <Loader2 size={12} className="animate-spin" /> {starting.kind}
-            </TabButton>
-          )}
-        </nav>
-      )}
+        ))}
+        {(prSessions.length > 0 || starting?.url === pr.url) && <span className="mx-1 h-4 w-px shrink-0 bg-line" aria-hidden />}
+        {prSessions.map((s) => (
+          <TabButton key={s.id} on={tab === s.id} onClick={() => setTab(pr.url, s.id)} title={`Started ${ago(new Date(s.at).toISOString())} ago`}>
+            <Sparkles size={12} /> {s.kind}
+            <span className="text-muted">· {ago(new Date(s.at).toISOString())}</span>
+          </TabButton>
+        ))}
+        {starting?.url === pr.url && (
+          <TabButton on={tab === "new"} onClick={() => setTab(pr.url, "new")}>
+            <Loader2 size={12} className="animate-spin" /> {starting.kind}
+          </TabButton>
+        )}
+      </nav>
 
-      {tab !== "overview" ? (
+      {isPrTab(tab) ? (
+        <PrPage
+          tab={tab}
+          pr={pr}
+          review={review}
+          detail={d}
+          extras={extras}
+          sessions={prSessions}
+          clone={clone}
+          home={home}
+          busy={busy}
+          onTab={(t) => setTab(pr.url, t)}
+          onReview={() => (mine ? start("Self-review", reviewPrompt(pr, !!clone), "default", clone ?? home) : start("Review", reviewPrompt(pr, !!clone), "default", clone ?? home))}
+          onAsk={(kind, prompt) => start(kind, prompt, "default", clone ?? home)}
+        />
+      ) : (
         <div className="flex min-h-0 flex-1 flex-col">
           {chat.session?.id === tab && <ReviewResults pr={pr} sessionId={tab} messages={chat.session.messages} />}
           <div className="flex min-h-0 flex-1">{renderChat()}</div>
         </div>
-      ) : (
-        <div className="flex-1 overflow-y-auto scroll-thin">
-          <div className="mx-auto max-w-5xl space-y-4 px-6 py-5">
-            <div className={`flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 text-sm ${group.id === "yours" ? "bg-amber-500/10" : group.id === "ready" ? "bg-emerald-500/10" : "bg-sunken"}`}>
-              <span className={`font-medium ${group.tone}`}>{group.label}:</span> {pr.why}
-              {pr.isDraft && <span className="rounded bg-panel px-1.5 text-xs text-muted">draft</span>}
-              {pr.labels.map((l) => (
-                <span key={l} className="rounded bg-panel px-1.5 text-xs text-muted">
-                  {l}
-                </span>
-              ))}
-              <span className="flex-1" />
-              {confirmHide ? (
-                <span className="flex items-center gap-1.5 text-xs text-muted">
-                  Hide this PR from Vlens Review?
-                  <button onClick={() => dismiss(pr.url)} className="rounded-md border border-line px-2 py-0.5 hover:text-ink">
-                    Hide
-                  </button>
-                  <button onClick={() => setConfirmHide(false)} className="rounded-md px-1" aria-label="Cancel">
-                    <X size={12} />
-                  </button>
-                </span>
-              ) : (
-                <button onClick={() => setConfirmHide(true)} className="inline-flex items-center gap-1 text-xs text-muted hover:text-ink">
-                  <EyeOff size={12} /> Hide
-                </button>
-              )}
-            </div>
-
-            {!d?.data && !d?.error && (
-              <div className="flex items-center gap-2 text-xs text-muted">
-                <Loader2 size={14} className="animate-spin" /> Loading details…
-              </div>
-            )}
-            {d?.error && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600">{d.error}</p>}
-            {d?.data && (
-              <>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Card title="Checks" note={pr.mergeable === "CONFLICTING" ? <span className="text-red-500">has conflicts</span> : pr.mergeable === "MERGEABLE" ? "no conflicts" : "checking conflicts"}>
-                    {d.data.checks.length ? (
-                      <ul className="space-y-1.5">
-                        {d.data.checks.map((c, i) => (
-                          <li key={i} className="flex items-center gap-2 text-sm">
-                            <CheckMark state={c.state} />
-                            <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                            <span className={`text-xs ${checkTone(c.state) === "bg-red-500" ? "text-red-500" : "text-muted"}`}>{checkWord(c.state)}</span>
-                            {c.url && (
-                              <a href={c.url} target="_blank" rel="noreferrer" className="text-muted hover:text-accent" aria-label={`Open ${c.name}`}>
-                                <ExternalLink size={12} />
-                              </a>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-sm text-muted">No checks on this PR.</p>
-                    )}
-                  </Card>
-
-                  <Card
-                    title="Reviews"
-                    note={
-                      <>
-                        {pr.approvals}
-                        {need ? ` of ${need}` : ""} approval{pr.approvals === 1 && !need ? "" : "s"}
-                        {changes > 0 && <span className="text-amber-600"> · changes requested</span>}
-                      </>
-                    }
-                  >
-                    {d.data.reviews.length ? (
-                      <ul className="space-y-3">
-                        {d.data.reviews.map((r, i) => (
-                          <li key={i} className="text-sm">
-                            <div className="flex items-center gap-1.5">
-                              {r.state === "APPROVED" ? <Check size={13} className="text-emerald-500" /> : r.state === "CHANGES_REQUESTED" ? <CircleDot size={13} className="text-amber-600" /> : <MessageSquare size={13} className="text-muted" />}
-                              <span className="font-medium">@{r.author}</span>
-                              <span className={r.state === "CHANGES_REQUESTED" ? "text-amber-700 dark:text-amber-400" : "text-muted"}>{REVIEW_STATE[r.state] ?? r.state.toLowerCase()}</span>
-                              {r.at && <span className="ml-auto text-xs text-muted">{ago(r.at)} ago</span>}
-                            </div>
-                            {r.body.trim() && (
-                              <div className="mt-1 line-clamp-4 border-l-2 border-line pl-3 text-muted">
-                                <Markdown text={r.body} />
-                              </div>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-sm text-muted">No reviews yet.</p>
-                    )}
-                    {d.data.comments > 0 && <p className="mt-3 text-xs text-muted">Plus {d.data.comments} comment{d.data.comments === 1 ? "" : "s"} on GitHub.</p>}
-                  </Card>
-                </div>
-
-                <Card title="Files changed" note={`${files.length} file${files.length === 1 ? "" : "s"}`}>
-                  <ul className="space-y-1">
-                    {(allFiles ? files : files.slice(0, 12)).map((f) => (
-                      <li key={f.path} className="flex items-center gap-2 font-mono text-xs">
-                        <FileCode size={12} className="shrink-0 text-muted" />
-                        <span className="min-w-0 flex-1 truncate" title={f.path}>
-                          {f.path}
-                        </span>
-                        {f.additions > 0 && <span className="text-emerald-600">+{f.additions}</span>}
-                        {f.deletions > 0 && <span className="text-red-500">−{f.deletions}</span>}
-                      </li>
-                    ))}
-                  </ul>
-                  {files.length > 12 && (
-                    <button onClick={() => setAllFiles((v) => !v)} className="mt-2 text-xs text-muted hover:text-accent">
-                      {allFiles ? "Show fewer" : `Show all ${files.length}`}
-                    </button>
-                  )}
-                </Card>
-
-                <Card title="This PR's sessions">
-                  <ul className="space-y-1.5">
-                    {prSessions.map((s) => (
-                      <li key={s.id} className="flex items-center gap-2 text-sm">
-                        <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
-                        <span className="min-w-0 flex-1 truncate">{s.kind}</span>
-                        <span className="text-xs text-muted">{ago(new Date(s.at).toISOString())} ago</span>
-                        <button onClick={() => setTab(pr.url, s.id)} className="rounded-md border border-line px-2 py-0.5 text-xs hover:border-accent hover:text-accent">
-                          Open
-                        </button>
-                      </li>
-                    ))}
-                    {!prSessions.length && <li className="text-sm text-muted">None yet. Review with Claude starts one here.</li>}
-                  </ul>
-                  <p className="mt-2.5 flex items-center gap-1.5 text-xs text-muted">
-                    <FolderGit2 size={12} />
-                    {clone ? (
-                      <>
-                        Claude runs in your clone at <span className="font-mono">{shortPath(clone)}</span>.
-                      </>
-                    ) : (
-                      <>No local clone of {pr.repo} found, so Claude reads the PR with gh from your home folder.</>
-                    )}
-                    {!mine && " Reviews are read-only; nothing is posted to GitHub."}
-                  </p>
-                </Card>
-
-                <Fold title="Description">{d.data.body.trim() ? <Markdown text={d.data.body} /> : <p className="text-sm text-muted">No description.</p>}</Fold>
-              </>
-            )}
-          </div>
-        </div>
       )}
     </main>
   );
-}
-
-function Card({ title, note, children }: { title: string; note?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="rounded-2xl border border-line bg-panel px-4 py-3.5">
-      <div className="mb-2.5 flex items-baseline gap-2">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        {note && <span className="ml-auto text-xs text-muted">{note}</span>}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function checkWord(state: string) {
-  const t = checkTone(state);
-  return t === "bg-emerald-500" ? (state === "SUCCESS" ? "Success" : state.toLowerCase()) : t === "bg-red-500" ? "Failure" : "Running";
-}
-
-function CheckMark({ state }: { state: string }) {
-  const t = checkTone(state);
-  if (t === "bg-emerald-500") return <Check size={13} className="shrink-0 text-emerald-600" aria-label="passed" />;
-  if (t === "bg-red-500") return <X size={13} className="shrink-0 text-red-500" aria-label="failed" />;
-  return <Loader2 size={13} className="shrink-0 animate-spin text-amber-500" aria-label="running" />;
 }
 
 const busyHint = "Claude is still starting the last one. Wait a moment.";
