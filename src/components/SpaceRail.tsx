@@ -12,7 +12,7 @@ export type Space = "sessions" | "review";
 
 const SPACES: { id: Space; label: string; Icon: typeof MessagesSquare }[] = [
   { id: "sessions", label: "Sessions", Icon: MessagesSquare },
-  { id: "review", label: "Vlens Review", Icon: GitPullRequest },
+  { id: "review", label: "PR Review", Icon: GitPullRequest },
 ];
 
 interface Props {
@@ -49,7 +49,7 @@ export function SpaceRail(p: Props) {
         <button key={id} onClick={() => p.onSpace(id)} title={label} aria-label={label} aria-current={p.space === id} className={item(p.space === id)}>
           <Icon size={18} />
           {!!p.badge?.[id] && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[0.6rem] text-white">{p.badge[id]}</span>
+            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[0.6rem] text-on-accent">{p.badge[id]}</span>
           )}
         </button>
       ))}

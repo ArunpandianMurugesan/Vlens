@@ -10,12 +10,10 @@ const PROVIDERS: Partial<Record<ProviderId, AgentProvider>> = {
   "claude-code": claudeCode,
 };
 
-// Shown in Settings; the ones without an adapter yet are listed but can't be picked.
+// Shown in Settings. Only agents with an adapter are listed (Codex, opencode and
+// Cursor CLI can come back here once they have one).
 export const PROVIDER_CHOICES: { id: ProviderId; name: string; binary: string }[] = [
   { id: "claude-code", name: "Claude Code", binary: "claude" },
-  { id: "codex", name: "OpenAI Codex CLI", binary: "codex" },
-  { id: "opencode", name: "opencode", binary: "opencode" },
-  { id: "cursor", name: "Cursor CLI", binary: "agent" },
 ];
 
 export const isSupported = (id: unknown): id is ProviderId => typeof id === "string" && id in PROVIDERS;

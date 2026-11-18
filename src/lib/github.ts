@@ -5,10 +5,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DATA_DIR } from "./paths";
+import { writeJsonAtomic } from "./jsonStore";
 import type { PrDetail, PrFile, PrLane, PrPriority, PrSummary, ReviewBoard } from "./types";
 import { getProvider } from "@/lib/providers";
 
-// Vlens Review reads GitHub through the `gh` CLI, so it uses whatever account
+// PR Review reads GitHub through the `gh` CLI, so it uses whatever account
 // you're signed in with there. It pulls PRs the way vTower does (vendasta/vtower,
 // electron/ipc.cjs gatherPRs + classify): GraphQL searches (review requested from you
 // or your teams, your PRs, reviewed by you, mentions, commenter), every PR still being
@@ -175,8 +176,15 @@ function lane(p: PrSummary, login: string, sources: Set<string>): Lane | null {
 // the searches (say, the review request cleared once you reviewed): its URL is kept here
 // and looked up directly next time. It prunes itself: a PR that's no longer open drops out.
 const TRACKED = path.join(DATA_DIR, "review-tracked.json");
-const readTracked = async (): Promise<string[]> => JSON.parse(await fs.readFile(TRACKED, "utf8").catch(() => "[]"));
-const writeTracked = (urls: string[]) => fs.writeFile(TRACKED, JSON.stringify(urls.slice(0, 60))).catch(() => {});
+const readTracked = async (): Promise<string[]> => {
+  try {
+    const v = JSON.parse(await fs.readFile(TRACKED, "utf8"));
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return []; // missing or half-written: the searches refill it
+  }
+};
+const writeTracked = (urls: string[]) => writeJsonAtomic(TRACKED, urls.slice(0, 60)).catch(() => {});
 const prRef = (url: string) => {
   const m = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
   return m ? { owner: m[1], name: m[2], number: Number(m[3]) } : null;

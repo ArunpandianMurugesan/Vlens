@@ -30,6 +30,36 @@ const TICK_MS = 60_000;
 const RUN_TIMEOUT_MS = 20 * 60_000;
 const RUNS_DIR = path.join(DATA_DIR, "autopilot-runs");
 const EFFORT: Record<Depth, string> = { quick: "low", standard: "medium", deep: "high" };
+const LOCK = path.join(DATA_DIR, "autopilot.lock");
+const LOCK_STALE_MS = 3 * 60_000;
+
+// Only one Vlens on this Mac runs autopilot (the dev server and the app share the
+// data folder). The holder refreshes the lock every tick; a lock nobody refreshed
+// for a few minutes, or whose process is gone, is taken over.
+async function holdLock(): Promise<boolean> {
+  try {
+    const l = JSON.parse(await fs.readFile(LOCK, "utf8")) as { pid: number; at: number };
+    if (l.pid !== process.pid && Date.now() - l.at < LOCK_STALE_MS) {
+      let alive = true;
+      try {
+        process.kill(l.pid, 0);
+      } catch {
+        alive = false;
+      }
+      if (alive) return false;
+    }
+  } catch {
+    /* no lock yet, or unreadable: take it */
+  }
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  const tmp = `${LOCK}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify({ pid: process.pid, at: Date.now() }));
+  await fs.rename(tmp, LOCK);
+  return true;
+}
+
+// Never post anything that looks like a credential, whatever the PR asked for.
+const SECRET = /(-----BEGIN [A-Z ]*PRIVATE KEY-----|\bAKIA[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{36,}\b|\bxox[abprs]-[A-Za-z0-9-]{10,}|\bsk-(ant-)?[A-Za-z0-9_-]{20,}|\bAIza[0-9A-Za-z_-]{35}\b)/;
 
 // Starts the once-a-minute check (idempotent; called by the autopilot API routes).
 export function ensureRunner() {
@@ -44,6 +74,7 @@ export async function check(force: boolean): Promise<string> {
   if (runner.busy) return "Already checking.";
   runner.busy = true;
   try {
+    if (!(await holdLock())) return "Another Vlens on this Mac is running autopilot.";
     const s = await autopilotState();
     if (!force) {
       if (!s.rules.enabled) return "Autopilot is off.";
@@ -63,7 +94,7 @@ export async function check(force: boolean): Promise<string> {
     if (board.error && !board.prs.length) return board.error;
     const pick = await nextPr(board.prs, s);
     if (!pick) return "Nothing in the queue.";
-    void review(pick.pr, pick.wf, s.rules, board.clones[pick.pr.repo.toLowerCase()] ?? null);
+    void review(pick.pr, pick.wf, s.rules, board.clones[pick.pr.repo.toLowerCase()] ?? null, force);
     return `Reviewing ${pick.pr.repo} #${pick.pr.number}.`;
   } catch (e) {
     await logActivity({ kind: "error", detail: `Autopilot couldn't check for work: ${(e as Error).message.slice(0, 200)}` });
@@ -102,9 +133,13 @@ const step = (text: string) => {
   if (runner.running.steps.length > 40) runner.running.steps.shift();
 };
 
-async function review(pr: PrSummary, wf: Workflow, rules: AutopilotRules, clone: string | null) {
+async function review(pr: PrSummary, wf: Workflow, rules: AutopilotRules, clone: string | null, forced: boolean) {
   const startedAt = new Date().toISOString();
-  runner.running = { url: pr.url, title: pr.title, headSha: pr.headSha, workflow: wf.name, startedAt, sessionId: null, steps: [] };
+  let cancelled = false;
+  runner.running = { url: pr.url, title: pr.title, headSha: pr.headSha, workflow: wf.name, startedAt, sessionId: null, steps: [], kill: () => (cancelled = true) };
+  const checkStop = () => {
+    if (cancelled) throw new Error("Stopped.");
+  };
   const fail = async (error: string) => {
     await setFailed(pr.url, { headSha: pr.headSha, at: new Date().toISOString(), error, title: pr.title });
     await logActivity({ kind: "error", url: pr.url, title: pr.title, detail: `Review failed: ${error}` });
@@ -119,14 +154,28 @@ async function review(pr: PrSummary, wf: Workflow, rules: AutopilotRules, clone:
       await logActivity({ kind: "skipped", url: pr.url, title: pr.title, detail: `Same changes as the review at ${last.headSha.slice(0, 7)} (a rebase), so that review still stands` });
       return;
     }
+    checkStop();
     const dir = await prefetch(pr, snap.headSha);
     step("Saved the diff and earlier comments");
+    checkStop();
     const risk = riskOf(pr, rules.sensitivePaths);
     const prompt = autopilotPrompt(pr, { dir, hasClone: !!clone, risk, depth: wf.depth, handoffNotes: rules.handoffNotes });
     const out = await runClaude(prompt, clone ?? dir, dir, wf.depth);
     if (!out.ok) return await fail(out.error);
     const result = parseResult(out.text);
     if (result?.kind !== "review") return await fail("Claude finished without a review result.");
+
+    // The review can take minutes. If you paused this PR, turned autopilot off or
+    // changed the workflow meanwhile, don't touch GitHub: keep it as a draft.
+    const now = await autopilotState();
+    const nowWf = now.rules.workflows.find((w) => w.id === wf.id);
+    const held = now.paused[pr.url] ? "you paused this PR" : !forced && !now.rules.enabled ? "autopilot was turned off" : !nowWf ? `the "${wf.name}" workflow was removed` : nowWf.then !== wf.then ? `the "${wf.name}" workflow changed` : null;
+    if (held) {
+      rules = { ...rules, stateLabels: { ...rules.stateLabels, enabled: false } };
+      if (wf.then === "comment") wf = { ...wf, then: "draft" };
+    }
+    const leak = SECRET.test(`${result.summary}\n${result.findings.map((f) => f.body).join("\n")}`);
+    if (leak && wf.then === "comment") wf = { ...wf, then: "draft" };
     await recordRun(pr.url, { sessionId: out.sessionId, headSha: snap.headSha, diffHash: snap.diffHash, at: startedAt, by: "autopilot" });
     await setFailed(pr.url, null);
     const n = result.findings.length;
@@ -151,6 +200,8 @@ async function review(pr: PrSummary, wf: Workflow, rules: AutopilotRules, clone:
       await logActivity({ kind: "posted", url: pr.url, title: pr.title, detail: `Autopilot posted ${n} finding${n === 1 ? "" : "s"} (${wf.name})${adj}` });
       return;
     }
+    if (held || leak)
+      await logActivity({ kind: "skipped", url: pr.url, title: pr.title, detail: `Not posted on GitHub: ${held ?? "the review text looks like it contains a secret"}. It's kept as drafts for you.` });
     await logActivity({
       kind: "reviewed",
       url: pr.url,
@@ -221,7 +272,7 @@ function runClaude(prompt: string, cwd: string, dir: string, depth: Depth): Prom
   const env = { ...process.env };
   delete env.CLAUDECODE;
   delete env.CLAUDE_CODE_ENTRYPOINT;
-  const args = ["-p", "--output-format", "stream-json", "--verbose", "--tools", "Read,Grep,Glob", "--permission-mode", "dontAsk", "--strict-mcp-config", "--add-dir", dir, "--effort", EFFORT[depth]];
+  const args = ["-p", "--output-format", "stream-json", "--verbose", "--tools", "Read,Grep,Glob", "--disallowedTools", "Read(**/.env*)", "Read(**/*.pem)", "Read(**/*.key)", "--permission-mode", "dontAsk", "--strict-mcp-config", "--add-dir", dir, "--effort", EFFORT[depth]];
   return new Promise((resolve) => {
     const child = spawn("claude", args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
     trackRun(child);
@@ -257,16 +308,19 @@ function runClaude(prompt: string, cwd: string, dir: string, depth: Depth): Prom
         } catch {}
       }
     });
-    child.stderr.on("data", (c: Buffer) => (stderr += c.toString()));
+    child.stderr.on("data", (c: Buffer) => (stderr = (stderr + c.toString()).slice(-16_000)));
     const timer = setTimeout(() => {
       stopped = true;
       child.kill("SIGTERM");
     }, RUN_TIMEOUT_MS);
-    if (runner.running)
+    if (runner.running) {
+      const before = runner.running.kill;
       runner.running.kill = () => {
+        before?.();
         stopped = true;
         child.kill("SIGTERM");
       };
+    }
     child.on("close", () => {
       clearTimeout(timer);
       if (result && !result.is_error && sessionId) resolve({ ok: true, text: String(result.result ?? ""), sessionId });

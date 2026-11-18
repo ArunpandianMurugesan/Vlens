@@ -37,13 +37,18 @@ const DEPTH_ASK: Record<Depth, string> = {
   deep: "Be thorough: edge cases, error handling, concurrency, security, data changes and missing tests. Still one finding per root cause.",
 };
 
-export function reviewPrompt(p: PrSummary, hasClone: boolean, risk?: Risk, depth: Depth = "standard") {
+// useSkill: the lens:review skill is installed (Vendasta dev-agent toolkit) and switched
+// on in Settings. Without it Claude reviews with gh and the local code instead of
+// looking for a skill that isn't there.
+export function reviewPrompt(p: PrSummary, hasClone: boolean, risk?: Risk, depth: Depth = "standard", useSkill = true) {
   return [
     `Review pull request #${p.number} in ${p.repo}: ${p.url}`,
     "",
-    hasClone
-      ? "Use the lens:review skill in its PR Studio mode: run Steps 1 to 7 on this repo (its `.claude/review.md` overlay applies), and post nothing. Never post, approve, comment or push on GitHub."
-      : "Read it with the gh CLI (gh pr view, gh pr diff). Look for real bugs and risks first. Never post, approve, comment or push on GitHub.",
+    hasClone && useSkill
+      ? "Use the lens:review skill in its PR Studio mode: run Steps 1 to 7 on this repo (its `.claude/review.md` overlay applies), and post nothing. If that skill isn't available, review it with gh pr diff and the code in this folder instead. Never post, approve, comment or push on GitHub."
+      : hasClone
+        ? "Read it with the gh CLI (gh pr view, gh pr diff) and check the changes against the code in this folder. Look for real bugs and risks first. Never post, approve, comment or push on GitHub."
+        : "Read it with the gh CLI (gh pr view, gh pr diff). Look for real bugs and risks first. Never post, approve, comment or push on GitHub.",
     "If the PR links a Jira ticket, check the change against its acceptance criteria and say which are met.",
     DEPTH_ASK[depth],
     priorCommentsStep(p),

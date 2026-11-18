@@ -32,7 +32,22 @@ let url = null;
 
 const logDir = path.join(os.homedir(), "Library", "Logs", "Vlens");
 fs.mkdirSync(logDir, { recursive: true });
-const log = fs.createWriteStream(path.join(logDir, "server.log"), { flags: "a" });
+const logFile = path.join(logDir, "server.log");
+// Start a fresh log when the old one gets big (keep one old copy).
+try {
+  if (fs.statSync(logFile).size > 5 * 1024 * 1024) fs.renameSync(logFile, logFile + ".1");
+} catch {}
+const log = fs.createWriteStream(logFile, { flags: "a" });
+
+// Same origin, compared properly: a plain prefix check would also accept
+// http://127.0.0.1:3459@evil.com/ and http://127.0.0.1:34590.
+function sameOrigin(u) {
+  try {
+    return !!url && new URL(u).origin === new URL(url).origin;
+  } catch {
+    return false;
+  }
+}
 
 // Apps opened from the Dock don't get your shell's PATH, so `claude`, `gh` and
 // `git` wouldn't be found. Ask your login shell for it once at startup.
@@ -121,7 +136,7 @@ async function startServer() {
 // The Mac's folder window, as a sheet on the Vlens window (preload.cjs). Only for
 // Vlens's own pages.
 ipcMain.handle("choose-folder", async (e, start) => {
-  if (!e.senderFrame?.url?.startsWith(url)) return null;
+  if (!sameOrigin(e.senderFrame?.url)) return null;
   const owner = BrowserWindow.fromWebContents(e.sender);
   const r = await dialog.showOpenDialog(owner, {
     title: "Choose a folder for this session",
@@ -148,7 +163,7 @@ function createWindow() {
   win.loadURL(url);
 
   // Links (GitHub, Jira, docs) open in your normal browser, not inside Vlens.
-  const isLens = (u) => u.startsWith(url);
+  const isLens = sameOrigin;
   win.webContents.setWindowOpenHandler(({ url: u }) => {
     if (/^https?:/.test(u) && !isLens(u)) shell.openExternal(u);
     return { action: "deny" };
@@ -241,7 +256,7 @@ function buildMenu() {
         label: "Go",
         submenu: [
           item("Sessions", "go-sessions", "CmdOrCtrl+1"),
-          item("Review", "go-review", "CmdOrCtrl+2"),
+          item("PR Review", "go-review", "CmdOrCtrl+2"),
           { type: "separator" },
           item("Home", "go-home", "Shift+CmdOrCtrl+H"),
           item("History", "go-history", "CmdOrCtrl+Y"),
@@ -417,6 +432,14 @@ if (!app.requestSingleInstanceLock()) {
   app.on("window-all-closed", () => {});
   app.on("before-quit", () => {
     app.isQuitting = true;
-    if (server) server.kill("SIGTERM");
+    if (server) {
+      const s = server;
+      s.kill("SIGTERM");
+      // An open stream can keep Next from exiting; don't leave it (and its
+      // claude and shell children) running with the port taken.
+      setTimeout(() => {
+        if (s.exitCode === null && s.signalCode === null) s.kill("SIGKILL");
+      }, 3000).unref();
+    }
   });
 }

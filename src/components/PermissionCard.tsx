@@ -71,7 +71,7 @@ function ToolPermission({ ask }: { ask: PermissionAsk }) {
   return (
     <div ref={cardRef} className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3" data-no-select data-perm-card>
       <div className="flex items-center gap-1.5 text-sm font-medium">
-        <ShieldQuestion size={15} className="text-amber-600" />
+        <ShieldQuestion size={15} className="text-warning" />
         Claude wants to use {ask.tool}
       </div>
       {ask.description && <p className="mt-1 text-xs text-muted">{ask.description}</p>}
@@ -80,9 +80,9 @@ function ToolPermission({ ask }: { ask: PermissionAsk }) {
           {command}
         </pre>
       )}
-      {reason && <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">{reason}</p>}
+      {reason && <p className="mt-2 text-xs text-warning">{reason}</p>}
       <div className="mt-2.5 space-y-1.5">
-        <button className={`${opt} border-accent bg-accent text-white`} disabled={!!busy} onClick={() => answer("allow")}>
+        <button className={`${opt} border-accent bg-accent text-on-accent`} disabled={!!busy} onClick={() => answer("allow")}>
           <span className="w-3 shrink-0 text-center font-mono text-[0.7rem] opacity-80">1</span>
           Yes
           {busy === "allow" && <Loader2 size={12} className="animate-spin" />}
@@ -127,7 +127,7 @@ function ToolPermission({ ask }: { ask: PermissionAsk }) {
           </button>
         )}
       </div>
-      {err && <p className="mt-2 text-xs text-red-600">{err}</p>}
+      {err && <p className="mt-2 text-xs text-danger">{err}</p>}
     </div>
   );
 }

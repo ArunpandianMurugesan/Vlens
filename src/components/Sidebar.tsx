@@ -30,6 +30,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { forkSession } from "@/lib/fork";
 import { setCollapsed, toggleSidebar, useSidebarCollapsed } from "@/lib/sidebar";
 import type { Review } from "@/hooks/useReview";
@@ -61,8 +62,8 @@ function StatusDot({ s }: { s: SessionSummary }) {
 // The word at the end of a row: what it needs from you, "now" while it works, or when it last moved.
 function Status({ s }: { s: SessionSummary }) {
   const w = s.active?.waitingFor;
-  if (w) return <span className="shrink-0 text-[0.7rem] font-semibold text-amber-700 dark:text-amber-400">{/plan/i.test(w) ? "plan" : "asks"}</span>;
-  if (s.active?.status === "busy") return <span className="shrink-0 text-[0.7rem] text-emerald-700 dark:text-emerald-400">now</span>;
+  if (w) return <span className="shrink-0 text-[0.7rem] font-semibold text-warning">{/plan/i.test(w) ? "plan" : "asks"}</span>;
+  if (s.active?.status === "busy") return <span className="shrink-0 text-[0.7rem] text-success">now</span>;
   return <span className="shrink-0 text-[0.7rem] text-muted">{ago(s.updatedAt)}</span>;
 }
 
@@ -105,18 +106,19 @@ interface Props {
   onClose: () => void;
 }
 
-// ☰ at the top-left of every view. On a wide window it slides the sidebar away
-// or back (also ⌘B); on a narrow one it opens the sidebar over the page.
+// ☰ at the top-left of every view. On a narrow window it opens the sidebar over
+// the page; on a wide one it only shows while the sidebar is hidden (the sidebar
+// has its own Hide button), and brings it back (also ⌘B).
 export function MenuButton({ onClick, className = "" }: { onClick: () => void; className?: string }) {
   const collapsed = useSidebarCollapsed();
   return (
     <button
       onClick={() => (window.matchMedia("(min-width: 768px)").matches ? toggleSidebar() : onClick())}
-      className={`rounded-md p-0.5 text-muted hover:bg-sunken hover:text-ink ${className}`}
-      aria-label={collapsed ? "Show sidebar" : "Hide sidebar"}
-      title={`${collapsed ? "Show" : "Hide"} the sidebar (⌘B)`}
+      className={`rounded-md p-0.5 text-muted hover:bg-sunken hover:text-ink ${collapsed ? "" : "md:hidden"} ${className}`}
+      aria-label="Show sidebar"
+      title="Show the sidebar (⌘B)"
     >
-      {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+      <PanelLeftOpen size={18} />
     </button>
   );
 }
@@ -151,7 +153,6 @@ export function Sidebar({
   // Archived sessions sit in their own list at the bottom, unless one is running
   // in a terminal or the desktop app (that can't hide).
   const isArchived = (s: SessionSummary) => !!s.archivedAt && !(s.active && !s.active.byLens);
-  // Chats with your bots live in the Bots space.
   const shown = sessions.filter((s) => !isArchived(s));
   // Stable order, so items don't jump around while you use them.
   const pinned = shown
@@ -396,7 +397,7 @@ export function Sidebar({
         }`}
       >
         {/* Like a Mac window's title area: room for the traffic lights, what needs you, hide. */}
-        <div data-drag className="lens-titlebar flex h-[52px] shrink-0 items-center gap-1 px-3">
+        <div data-drag className="flex h-[52px] shrink-0 items-center gap-1 px-3">
           <button
             onClick={() => {
               onHome();
@@ -414,10 +415,10 @@ export function Sidebar({
               onClick={jump}
               aria-label={`${waiting.length} session${waiting.length === 1 ? "" : "s"} need you. Jump to the next one (⌘])`}
               title="Jump to the next session that needs you (⌘])"
-              className="relative rounded-md p-1 text-amber-600 hover:bg-panel"
+              className="relative rounded-md p-1 text-warning hover:bg-panel"
             >
               <BellRing size={15} />
-              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[0.55rem] text-white">{waiting.length}</span>
+              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[0.55rem] font-semibold text-amber-950">{waiting.length}</span>
             </button>
           )}
           <button onClick={() => setCollapsed(true)} className="hidden rounded-md p-1 text-muted hover:bg-panel hover:text-ink md:block" aria-label="Hide sidebar" title="Hide the sidebar (⌘B)">
@@ -428,12 +429,12 @@ export function Sidebar({
           </button>
         </div>
 
-        {/* Sessions | Vlens Review */}
+        {/* Sessions | PR Review */}
         <div className="mx-3 mb-2 flex rounded-lg bg-panel p-0.5 text-xs md:hidden">
           {(
             [
               ["sessions", "Sessions"],
-              ["review", "Vlens Review"],
+              ["review", "PR Review"],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -445,7 +446,7 @@ export function Sidebar({
             >
               {label}
               {id === "review" && needsYou > 0 && (
-                <span className="rounded-full bg-amber-500 px-1.5 text-[0.65rem] font-medium leading-4 text-white" title={`${needsYou} PR${needsYou === 1 ? "" : "s"} need your review`}>
+                <span className="rounded-full bg-amber-500 px-1.5 text-[0.65rem] font-medium leading-4 text-amber-950" title={`${needsYou} PR${needsYou === 1 ? "" : "s"} need your review`}>
                   {needsYou}
                 </span>
               )}
@@ -568,7 +569,7 @@ export function Sidebar({
         </div>
 
         {error && (
-          <div className="m-2 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-600">
+          <div className="m-2 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-danger">
             <span className="flex-1">{error}</span>
             <button onClick={() => setError(null)} aria-label="Dismiss">
               <X size={13} />
@@ -603,7 +604,7 @@ function CrashedBanner({ actions, run }: { actions: Actions; run: (fn: () => Pro
   if (!crashed.length) return null;
   return (
     <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
-      <div className="mb-1.5 flex items-center gap-1.5 font-medium text-amber-700 dark:text-amber-400">
+      <div className="mb-1.5 flex items-center gap-1.5 font-medium text-warning">
         <AlertTriangle size={13} /> {crashed.length === 1 ? "A session" : `${crashed.length} sessions`} stopped unexpectedly
       </div>
       <ul className="mb-2 space-y-0.5">
@@ -680,18 +681,47 @@ function SessionItem({
   const [name, setName] = useState(s.title);
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  // The menu is drawn in a portal at a fixed spot, so the scrolling list can't clip
+  // it. Near the bottom of the window it opens upward instead.
+  const [pos, setPos] = useState<{ right: number; top?: number; bottom?: number } | null>(null);
+  const openMenu = () => {
+    const r = trigger.current?.getBoundingClientRect();
+    if (!r) return;
+    const right = window.innerWidth - r.right;
+    setPos(r.bottom + 340 > window.innerHeight ? { right, bottom: window.innerHeight - r.top + 4 } : { right, top: r.bottom + 4 });
+    setMenu(true);
+    setConfirm(null);
+  };
 
-  // Close the menu on any click outside this item.
+  // Close the menu on a click outside it, Escape, scrolling or resizing.
   useEffect(() => {
     if (!menu) return;
-    const off = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) {
-        setMenu(false);
-        setConfirm(null);
-      }
+    const close = () => {
+      setMenu(false);
+      setConfirm(null);
     };
+    const off = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!ref.current?.contains(t) && !menuRef.current?.contains(t)) close();
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      close();
+      trigger.current?.focus();
+    };
+    const scroll = (e: Event) => !menuRef.current?.contains(e.target as Node) && close();
     document.addEventListener("mousedown", off);
-    return () => document.removeEventListener("mousedown", off);
+    document.addEventListener("keydown", key);
+    window.addEventListener("scroll", scroll, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("mousedown", off);
+      document.removeEventListener("keydown", key);
+      window.removeEventListener("scroll", scroll, true);
+      window.removeEventListener("resize", close);
+    };
   }, [menu]);
 
   const act = async (fn: () => Promise<void>) => {
@@ -782,11 +812,16 @@ function SessionItem({
 
       {!renaming && (
         <button
+          ref={trigger}
           onClick={() => {
-            setMenu((m) => !m);
-            setConfirm(null);
+            if (menu) {
+              setMenu(false);
+              setConfirm(null);
+            } else openMenu();
           }}
           aria-label="Session actions"
+          aria-haspopup="menu"
+          aria-expanded={menu}
           className={`absolute right-1.5 top-1.5 rounded-md p-1 text-muted hover:bg-sunken hover:text-ink ${
             menu ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus:opacity-100"
           }`}
@@ -795,8 +830,13 @@ function SessionItem({
         </button>
       )}
 
-      {menu && (
-        <div className="absolute right-1.5 top-8 z-50 w-56 overflow-hidden rounded-lg border border-line bg-panel py-1 shadow-xl">
+      {menu && pos && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          style={{ right: pos.right, top: pos.top, bottom: pos.bottom }}
+          className="no-drag-overlay fixed z-[70] w-56 overflow-hidden rounded-lg border border-line bg-panel py-1 shadow-xl"
+        >
           {confirm === "end" ? (
             <ConfirmBox
               text={
@@ -907,7 +947,7 @@ function SessionItem({
                 </button>
               )}
               <button
-                className={`${menuItem} text-red-600`}
+                className={`${menuItem} text-danger`}
                 disabled={!!s.active}
                 title={s.active ? "End the session first" : undefined}
                 onClick={() => setConfirm("delete")}
@@ -916,7 +956,8 @@ function SessionItem({
               </button>
             </>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -933,7 +974,7 @@ function ConfirmBox(p: { text: string; action: string; busy: boolean; onYes: () 
         <button
           onClick={p.onYes}
           disabled={p.busy}
-          className="rounded-md bg-red-600 px-2 py-1 font-medium text-white disabled:opacity-50"
+          className="rounded-md bg-danger px-2 py-1 font-medium text-on-accent disabled:opacity-50"
         >
           {p.busy ? "…" : p.action}
         </button>

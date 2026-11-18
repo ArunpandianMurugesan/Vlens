@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Check, ChevronRight, GitCommit, MessageSquare, RefreshCw, Search, Sparkles, X } from "lucide-react";
+import { Bot, Check, ChevronRight, EyeOff, GitCommit, MessageSquare, RefreshCw, Search, Sparkles, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { InboxTab, Review } from "@/hooks/useReview";
 import type { Plan } from "@/lib/autopilotPlan";
@@ -28,22 +28,22 @@ export const TONE: Record<NewsTone | "gray", { chip: string; tile: string; card:
   gray: { chip: "bg-sunken text-muted", tile: "bg-sunken text-muted", card: "border-line bg-panel" },
 };
 
-type Row = { p: PrSummary; tone: NewsTone | "gray"; chip: string; detail: string; tile: "ai" | "ci" | "ok" | "commits" | "talk" | "new" | "person" };
+type Row = { p: PrSummary; tone: NewsTone | "gray"; chip: string; detail: string; tile: "ai" | "ci" | "ok" | "commits" | "talk" | "new" | "person"; by?: string };
 
 // What autopilot did on a PR, as the row's chip and line. null: nothing to say.
 function autopilotRow(p: PrSummary, plan: Plan | null, by: string | undefined, enabled: boolean): Omit<Row, "p"> | null {
   if (!plan) return null;
   switch (plan.state) {
     case "reviewed":
-      return { tone: "orange", chip: by === "autopilot" ? "Draft ready" : "Reviewed", detail: by === "autopilot" ? `Autopilot ${plan.why}. Nothing is posted until you say so.` : `Claude ${plan.why}`, tile: "ai" };
+      return { tone: "orange", chip: by === "autopilot" ? "Draft ready" : "Reviewed", detail: by === "autopilot" ? `Autopilot ${plan.why}. Nothing is posted until you say so.` : `Claude ${plan.why}`, tile: "ai", by };
     case "handoff":
-      return { tone: "orange", chip: "Handed to you", detail: `Autopilot handed it to you: ${plan.why}`, tile: "ai" };
+      return { tone: "orange", chip: "Handed to you", detail: `Autopilot handed it to you: ${plan.why}`, tile: "ai", by: "autopilot" };
     case "changed":
-      return { tone: "blue", chip: "New changes", detail: `Reviewed before · ${plan.why}`, tile: "ai" };
+      return { tone: "blue", chip: "New changes", detail: `Reviewed before · ${plan.why}`, tile: "ai", by };
     case "posted":
-      return { tone: "green", chip: "Posted", detail: `Claude's ${plan.why}`, tile: "ai" };
+      return { tone: "green", chip: "Posted", detail: `Claude's ${plan.why}`, tile: "ai", by };
     case "queued":
-      return enabled ? { tone: "violet", chip: "Queued", detail: `In the queue · ${plan.workflow?.name ?? "autopilot"} picks it on a coming check`, tile: "ai" } : null;
+      return enabled ? { tone: "violet", chip: "Queued", detail: `In the queue · ${plan.workflow?.name ?? "autopilot"} picks it on a coming check`, tile: "ai", by: "autopilot" } : null;
     case "paused":
       return { tone: "gray", chip: "Paused", detail: "You paused autopilot for this PR", tile: "person" };
     default:
@@ -63,15 +63,16 @@ function mineRow(p: PrSummary): Omit<Row, "p"> {
 const NEWS_TILE: Record<News["icon"], Row["tile"]> = { claude: "ai", ci: "ci", approved: "ok", commits: "commits", activity: "talk", new: "new" };
 
 export function PrInbox({ review, onMenu }: { review: Review; onMenu: () => void }) {
-  const { inbox, prs, news, planOf, auto, select, refresh, loading, board, markSeen } = review;
+  const { inbox, prs, news, planOf, auto, select, refresh, loading, board, markSeen, hidden, unhide } = review;
   const [q, setQ] = useState("");
+  const [showHidden, setShowHidden] = useState(false);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const match = (p: PrSummary) => !q || `${p.title} ${p.repo} #${p.number} ${p.author}`.toLowerCase().includes(q.toLowerCase());
   const enabled = !!auto?.rules.enabled;
 
   // Sections of rows; New has one.
   const groups = useMemo(() => {
-    if (inbox === "new") return [{ id: "new", label: "", folded: false, rows: news.filter((x) => match(x.p)).map(({ p, n }): Row => ({ p, tone: n.tone, chip: n.chip, detail: n.detail, tile: NEWS_TILE[n.icon] })) }];
+    if (inbox === "new") return [{ id: "new", label: "", folded: false, rows: news.filter((x) => match(x.p)).map(({ p, n }): Row => ({ p, tone: n.tone, chip: n.chip, detail: n.detail, tile: NEWS_TILE[n.icon], by: auto?.tracks[p.url]?.lastRun?.by })) }];
     return SECTIONS[inbox].map((g) => ({
       id: g.id,
       label: g.label,
@@ -81,8 +82,9 @@ export function PrInbox({ review, onMenu }: { review: Review; onMenu: () => void
         .sort((a, b) => RANK[a.priority] - RANK[b.priority] || b.updatedAt.localeCompare(a.updatedAt))
         .map((p): Row => {
           if (inbox === "mine") return { p, ...mineRow(p) };
-          const a = autopilotRow(p, planOf(p), auto?.tracks[p.url]?.lastRun?.by, enabled);
-          return { p, ...(a ?? { tone: p.lane === "needsYou" ? "orange" : "gray", chip: g.label, detail: statusLine(p), tile: "person" }) };
+          const by = auto?.tracks[p.url]?.lastRun?.by;
+          const a = autopilotRow(p, planOf(p), by, enabled);
+          return { p, by, ...(a ?? { tone: p.lane === "needsYou" ? "orange" : "gray", chip: g.label, detail: statusLine(p), tile: "person" }) };
         }),
     }));
   }, [inbox, news, prs, q, planOf, auto, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -101,7 +103,12 @@ export function PrInbox({ review, onMenu }: { review: Review; onMenu: () => void
             Mark all seen
           </button>
         )}
-        <label className="flex h-8 w-60 items-center gap-1.5 rounded-lg bg-sunken px-2.5 text-sm text-muted">
+        {hidden.length > 0 && (
+          <button onClick={() => setShowHidden((v) => !v)} aria-expanded={showHidden} className="inline-flex items-center gap-1 text-xs text-muted hover:text-accent">
+            <EyeOff size={12} /> Hidden ({hidden.length})
+          </button>
+        )}
+        <label className="flex h-8 w-60 items-center gap-1.5 rounded-lg bg-sunken px-2.5 text-sm text-muted focus-within:ring-2 focus-within:ring-accent/50">
           <Search size={14} />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by repo or title" aria-label="Filter by repo or title" className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-muted" />
         </label>
@@ -111,9 +118,24 @@ export function PrInbox({ review, onMenu }: { review: Review; onMenu: () => void
       </header>
       <div className="flex-1 overflow-y-auto scroll-thin">
         <div className="mx-auto max-w-5xl space-y-2 px-6 py-5">
-          {board?.error && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600">{board.error}</p>}
+          {board?.error && <p className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{board.error}</p>}
+          {showHidden && hidden.length > 0 && (
+            <section aria-label="Hidden PRs" className="space-y-1 rounded-xl border border-dashed border-line px-3.5 py-2.5 text-sm">
+              <div className="text-xs font-semibold text-muted">Hidden from PR Review ({hidden.length})</div>
+              {hidden.map((p) => (
+                <div key={p.url} className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate" title={p.title}>
+                    {p.title} <span className="text-xs text-muted">{p.repo.split("/")[1]} #{p.number}</span>
+                  </span>
+                  <button onClick={() => unhide(p.url)} className="shrink-0 rounded-md border border-line px-2 py-0.5 text-xs hover:border-accent hover:text-accent">
+                    Unhide
+                  </button>
+                </div>
+              ))}
+            </section>
+          )}
           {!board && <p className="py-8 text-center text-sm text-muted">Loading PRs from GitHub…</p>}
-          {board && !total && (
+          {board && !total && !board.error && (
             <p className="py-10 text-center text-sm text-muted">
               {q ? "No PRs match." : inbox === "new" ? "You're caught up. Changes on your PRs and reviews show up here." : inbox === "mine" ? "You have no open PRs." : "No reviews waiting on you or your team."}
             </p>
@@ -164,8 +186,19 @@ function PrRow({ r, risk, onOpen }: { r: Row; risk: ReturnType<Review["riskOf"]>
 }
 
 function Tile({ r }: { r: Row }) {
-  const cls = `flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-[0.7rem] font-bold ${TONE[r.tone].tile}`;
+  const base = "flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-[0.7rem] font-bold";
+  const cls = `${base} ${TONE[r.tone].tile}`;
   const Icon = { ai: Bot, ci: X, ok: Check, commits: GitCommit, talk: MessageSquare, new: Sparkles, person: null }[r.tile];
-  if (r.tile === "ai") return <span className={`${cls} bg-violet-500/10 text-violet-700 dark:text-violet-300`}>AP</span>;
+  // Autopilot's own runs wear "AP"; drafts from a Review you clicked wear Claude's mark.
+  if (r.tile === "ai")
+    return r.by === "autopilot" ? (
+      <span className={`${base} ${TONE.violet.tile}`} title="Autopilot">
+        AP
+      </span>
+    ) : (
+      <span className={`${base} ${TONE.violet.tile}`} title="Claude">
+        <Sparkles size={15} />
+      </span>
+    );
   return <span className={cls}>{Icon ? <Icon size={15} /> : r.p.author.slice(0, 2).toUpperCase()}</span>;
 }

@@ -25,16 +25,16 @@ import { RiskBadge } from "./RiskBadge";
 import { ago } from "./ReviewSidebar";
 import { MenuButton } from "./Sidebar";
 
-// Autopilot in Vlens Review: a status chip on each PR, its own sidebar tab (what it
+// Autopilot in PR Review: a status chip on each PR, its own sidebar tab (what it
 // handed back, what's queued, what it did), the Rules page, and a card on a PR's
 // Overview. The runner (autopilotRunner.ts) does the reviews; this is where you watch it.
 
 const CHIP: Record<PlanState, string> = {
-  handoff: "bg-red-500/10 text-red-700 dark:text-red-300",
-  changed: "bg-amber-500/15 text-amber-800 dark:text-amber-300",
+  handoff: "bg-danger/10 text-danger",
+  changed: "bg-warning/15 text-warning",
   queued: "bg-violet-500/10 text-violet-700 dark:text-violet-300",
   reviewed: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
-  posted: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+  posted: "bg-success/10 text-success",
   paused: "bg-sunken text-muted",
   skip: "bg-sunken text-muted",
 };
@@ -66,6 +66,7 @@ const ACT_ICON: Record<Activity["kind"], string> = {
 export function AutomationCard({ review, pr }: { review: Review; pr: PrSummary }) {
   const { auto, planOf, setPaused, setRulesOpen } = review;
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   const plan = planOf(pr);
   if (!auto || !plan) return null;
   const t = auto.tracks[pr.url];
@@ -73,7 +74,8 @@ export function AutomationCard({ review, pr }: { review: Review; pr: PrSummary }
   const wf = auto.rules.workflows.find((w) => w.id === plan.workflow?.id);
   const toggle = async () => {
     setBusy(true);
-    await setPaused(pr, !paused).catch(() => {});
+    setErr(null);
+    await setPaused(pr, !paused).catch((e: Error) => setErr(`Couldn't ${paused ? "resume" : "pause"}: ${e.message}`));
     setBusy(false);
   };
   return (
@@ -109,6 +111,7 @@ export function AutomationCard({ review, pr }: { review: Review; pr: PrSummary }
       <button onClick={() => void toggle()} disabled={busy} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs hover:border-accent hover:text-accent disabled:opacity-50">
         {paused ? <Play size={12} /> : <Pause size={12} />} {paused ? "Resume autopilot here" : "Pause autopilot for this PR"}
       </button>
+      {err && <p className="mt-1.5 text-xs text-danger">{err}</p>}
     </section>
   );
 }
@@ -118,7 +121,7 @@ function sentence(plan: Plan, enabled: boolean) {
     case "posted":
       return "Done: a review is posted at the PR's current commit.";
     case "reviewed":
-      return "Reviewed at the current commit. The findings wait for you in the Review tab.";
+      return "Reviewed at the current commit. Its draft comments wait for you in the Discussion tab; nothing is posted yet.";
     case "changed":
       return `The PR moved on since the last review (${plan.why}). ${enabled ? "Autopilot would review it again." : "Worth another review."}`;
     case "queued":
@@ -138,6 +141,7 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
   const { auto, prs, setRulesOpen, saveRules, setPaused, select, runAction } = review;
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
   const act = async (action: "run" | "stop" | "retry", url?: string) => {
     setBusy(true);
     setNote(await runAction(action, url));
@@ -169,10 +173,12 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
     .sort(([, a], [, b]) => b.lastRun!.at.localeCompare(a.lastRun!.at));
   const toggle = async () => {
     setBusy(true);
-    await saveRules({ ...r, enabled: !r.enabled }).catch(() => {});
+    setErr(null);
+    await saveRules({ ...r, enabled: !r.enabled }).catch((e: Error) => setErr(`Couldn't ${r.enabled ? "pause" : "turn on"} autopilot: ${e.message}`));
     setBusy(false);
   };
   const open = (url: string) => void select(url);
+  const pause = (p: PrSummary, v: boolean) => setPaused(p, v).catch((e: Error) => setErr(`Couldn't ${v ? "pause" : "resume"} ${p.repo.split("/")[1]} #${p.number}: ${e.message}`));
   const label = (url: string) => {
     const p = prs.find((x) => x.url === url);
     const m = url.match(/github\.com\/[^/]+\/([^/]+)\/pull\/(\d+)/);
@@ -186,17 +192,18 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
       <header className="flex flex-wrap items-center gap-3 border-b border-line px-6 py-3">
         <MenuButton onClick={onMenu} />
         <button onClick={() => review.goInbox()} className="inline-flex shrink-0 items-center gap-0.5 rounded-md bg-sunken py-1 pl-1 pr-2 text-xs hover:text-accent">
-          <ChevronLeft size={14} /> PR Reviews
+          <ChevronLeft size={14} /> PR Review
         </button>
         <Bot size={16} className={r.enabled ? "text-accent" : "text-muted"} />
         <h1 className="text-sm font-semibold">Autopilot</h1>
-        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${r.enabled ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-sunken text-muted"}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${r.enabled ? "bg-emerald-500" : "bg-muted"}`} aria-hidden /> {r.enabled ? "On" : "Off"}
+        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${r.enabled ? "bg-success/10 text-success" : "bg-sunken text-muted"}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${r.enabled ? "bg-success" : "bg-muted"}`} aria-hidden /> {r.enabled ? "On" : "Off"}
         </span>
         <span className="text-xs text-muted">
           {auto.today} of {r.dailyCap} reviews today · {nextIn === null ? `checks every ${r.intervalMinutes} min` : nextIn === 0 ? "checking soon" : `next check in ${nextIn} min`}
         </span>
         {note && <span className="text-xs text-accent">{note}</span>}
+        {err && <span role="alert" className="text-xs text-danger">{err}</span>}
         <span className="ml-auto flex items-center gap-2">
           <button onClick={() => void act("run")} disabled={busy || !!running} title="Review the next PR in the queue now, even when autopilot is off" className={btnS}>
             <Zap size={12} /> Run now
@@ -227,7 +234,7 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
                 <button onClick={() => open(p.url)} className={btnS}>
                   Review it myself
                 </button>
-                <button onClick={() => void setPaused(p, true)} className={btnS}>
+                <button onClick={() => void pause(p, true)} className={btnS}>
                   Leave it
                 </button>
               </BoardCard>
@@ -241,7 +248,7 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
                     const lastStep = i === running.steps.length - 1;
                     return (
                       <li key={`${s.at}-${i}`} className={`flex items-center gap-1.5 ${lastStep ? "font-medium" : "text-muted"}`}>
-                        {lastStep ? <Loader2 size={11} className="shrink-0 animate-spin text-sky-600" /> : <Check size={11} className="shrink-0 text-emerald-600" />}
+                        {lastStep ? <Loader2 size={11} className="shrink-0 animate-spin text-sky-600" /> : <Check size={11} className="shrink-0 text-success" />}
                         <span className="min-w-0 truncate">{s.text}</span>
                       </li>
                     );
@@ -265,7 +272,7 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
                 <button onClick={() => open(p.url)} className={btnS}>
                   Open
                 </button>
-                <button onClick={() => void setPaused(p, true)} className={btnS}>
+                <button onClick={() => void pause(p, true)} className={btnS}>
                   Skip
                 </button>
               </BoardCard>
@@ -284,7 +291,7 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
                         </button>
                         <span className="shrink-0 text-muted">{plan.why}</span>
                         {plan.state === "paused" && (
-                          <button onClick={() => void setPaused(p, false)} className="shrink-0 text-accent hover:underline">
+                          <button onClick={() => void pause(p, false)} className="shrink-0 text-accent hover:underline">
                             Resume
                           </button>
                         )}
@@ -456,6 +463,18 @@ export function RulesPage({ review, onMenu }: { review: Review; onMenu: () => vo
     }
   };
   const changed = JSON.stringify(rules) !== JSON.stringify(auto?.rules);
+  // The big on/off switch saves right away, like the board's Turn on / Pause; the rest waits for Save.
+  const setEnabled = async (enabled: boolean) => {
+    if (!auto) return;
+    setState({ busy: true });
+    try {
+      await saveRules({ ...auto.rules, enabled });
+      setDraft((d) => d && { ...d, enabled });
+      setState({});
+    } catch (e) {
+      setState({ error: `Couldn't turn autopilot ${enabled ? "on" : "off"}: ${(e as Error).message}` });
+    }
+  };
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
@@ -463,6 +482,7 @@ export function RulesPage({ review, onMenu }: { review: Review; onMenu: () => vo
         <MenuButton onClick={onMenu} />
         <button
           onClick={() => {
+            if (changed && !window.confirm("You have unsaved Autopilot settings. Leave and discard them?")) return;
             setRulesOpen(false);
             review.setBoardOpen(true);
           }}
@@ -482,7 +502,7 @@ export function RulesPage({ review, onMenu }: { review: Review; onMenu: () => vo
               <p className="text-sm text-muted">Which PRs it picks, how hard it looks, and what it does with what it finds. It never approves.</p>
             </div>
             <span className="text-xs text-muted">Autopilot is {draft.enabled ? "on" : "off"}</span>
-            <Switch on={draft.enabled} onChange={(v) => set({ enabled: v })} label="Autopilot" big />
+            <Switch on={draft.enabled} onChange={(v) => void setEnabled(v)} label="Autopilot (saves right away)" big disabled={state.busy} />
           </section>
           <p className="-mt-2 px-1 text-xs text-muted">When it&apos;s on, it checks for PRs on your interval and reviews one at a time with read-only tools: it can&apos;t post, push or run anything itself. Only a workflow set to &quot;Post comments itself&quot; posts, and never an approval.</p>
 
@@ -515,7 +535,7 @@ export function RulesPage({ review, onMenu }: { review: Review; onMenu: () => vo
             <Box title="Hand it to me when…" hint="Applies to every workflow. These PRs come to you instead.">
               <Field label="It touches these paths (regular expressions, one per line)">
                 <textarea value={text.sensitive} onChange={(e) => setText({ ...text, sensitive: e.target.value })} rows={4} className={`${input} font-mono text-xs`} />
-                {!!badRegex?.length && <span className="text-xs text-red-600">Not valid, will be dropped: {badRegex.join(", ")}</span>}
+                {!!badRegex?.length && <span className="text-xs text-danger">Not valid, will be dropped: {badRegex.join(", ")}</span>}
               </Field>
               <Row label="More changed lines than">
                 <input type="number" min={50} value={draft.maxChangedLines} onChange={(e) => set({ maxChangedLines: Number(e.target.value) })} className={`${field} w-24`} />
@@ -583,12 +603,12 @@ export function RulesPage({ review, onMenu }: { review: Review; onMenu: () => vo
           </span>
         )}
         <span className="ml-auto flex items-center gap-2">
-          {state.error && <span className="text-xs text-red-600">{state.error}</span>}
-          {state.saved && !changed && <span className="text-xs text-emerald-700 dark:text-emerald-400">Saved.</span>}
+          {state.error && <span className="text-xs text-danger">{state.error}</span>}
+          {state.saved && !changed && <span className="text-xs text-success">Saved.</span>}
           <button onClick={() => load({ ...DEFAULT_RULES, enabled: draft.enabled })} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-xs hover:border-accent hover:text-accent">
             <RotateCcw size={12} /> Defaults
           </button>
-          <button onClick={() => void save()} disabled={state.busy || !changed} className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">
+          <button onClick={() => void save()} disabled={state.busy || !changed} className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-on-accent disabled:opacity-50">
             <Hand size={12} /> Save settings
           </button>
         </span>
@@ -720,7 +740,7 @@ function WorkflowCard({
           <ArrowDown size={12} />
         </button>
         {editing && (
-          <button onClick={onRemove} aria-label={`Delete ${w.name}`} title="Delete" className="rounded-lg border border-line p-1.5 text-red-600 hover:border-red-500">
+          <button onClick={onRemove} aria-label={`Delete ${w.name}`} title="Delete" className="rounded-lg border border-line p-1.5 text-danger hover:border-danger">
             <Trash2 size={12} />
           </button>
         )}
@@ -729,14 +749,15 @@ function WorkflowCard({
   );
 }
 
-function Switch({ on, onChange, label, big = false }: { on: boolean; onChange: (v: boolean) => void; label: string; big?: boolean }) {
+function Switch({ on, onChange, label, big = false, disabled = false }: { on: boolean; onChange: (v: boolean) => void; label: string; big?: boolean; disabled?: boolean }) {
   return (
     <button
       role="switch"
+      disabled={disabled}
       aria-checked={on}
       aria-label={label}
       onClick={() => onChange(!on)}
-      className={`flex shrink-0 items-center rounded-full p-0.5 transition ${big ? "h-6 w-11" : "h-[18px] w-8"} ${on ? "justify-end bg-accent" : "justify-start bg-line"}`}
+      className={`flex shrink-0 items-center rounded-full p-0.5 transition ${big ? "h-6 w-11" : "h-[18px] w-8"} ${on ? "justify-end bg-accent" : "justify-start bg-line"} disabled:opacity-60`}
     >
       <span className={`rounded-full bg-white shadow-sm ${big ? "h-5 w-5" : "h-3.5 w-3.5"}`} />
     </button>

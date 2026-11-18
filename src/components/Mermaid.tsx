@@ -82,7 +82,7 @@ export function MermaidBlock({ code }: { code: string }) {
   const btn = "rounded-md p-1 text-muted hover:bg-sunken hover:text-ink";
 
   return (
-    <div className="lens-diagram-wrap not-prose overflow-hidden rounded-xl border border-line bg-panel" data-no-select>
+    <div className="overflow-hidden rounded-xl border border-line bg-panel" data-no-select>
       <div className="flex items-center gap-1 border-b border-line px-2 py-1 text-[0.7rem] text-muted">
         <Network size={12} className="text-accent" />
         <span className="mr-auto">{invalid && !svg ? "Diagram (drawing…)" : "Diagram"}</span>
@@ -123,7 +123,7 @@ export function MermaidBlock({ code }: { code: string }) {
       {full &&
         svg &&
         createPortal(
-          <div className="fixed inset-0 z-[200] flex flex-col bg-bg/95 backdrop-blur" onClick={() => setFull(false)}>
+          <div className="no-drag-overlay fixed inset-0 z-[200] flex flex-col bg-bg/95 backdrop-blur" onClick={() => setFull(false)}>
             <div className="flex justify-end p-3">
               <button className="rounded-full bg-panel p-2 shadow" aria-label="Close full screen" onClick={() => setFull(false)}>
                 <X size={16} />

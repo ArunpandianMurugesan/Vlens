@@ -24,7 +24,7 @@ export type InboxTab = "new" | "mine" | "reviews";
 const TAB_KEY = "lens.prTab";
 export const NEWS_RANK: Record<NewsTone, number> = { orange: 0, red: 1, green: 2, violet: 3, blue: 4 };
 
-// State for the Vlens Review tab: the PR board, which PR is open, and its details.
+// State for the PR Review space: the PR board, which PR is open, and its details.
 export function useReview() {
   const [board, setBoard] = useState<ReviewBoard | null>(null);
   const [loading, setLoading] = useState(false);
@@ -74,8 +74,9 @@ export function useReview() {
   );
   const setPaused = useCallback(
     async (p: PrSummary, paused: boolean) => {
-      await fetch("/api/autopilot/pause", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: p.url, title: p.title, paused }) });
+      const r = await fetch("/api/autopilot/pause", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: p.url, title: p.title, paused }) });
       await loadAuto();
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? r.statusText);
     },
     [loadAuto],
   );
@@ -124,8 +125,21 @@ export function useReview() {
     });
     setSelected((s) => (s === url ? null : s));
   }, []);
+  // Bring a hidden PR back into the lists.
+  const unhide = useCallback((url: string) => {
+    setDismissed((prev) => {
+      const next = new Set(prev);
+      next.delete(url);
+      try {
+        localStorage.setItem(DISMISSED_KEY, JSON.stringify([...next]));
+      } catch {}
+      return next;
+    });
+  }, []);
 
   const prs: PrSummary[] = useMemo(() => (board?.prs ?? []).filter((p) => !dismissed.has(p.url)), [board, dismissed]);
+  // PRs you hid that are still open on GitHub (the inbox's "Hidden (n)").
+  const hidden: PrSummary[] = useMemo(() => (board?.prs ?? []).filter((p) => dismissed.has(p.url)), [board, dismissed]);
   const pr = prs.find((p) => p.url === selected) ?? null;
 
   // Which inbox list shows when no PR is open; the left panel picks it.
@@ -187,7 +201,7 @@ export function useReview() {
   );
   const cloneFor = (p: PrSummary) => board?.clones[p.repo.toLowerCase()] ?? null;
 
-  return { board, prs, loading, load, refresh, selected, pr, detail, select, dismiss, cloneFor, auto, loadAuto, saveRules, setPaused, planOf, riskOf, runAction, inbox, goInbox, news, markSeen, rulesOpen, setRulesOpen, boardOpen, setBoardOpen };
+  return { board, prs, loading, load, refresh, selected, pr, detail, select, dismiss, unhide, hidden, cloneFor, auto, loadAuto, saveRules, setPaused, planOf, riskOf, runAction, inbox, goInbox, news, markSeen, rulesOpen, setRulesOpen, boardOpen, setBoardOpen };
 }
 
 export type Review = ReturnType<typeof useReview>;

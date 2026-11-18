@@ -25,6 +25,7 @@ interface Term {
   backlog: string; // the last output, replayed on reconnect
   sockets: Set<WebSocket>;
   exited: number | null;
+  alone: number | null; // since when no panel has been connected
 }
 
 const BACKLOG = 200_000; // characters
@@ -64,6 +65,7 @@ function attach(ws: WebSocket, req: IncomingMessage) {
   if (t.backlog) ws.send(t.backlog);
   if (t.exited !== null) return ws.close(EXIT_CODE_BASE + (t.exited & 0xff), "exited");
   t.sockets.add(ws);
+  t.alone = null;
   // From the panel: a string is keys; {"cols","rows"} (sent as JSON with a
   // leading NUL, which a keyboard can't type) is a resize.
   ws.on("message", (raw, isBinary) => {
@@ -76,7 +78,10 @@ function attach(ws: WebSocket, req: IncomingMessage) {
       } catch {}
     } else t.pty.write(s);
   });
-  ws.on("close", () => t.sockets.delete(ws));
+  ws.on("close", () => {
+    t.sockets.delete(ws);
+    if (!t.sockets.size) t.alone = Date.now();
+  });
 }
 
 const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -104,7 +109,7 @@ export async function openTerminal(o: { id?: string | null; cwd: string | null; 
   const args = resume ? ["-l", "-c", `exec ${resume}`] : ["-l"];
   const pty = spawnPty(shell, args, { name: "xterm-256color", cols: fit(o.cols, 80), rows: fit(o.rows, 24), cwd: dir, env });
   const id = randomUUID();
-  const t: Term = { pty, cwd: dir, token: randomBytes(24).toString("hex"), backlog: "", sockets: new Set(), exited: null };
+  const t: Term = { pty, cwd: dir, token: randomBytes(24).toString("hex"), backlog: "", sockets: new Set(), exited: null, alone: Date.now() };
   // A full-screen app (claude) writes each new screen in several pieces. Sent
   // one by one, the panel paints half-drawn screens while you scroll. So gather
   // what comes out within a few ms and send it as one message.
@@ -142,10 +147,17 @@ export function closeTerminal(id: string) {
   terms.delete(id);
 }
 
+// A panel keeps its shell's id for its own window only. A shell no panel has
+// reconnected to for this long can't be reached again, so it's ended.
+const ORPHAN_MS = 30 * 60_000;
+
 // Close every shell when the server stops, so none are left running.
 const p = process as NodeJS.Process & { lensTermsHooked?: boolean };
 if (!p.lensTermsHooked) {
   p.lensTermsHooked = true;
+  setInterval(() => {
+    for (const [id, t] of terms) if (t.exited === null && t.alone !== null && Date.now() - t.alone > ORPHAN_MS) closeTerminal(id);
+  }, 5 * 60_000).unref();
   process.on("exit", () => {
     for (const t of terms.values()) if (t.exited === null) t.pty.kill();
   });

@@ -637,7 +637,7 @@ export function useTreeChat() {
   }, [threads, send]);
 
   const sendRoot = useCallback(
-    // newIn: start a brand-new session in this folder instead (e.g. from Vlens Review).
+    // newIn: start a brand-new session in this folder instead (e.g. from PR Review).
     // onId: told the new session's id as soon as Claude reports it.
     async (prompt: string, mode: RootMode, model?: string, images: ImageInput[] = [], newIn?: string, onId?: (id: string) => void) => {
       const cur = newIn ? null : session;

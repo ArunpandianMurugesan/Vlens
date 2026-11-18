@@ -7,7 +7,7 @@ import type { TreeChat } from "@/hooks/useTreeChat";
 import type { SessionSummary } from "@/lib/types";
 import { groupOf } from "./ReviewSidebar";
 
-// ⌘K from anywhere: find a session, a PR, a bot or an app action and go there.
+// ⌘K from anywhere: find a session, a PR or an app action and go there.
 //   ↩ open · ⌘↩ new session in that folder · ⌥↩ open the session in Terminal
 
 export interface Go {
@@ -19,7 +19,7 @@ export interface Go {
 
 interface Item {
   id: string;
-  group: "Sessions" | "Review" | "Bots" | "Actions";
+  group: "Sessions" | "Review" | "Actions";
   title: string;
   meta: string;
   icon: ReactNode;
@@ -83,6 +83,7 @@ export function QuickSwitcher({ chat, review, go }: { chat: TreeChat; review: Re
     if (!open) return;
     setQ("");
     setSel(0);
+    window.dispatchEvent(new Event("lens:switcher-open")); // closes the selection popover
   }, [open]);
 
   const here = chat.session?.cwd ?? chat.draft?.cwd ?? null;
@@ -124,7 +125,7 @@ export function QuickSwitcher({ chat, review, go }: { chat: TreeChat; review: Re
     out.push(
       { id: "a:new", group: "Actions", title: "New session", meta: here ? `in ${home(here)}` : "", icon: <Plus size={14} className="text-muted" />, cwd: here, run: () => go.newIn(here ?? ""), rank: 0 },
       page("home", "Home", <Home size={14} className="text-muted" />),
-      page("review", "Vlens Review", <GitPullRequest size={14} className="text-muted" />),
+      page("review", "PR Review", <GitPullRequest size={14} className="text-muted" />),
       page("history", "History", <History size={14} className="text-muted" />),
       page("marketplace", "Marketplace", <Store size={14} className="text-muted" />),
       page("settings", "Settings", <Settings size={14} className="text-muted" />, "⌘,"),
@@ -135,9 +136,9 @@ export function QuickSwitcher({ chat, review, go }: { chat: TreeChat; review: Re
   const shown = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
     const hits = items.filter((i) => words.every((w) => `${i.title} ${i.meta}`.toLowerCase().includes(w)));
-    const order: Item["group"][] = ["Sessions", "Review", "Bots", "Actions"];
+    const order: Item["group"][] = ["Sessions", "Review", "Actions"];
     // With nothing typed: what needs you and what's recent, a few of each.
-    const cap = q ? { Sessions: 8, Review: 5, Bots: 5, Actions: 8 } : { Sessions: 6, Review: 3, Bots: 4, Actions: 3 };
+    const cap = q ? { Sessions: 8, Review: 5, Actions: 8 } : { Sessions: 6, Review: 3, Actions: 3 };
     const starts = (i: Item) => (words[0] && i.title.toLowerCase().startsWith(words[0]) ? 0 : 1);
     return order.flatMap((g) =>
       hits
@@ -171,7 +172,7 @@ export function QuickSwitcher({ chat, review, go }: { chat: TreeChat; review: Re
 
   let last: string | null = null;
   return (
-    <div className="fixed inset-0 z-[60] flex justify-center bg-black/30 pt-[12vh]" onMouseDown={close}>
+    <div className="no-drag-overlay fixed inset-0 z-[60] flex justify-center bg-black/30 pt-[12vh]" onMouseDown={close}>
       <div role="dialog" aria-label="Quick switcher" className="flex h-fit max-h-[70vh] w-[620px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
         <label className="flex h-14 shrink-0 items-center gap-3 border-b border-line px-4">
           <Search size={18} className="text-muted" />
@@ -206,20 +207,20 @@ export function QuickSwitcher({ chat, review, go }: { chat: TreeChat; review: Re
             const on = n === sel;
             return (
               <div key={i.id}>
-                {head && <div className="px-2.5 pb-1 pt-2.5 text-[0.7rem] font-semibold text-muted first:pt-1">{head}</div>}
+                {head && <div className="px-2.5 pb-1 pt-2.5 text-[0.7rem] font-semibold text-muted first:pt-1">{head === "Review" ? "PR Review" : head}</div>}
                 <button
                   data-i={n}
                   role="option"
                   aria-selected={on}
                   onMouseMove={() => setSel(n)}
                   onClick={(e) => pick(i, e.metaKey || e.ctrlKey ? "new" : e.altKey ? "terminal" : "open")}
-                  className={`flex h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm ${on ? "bg-accent text-white" : ""}`}
+                  className={`flex h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm ${on ? "bg-accent text-on-accent" : ""}`}
                 >
-                  <span className={`flex w-4 shrink-0 justify-center ${on ? "[&_*]:!text-white" : ""}`}>{i.icon}</span>
+                  <span className={`flex w-4 shrink-0 justify-center ${on ? "[&_*]:!text-on-accent" : ""}`}>{i.icon}</span>
                   <span className="min-w-0 flex-1 truncate">
                     <Hit text={i.title} q={q} />
                   </span>
-                  <span className={`max-w-[45%] shrink-0 truncate text-[0.7rem] ${on ? "text-white/85" : "text-muted"}`}>{i.meta}</span>
+                  <span className={`max-w-[45%] shrink-0 truncate text-[0.7rem] ${on ? "text-on-accent/85" : "text-muted"}`}>{i.meta}</span>
                   {on && <span className="shrink-0 text-[0.7rem]">↩</span>}
                 </button>
               </div>

@@ -1,6 +1,7 @@
 import "server-only";
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { FileView } from "./types";
@@ -17,7 +18,13 @@ export function resolvePath(input: string, cwd?: string | null): string {
   p = decodeURI(p);
   if (p === "~" || p.startsWith("~/")) p = path.join(HOME, p.slice(1));
   else if (!path.isAbsolute(p)) p = path.join(cwd && path.isAbsolute(cwd) ? cwd : HOME, p);
-  const abs = path.resolve(p);
+  let abs = path.resolve(p);
+  // Follow symlinks first, so a link in a repo can't point the checks below at ~/.ssh.
+  try {
+    abs = realpathSync(abs);
+  } catch {
+    /* not there yet: the path as written is what gets checked */
+  }
   const rel = path.relative(HOME, abs);
   if (rel.startsWith("..") || path.isAbsolute(rel)) throw new Error("Vlens only opens files inside your home folder.");
   if (PRIVATE.some((d) => rel === d || rel.startsWith(d + path.sep)) || PRIVATE_FILE.test(path.basename(abs)))

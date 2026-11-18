@@ -247,7 +247,7 @@ export function Composer({ placeholder, running, disabled, onSend, onStop, input
         placeholder={placeholder}
         className="field-sizing-content max-h-40 w-full resize-none bg-transparent py-1 text-sm outline-none placeholder:text-muted"
       />
-      {err && <p className="pb-1 text-xs text-red-500">{err}</p>}
+      {err && <p className="pb-1 text-xs text-danger">{err}</p>}
       <div className="flex items-center gap-2">
         <button
           onClick={() => fileRef.current?.click()}
@@ -278,7 +278,7 @@ export function Composer({ placeholder, running, disabled, onSend, onStop, input
           <button
             onClick={submit}
             disabled={empty || disabled}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-white disabled:opacity-40"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-on-accent disabled:opacity-40"
             aria-label="Send"
           >
             <ArrowUp size={15} />

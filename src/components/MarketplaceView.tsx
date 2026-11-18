@@ -30,7 +30,7 @@ async function post(body: object) {
 
 const count = (n: number) => (n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${+(n / 1e3).toFixed(1)}k` : String(n));
 const btn = "inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs hover:border-accent hover:text-accent disabled:opacity-50";
-const primary = "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50";
+const primary = "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-on-accent disabled:opacity-50";
 const field = "rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm outline-none focus:border-accent";
 
 function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: () => void; label: string; disabled?: boolean }) {
@@ -62,6 +62,8 @@ function PluginPanel({ p, folders, onClose, onChanged }: { p: MarketplacePlugin;
   const [project, setProject] = useState(folders[0] ?? "");
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // The install whose Uninstall is waiting for a yes ("scope-project").
+  const [confirmOff, setConfirmOff] = useState<string | null>(null);
 
   useEffect(() => {
     setDetail(null);
@@ -142,9 +144,28 @@ function PluginPanel({ p, folders, onClose, onChanged }: { p: MarketplacePlugin;
                   disabled={!!busy}
                   onChange={() => act("toggle", { action: i.enabled ? "disable" : "enable", id: p.id, scope: i.scope, project: i.project ?? undefined })}
                 />
-                <button className={btn} disabled={!!busy} onClick={() => act("uninstall", { action: "uninstall", id: p.id, scope: i.scope, project: i.project ?? undefined })} aria-label="Uninstall">
-                  {busy === "uninstall" ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-                </button>
+                {confirmOff === `${i.scope}-${i.project}` ? (
+                  <span className="flex items-center gap-1.5 text-xs">
+                    Uninstall?
+                    <button
+                      className={`${btn} border-danger/40 text-danger`}
+                      disabled={!!busy}
+                      onClick={() => {
+                        setConfirmOff(null);
+                        void act("uninstall", { action: "uninstall", id: p.id, scope: i.scope, project: i.project ?? undefined });
+                      }}
+                    >
+                      Uninstall
+                    </button>
+                    <button className={btn} onClick={() => setConfirmOff(null)}>
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button className={btn} disabled={!!busy} onClick={() => setConfirmOff(`${i.scope}-${i.project}`)} aria-label="Uninstall" title="Uninstall">
+                    {busy === "uninstall" ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                  </button>
+                )}
               </div>
             ))}
             <button className={btn} disabled={!!busy} onClick={() => act("update", { action: "update", id: p.id })}>
@@ -176,7 +197,7 @@ function PluginPanel({ p, folders, onClose, onChanged }: { p: MarketplacePlugin;
             </p>
           </div>
         )}
-        {err && <p className="whitespace-pre-wrap rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600">{err}</p>}
+        {err && <p className="whitespace-pre-wrap rounded-lg bg-red-500/10 px-3 py-2 text-xs text-danger">{err}</p>}
 
         {detail && (
           <div>
@@ -312,7 +333,7 @@ export function MarketplaceView({ chat, onMenu }: { chat: TreeChat; onMenu: () =
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <header className="flex items-center gap-3 border-b border-line px-4 py-3">
+      <header className="page-header">
         <button onClick={onMenu} className="rounded-md p-1 text-muted hover:bg-sunken hover:text-ink" aria-label="Back" title="Back">
           <ArrowLeft size={18} />
         </button>
@@ -338,7 +359,7 @@ export function MarketplaceView({ chat, onMenu }: { chat: TreeChat; onMenu: () =
                     {addBusy ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} Add
                   </button>
                 </div>
-                {addErr && <p className="whitespace-pre-wrap text-xs text-red-600">{addErr}</p>}
+                {addErr && <p className="whitespace-pre-wrap text-xs text-danger">{addErr}</p>}
               </div>
             )}
 
@@ -357,7 +378,7 @@ export function MarketplaceView({ chat, onMenu }: { chat: TreeChat; onMenu: () =
                     <span className="pr-1" />
                   ) : removing === m.name ? (
                     <button
-                      className="pr-2 text-red-600"
+                      className="pr-2 text-danger"
                       onClick={async () => {
                         try {
                           await post({ action: "removeMarketplace", name: m.name });
@@ -394,7 +415,7 @@ export function MarketplaceView({ chat, onMenu }: { chat: TreeChat; onMenu: () =
               </div>
             </div>
 
-            {error && <p className="whitespace-pre-wrap rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600">{error}</p>}
+            {error && <p className="whitespace-pre-wrap rounded-lg bg-red-500/10 px-3 py-2 text-xs text-danger">{error}</p>}
             {!data && !error && (
               <div className="flex items-center gap-2 py-8 text-sm text-muted">
                 <Loader2 size={16} className="animate-spin" /> Loading catalogs…
@@ -414,7 +435,7 @@ export function MarketplaceView({ chat, onMenu }: { chat: TreeChat; onMenu: () =
                         <Package size={14} className="shrink-0 text-accent" />
                         <span className="min-w-0 flex-1 truncate text-sm font-medium">{p.name}</span>
                         {p.installs.length > 0 && (
-                          <span className={`shrink-0 rounded-full px-1.5 text-[0.65rem] ${on ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-sunken text-muted"}`}>
+                          <span className={`shrink-0 rounded-full px-1.5 text-[0.65rem] ${on ? "bg-emerald-500/15 text-success" : "bg-sunken text-muted"}`}>
                             {on ? "installed" : "installed · off"}
                           </span>
                         )}

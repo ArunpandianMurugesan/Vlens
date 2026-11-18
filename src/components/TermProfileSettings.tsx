@@ -236,7 +236,7 @@ export function TermProfileSettings() {
           <Copy size={12} /> {current.builtin ? "Customize a copy" : "Duplicate"}
         </button>
         {!current.builtin && (
-          <button className={`${btn} hover:border-red-500 hover:text-red-500`} onClick={() => deleteProfile(current.id)}>
+          <button className={`${btn} hover:border-danger hover:text-danger`} onClick={() => deleteProfile(current.id)}>
             <Trash2 size={12} /> Delete
           </button>
         )}

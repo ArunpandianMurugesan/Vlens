@@ -114,7 +114,7 @@ export class ClaudeProc {
         } catch {}
       }
     });
-    this.child.stderr.on("data", (c: Buffer) => (this.stderr += c.toString()));
+    this.child.stderr.on("data", (c: Buffer) => (this.stderr = (this.stderr + c.toString()).slice(-16_000)));
     this.child.on("error", (err) => this.exit(`Could not start claude: ${err.message}`));
     this.child.on("close", (code) => this.exit(code === 0 ? null : this.stderr.trim() || `claude exited with code ${code}`));
   }
@@ -506,7 +506,7 @@ export function runClaudeOnce(o: { prompt: string; args: string[]; cwd: string |
         } catch {}
       }
     });
-    child.stderr.on("data", (c: Buffer) => (stderr += c.toString()));
+    child.stderr.on("data", (c: Buffer) => (stderr = (stderr + c.toString()).slice(-16_000)));
     const timer = setTimeout(() => child.kill("SIGTERM"), o.timeoutMs ?? 5 * 60_000);
     child.on("close", () => {
       clearTimeout(timer);

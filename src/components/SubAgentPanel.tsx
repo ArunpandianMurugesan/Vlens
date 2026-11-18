@@ -116,7 +116,7 @@ export function SubAgentPanel({ thread, depth, chat }: Props) {
         {live?.asks?.map((a) => <PermissionCard key={a.id} ask={a} />)}
         {live && <RunActivity run={live} replying={running} compact />}
         {live?.error && (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600">{live.error}</div>
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-danger">{live.error}</div>
         )}
       </div>
 

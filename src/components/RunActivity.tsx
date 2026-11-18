@@ -101,7 +101,7 @@ function TaskRow({ task: t, now, subs, onStop }: { task: TaskInfo; now: number; 
               }}
               disabled={stopping}
               title="Stop just this one (the reply and other work carry on)"
-              className="rounded border border-line px-1.5 text-[0.7rem] hover:border-red-500 hover:text-red-600 disabled:opacity-50"
+              className="rounded border border-line px-1.5 text-[0.7rem] hover:border-danger hover:text-danger disabled:opacity-50"
             >
               {stopping ? "Stopping…" : "Stop"}
             </button>
@@ -109,9 +109,9 @@ function TaskRow({ task: t, now, subs, onStop }: { task: TaskInfo; now: number; 
           {t.status === "running" ? (
             <Loader2 size={12} className="animate-spin" />
           ) : t.status === "completed" ? (
-            <Check size={12} className="text-emerald-600" />
+            <Check size={12} className="text-success" />
           ) : (
-            <X size={12} className="text-red-600" />
+            <X size={12} className="text-danger" />
           )}
         </span>
       </div>

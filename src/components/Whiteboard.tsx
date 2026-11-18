@@ -194,7 +194,7 @@ export function WhiteboardBlock({ code }: { code: string }) {
 
   const btn = "rounded-md p-1 text-muted hover:bg-sunken hover:text-ink disabled:opacity-40";
   return (
-    <div className="not-prose overflow-hidden rounded-xl border border-line bg-panel" data-no-select>
+    <div className="overflow-hidden rounded-xl border border-line bg-panel" data-no-select>
       <div className="flex items-center gap-1 border-b border-line px-2 py-1 text-[0.7rem] text-muted">
         <PenLine size={12} className="text-accent" />
         <span className="mr-auto">{elements ? "Whiteboard" : invalid ? "Whiteboard (drawing…)" : "Whiteboard"}</span>

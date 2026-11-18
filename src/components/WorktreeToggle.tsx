@@ -49,7 +49,7 @@ export function WorktreeToggle({ cwd, on, onChange }: { cwd: string; on: boolean
             ? "This session gets its own worktree and branch (in .claude/worktrees/). Click to work in the folder itself."
             : "Work in a new git worktree on its own branch, so parallel sessions don't edit the same files"
       }
-      className={`flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[0.7rem] outline-none disabled:opacity-40 ${
+      className={`flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[0.7rem] disabled:opacity-40 ${
         on && !off ? "bg-accent-soft text-accent" : "bg-sunken text-muted hover:text-ink"
       }`}
     >

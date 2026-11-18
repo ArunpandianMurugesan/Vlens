@@ -9,6 +9,7 @@ import {
   Download,
   ExternalLink,
   FileText,
+  GitBranch,
   Info,
   Network,
   Palette,
@@ -30,7 +31,7 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { TreeChat } from "@/hooks/useTreeChat";
 import { MODELS } from "@/lib/models";
 import { askNotificationPermission, notificationPermission, notify } from "@/lib/notify";
-import type { Account, HookEntry, McpServer, Settings, Skill, UpdateInfo } from "@/lib/types";
+import type { Account, HookEntry, McpServer, SetupStatus, Settings, Skill, UpdateInfo } from "@/lib/types";
 import { MermaidBlock } from "./Mermaid";
 import { WhiteboardBlock } from "./Whiteboard";
 import { TermProfileSettings } from "./TermProfileSettings";
@@ -91,7 +92,7 @@ function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
 }
 
 function Err({ msg }: { msg: string | null }) {
-  return msg ? <p className="mt-2 whitespace-pre-wrap rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600">{msg}</p> : null;
+  return msg ? <p className="mt-2 whitespace-pre-wrap rounded-lg bg-red-500/10 px-3 py-2 text-xs text-danger">{msg}</p> : null;
 }
 
 // ── Account ────────────────────────────────────────────────────────────────
@@ -161,7 +162,7 @@ function AccountSection() {
               (confirmOut ? (
                 <span className="flex items-center gap-2 text-xs">
                   Sign out of Claude Code on this Mac?
-                  <button className={`${btn} border-red-500/40 text-red-600`} disabled={busy} onClick={() => run(async () => { setAcct(await post<Account>("/api/account", { action: "logout" })); setConfirmOut(false); })}>
+                  <button className={`${btn} border-red-500/40 text-danger`} disabled={busy} onClick={() => run(async () => { setAcct(await post<Account>("/api/account", { action: "logout" })); setConfirmOut(false); })}>
                     Sign out
                   </button>
                   <button className={btn} onClick={() => setConfirmOut(false)}>Cancel</button>
@@ -173,6 +174,81 @@ function AccountSection() {
               ))}
           </div>
           {note && <p className="mt-2 text-xs text-muted">{note}</p>}
+          <Err msg={err} />
+        </>
+      )}
+    </Section>
+  );
+}
+
+// ── GitHub ─────────────────────────────────────────────────────────────────
+
+// PR Review reads your pull requests with the GitHub CLI (gh). The same steps as
+// Get started: each runs in a terminal window, and this card checks again.
+function GitHubSection() {
+  const [gh, setGh] = useState<SetupStatus["gh"] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const load = useCallback(
+    () =>
+      fetch("/api/setup")
+        .then((r) => r.json())
+        .then((s: SetupStatus) => setGh(s.gh))
+        .catch(() => setErr("Couldn't check the GitHub CLI.")),
+    [],
+  );
+  useEffect(() => void load(), [load]);
+  // While a step runs in Terminal, check every few seconds so the card updates.
+  useEffect(() => {
+    if (!note) return;
+    const t = setInterval(load, 4000);
+    return () => clearInterval(t);
+  }, [note, load]);
+
+  const step = async (action: "install-gh" | "login-gh") => {
+    setBusy(action);
+    setErr(null);
+    try {
+      await post("/api/setup", { action });
+      setNote(action === "install-gh" ? "Installing in the terminal window that just opened (needs Homebrew). This card updates when it's done." : "Finish signing in in your browser. This card updates when it's done.");
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+    setBusy(null);
+  };
+
+  return (
+    <Section icon={GitBranch} title="GitHub" hint="PR Review reads your pull requests through the GitHub CLI (gh), with the account it's signed in to." action={<button className={btn} onClick={() => load()} aria-label="Check again"><RefreshCw size={12} /></button>}>
+      {!gh ? (
+        err ? <Err msg={err} /> : <Loader2 size={16} className="animate-spin text-muted" />
+      ) : (
+        <>
+          <div className="mb-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+            <span className="text-muted">GitHub CLI</span>
+            <span className={gh.installed ? "" : "text-warning"}>{gh.installed ? "Installed" : "Not installed"}</span>
+            <span className="text-muted">Status</span>
+            <span className={gh.user ? "" : "text-warning"}>{gh.user ? <>Signed in as {gh.user}</> : gh.installed ? "Not signed in" : "Install it first"}</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {!gh.installed && (
+              <button className={btn} disabled={!!busy} onClick={() => step("install-gh")}>
+                {busy === "install-gh" ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />} Install gh
+              </button>
+            )}
+            {gh.installed && (
+              <button className={btn} disabled={!!busy} onClick={() => step("login-gh")}>
+                {busy === "login-gh" ? <Loader2 size={12} className="animate-spin" /> : <LogIn size={12} />} {gh.user ? "Switch account" : "Sign in to GitHub"}
+              </button>
+            )}
+          </div>
+          {!gh.installed && (
+            <p className="mt-2 text-xs text-muted">
+              Runs <code>brew install gh</code>. No Homebrew? Get it from{" "}
+              <a href="https://brew.sh" target="_blank" rel="noreferrer" className="text-accent hover:underline">brew.sh</a>.
+            </p>
+          )}
+          {note && !gh.user && <p className="mt-2 text-xs text-muted">{note}</p>}
           <Err msg={err} />
         </>
       )}
@@ -208,8 +284,7 @@ function ModelSection({ settings, save }: { settings: Settings; save: (p: Partia
 
 type ProviderRow = { id: string; name: string; binary: string; supported: boolean; installed: boolean; version: string | null };
 
-// Which coding agent Vlens drives (lib/providers). Only Claude Code has an adapter
-// today; the others are listed so you can see what's coming and what's installed.
+// Which coding agent Vlens drives (lib/providers). Only agents with an adapter are listed.
 function ProviderSection({ settings, save }: { settings: Settings; save: (p: Partial<Settings>) => void }) {
   const [data, setData] = useState<{ current: string; providers: ProviderRow[] } | null>(null);
   useEffect(() => {
@@ -223,7 +298,7 @@ function ProviderSection({ settings, save }: { settings: Settings; save: (p: Par
       {!data ? (
         <Loader2 size={16} className="animate-spin text-muted" />
       ) : (
-        data.providers.map((p) => {
+        data.providers.filter((p) => p.supported).map((p) => {
           const on = p.id === data.current;
           return (
             <Row
@@ -275,6 +350,14 @@ const SAMPLE_BOARD = JSON.stringify([
 ]);
 
 function DiagramsSection({ settings, save }: { settings: Settings; save: (p: Partial<Settings>) => void }) {
+  // Whether the toolkit's review skill is on this Mac (null while checking).
+  const [reviewSkill, setReviewSkill] = useState<boolean | null>(null);
+  useEffect(() => {
+    fetch("/api/review-skill")
+      .then((r) => r.json())
+      .then((d: { reviewSkill?: boolean }) => setReviewSkill(!!d.reviewSkill))
+      .catch(() => setReviewSkill(false));
+  }, []);
   return (
     <Section icon={Network} title="Diagrams & whiteboard" hint="Built into Vlens. Mermaid diagrams are drawn as animated diagrams; Excalidraw sketches as hand-drawn whiteboards you can open and draw on.">
       <Row label="Draw diagrams" hint="Show Mermaid code blocks as diagrams. Off: show them as code.">
@@ -300,9 +383,19 @@ function DiagramsSection({ settings, save }: { settings: Settings; save: (p: Par
       </Row>
       <Row
         label="PR review skill (lens:review)"
-        hint="The dev-agent toolkit's shared review process, the same one Vendasta's review agents follow, used by Review with Claude. Loaded only into sessions Vlens runs, from the toolkit's marketplace on this Mac."
+        hint={
+          reviewSkill === false
+            ? "Not found — install the Vendasta dev-agent-toolkit (its Claude Code marketplace) on this Mac, then come back here."
+            : "The dev-agent toolkit's shared review process, the same one Vendasta's review agents follow, used by Review with Claude. Loaded only into sessions Vlens runs, from the toolkit's marketplace on this Mac."
+        }
       >
-        <Toggle label="PR review skill" on={settings.reviewSkill !== false} onChange={(v) => save({ reviewSkill: v })} />
+        {reviewSkill === null ? (
+          <Loader2 size={14} className="animate-spin text-muted" />
+        ) : reviewSkill ? (
+          <Toggle label="PR review skill" on={settings.reviewSkill !== false} onChange={(v) => save({ reviewSkill: v })} />
+        ) : (
+          <span className="text-xs text-warning">Not found</span>
+        )}
       </Row>
       {(settings.showDiagrams || settings.showWhiteboards) && (
         <div className="space-y-3 border-t border-line pt-3">
@@ -442,7 +535,7 @@ function McpRow({ s, busy, onAction }: { s: McpServer; busy: boolean; onAction: 
       {s.kind === "server" &&
         (confirm ? (
           <>
-            <button className={`${btn} border-red-500/40 text-red-600`} disabled={busy} onClick={() => onAction("remove")}>Remove</button>
+            <button className={`${btn} border-red-500/40 text-danger`} disabled={busy} onClick={() => onAction("remove")}>Remove</button>
             <button className={btn} onClick={() => setConfirm(false)}>Cancel</button>
           </>
         ) : (
@@ -511,7 +604,7 @@ function AddMcpForm({ onDone }: { onDone: () => void }) {
           <option value="local">One project folder</option>
         </select>
         {f.scope === "local" && <input className={`${input} min-w-48 flex-1 font-mono`} placeholder="~/Desktop/my-project" value={f.project} onChange={set("project")} />}
-        <button className={`${btn} ml-auto border-accent bg-accent text-white hover:text-white`} disabled={busy} onClick={submit}>
+        <button className={`${btn} ml-auto border-accent bg-accent text-on-accent hover:text-on-accent`} disabled={busy} onClick={submit}>
           {busy ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} Add server
         </button>
       </div>
@@ -708,7 +801,7 @@ function SkillEditor({ skill, project, onClose, onSaved }: { skill: Skill; proje
       <div className="mt-2 flex justify-end gap-2">
         <button className={btn} onClick={onClose}>{skill.editable ? "Cancel" : "Close"}</button>
         {skill.editable && content !== null && (
-          <button className={`${btn} border-accent bg-accent text-white hover:text-white`} disabled={busy} onClick={save}>
+          <button className={`${btn} border-accent bg-accent text-on-accent hover:text-on-accent`} disabled={busy} onClick={save}>
             {busy ? <Loader2 size={12} className="animate-spin" /> : null} Save
           </button>
         )}
@@ -735,7 +828,7 @@ function SkillRow({ s, project, busy, onToggle, onDelete, onChanged }: { s: Skil
           <>
             {confirm ? (
               <>
-                <button className={`${btn} border-red-500/40 text-red-600`} disabled={busy} onClick={onDelete}>Delete</button>
+                <button className={`${btn} border-red-500/40 text-danger`} disabled={busy} onClick={onDelete}>Delete</button>
                 <button className={btn} onClick={() => setConfirm(false)}>Cancel</button>
               </>
             ) : (
@@ -791,7 +884,7 @@ function NewSkillForm({ project, onDone }: { project: string; onDone: () => void
           <option value="user">For all projects</option>
           <option value="project" disabled={!project}>Only this project{project ? "" : " (pick one above)"}</option>
         </select>
-        <button className={`${btn} ml-auto border-accent bg-accent text-white hover:text-white`} disabled={busy} onClick={submit}>
+        <button className={`${btn} ml-auto border-accent bg-accent text-on-accent hover:text-on-accent`} disabled={busy} onClick={submit}>
           {busy ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} Create skill
         </button>
       </div>
@@ -937,7 +1030,7 @@ function HookEditor({ entry, project, onClose, onSaved }: { entry: HookEntry; pr
       <div className="mt-2 flex justify-end gap-2">
         <button className={btn} onClick={onClose}>{editable ? "Cancel" : "Close"}</button>
         {editable && (
-          <button className={`${btn} border-accent bg-accent text-white hover:text-white`} disabled={busy} onClick={save}>
+          <button className={`${btn} border-accent bg-accent text-on-accent hover:text-on-accent`} disabled={busy} onClick={save}>
             {busy && <Loader2 size={12} className="animate-spin" />} Save
           </button>
         )}
@@ -959,7 +1052,7 @@ function HookRow({ h, project, busy, onToggle, onRemove, onChanged }: { h: HookE
             <span className="rounded bg-sunken px-1.5 font-mono">{h.matcher || "any"}</span>
             <span className="text-muted">{h.hook.type}</span>
             <span className="rounded bg-sunken px-1.5 text-[0.65rem] text-muted">{h.plugin ? `plugin: ${h.plugin}` : SCOPE_LABEL[h.scope]}</span>
-            {h.managedBy && <span className="rounded bg-amber-500/15 px-1.5 text-[0.65rem] text-amber-700 dark:text-amber-400">added by {h.managedBy}</span>}
+            {h.managedBy && <span className="rounded bg-amber-500/15 px-1.5 text-[0.65rem] text-warning">added by {h.managedBy}</span>}
           </div>
           <div className={`mt-1 line-clamp-2 break-all font-mono text-[0.72rem] ${h.enabled ? "" : "text-muted line-through decoration-1"}`} title={hookMain(h.hook)}>
             {hookMain(h.hook)}
@@ -973,7 +1066,7 @@ function HookRow({ h, project, busy, onToggle, onRemove, onChanged }: { h: HookE
             {confirm ? (
               <span className="flex items-center gap-1.5">
                 {h.managedBy && <span className="text-[0.65rem] text-muted">{h.managedBy} may add it back</span>}
-                <button className={`${btn} border-red-500/40 text-red-600`} disabled={busy} onClick={onRemove}>Delete</button>
+                <button className={`${btn} border-red-500/40 text-danger`} disabled={busy} onClick={onRemove}>Delete</button>
                 <button className={btn} onClick={() => setConfirm(false)}>Cancel</button>
               </span>
             ) : (
@@ -1057,7 +1150,7 @@ function NewHookForm({ events, project, onDone }: { events: string[]; project: s
           <option value="project" disabled={!project}>This project, shared (.claude/settings.json)</option>
           <option value="local" disabled={!project}>This project, only you (.claude/settings.local.json)</option>
         </select>
-        <button className={`${btn} ml-auto border-accent bg-accent text-white hover:text-white`} disabled={busy} onClick={submit}>
+        <button className={`${btn} ml-auto border-accent bg-accent text-on-accent hover:text-on-accent`} disabled={busy} onClick={submit}>
           {busy ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} Add hook
         </button>
       </div>
@@ -1136,7 +1229,7 @@ function HooksSection({ chat }: { chat: TreeChat }) {
         )}
       </div>
       {data?.disableAll && (
-        <p className="mb-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+        <p className="mb-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-warning">
           All hooks are paused (disableAllHooks is on). None of them run until you turn this off.
         </p>
       )}
@@ -1229,11 +1322,12 @@ function AboutSection() {
 
 // ── Page ───────────────────────────────────────────────────────────────────
 
-type CardId = "appearance" | "account" | "agent" | "model" | "diagrams" | "restore" | "notify" | "skills" | "hooks" | "mcp" | "about";
+type CardId = "appearance" | "account" | "github" | "agent" | "model" | "diagrams" | "restore" | "notify" | "skills" | "hooks" | "mcp" | "about";
 
 // One card per settings page. The page opens on its own, so nothing is a long scroll.
 const CARDS: { id: CardId; icon: typeof User; title: string; hint: string }[] = [
   { id: "account", icon: User, title: "Account", hint: "Who Claude is signed in as. Switch or sign out." },
+  { id: "github", icon: GitBranch, title: "GitHub", hint: "The GitHub CLI that PR Review uses. Install it, sign in." },
   { id: "agent", icon: BrainCircuit, title: "AI agent", hint: "Which coding agent Vlens drives: Claude Code today." },
   { id: "model", icon: Cpu, title: "Model", hint: "The default model for replies and new sessions." },
   { id: "appearance", icon: Palette, title: "Appearance", hint: "Light or dark, the accent colour and terminal profiles." },
@@ -1270,6 +1364,8 @@ export function SettingsView({ chat, onBack, initial }: { chat: TreeChat; onBack
         );
       case "account":
         return <AccountSection />;
+      case "github":
+        return <GitHubSection />;
       case "agent":
         return needs((s) => <ProviderSection settings={s} save={saveSettings} />);
       case "model":
@@ -1296,7 +1392,7 @@ export function SettingsView({ chat, onBack, initial }: { chat: TreeChat; onBack
   const sel = card?.id ?? "account";
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <header className="flex items-center gap-3 border-b border-line px-4 py-3">
+      <header className="page-header">
         <button
           // Opened right at a page (from /mcp or /hooks): back goes back to the chat.
           onClick={() => (open && !initial && window.matchMedia("(max-width: 767px)").matches ? setOpen(null) : onBack())}

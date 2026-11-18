@@ -24,7 +24,8 @@ import { CliPane, cliEndedRecently, startCli, stopCli, useCliOn } from "./Termin
 
 const PAGE = 80; // messages drawn at first in a long session
 
-export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => void }) {
+// compact: no header, for a chat set inside another page (a PR's page).
+export function ChatWindow({ chat, onMenu, compact = false }: { chat: TreeChat; onMenu: () => void; compact?: boolean }) {
   const { session, loadingSession, stack, threadsFrom, openThread, rootPending, draft } = chat;
   const newDraft = !session ? draft : null; // starting a new session, not yet created
   const files = useFiles();
@@ -150,6 +151,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
   // "/model", "/config", … open Vlens's own menu: Claude here has no screen for them.
   const [slash, setSlash] = useState<SlashUi | null>(null);
   // "/reload": restart Claude on this conversation, so it re-reads its setup.
+  // The same status line shows Compact Context (Session menu) as it runs.
   const [reload, setReload] = useState<{ state: "busy" | "done" | "error"; text: string } | null>(null);
   useEffect(() => setReload(null), [session?.id]);
   const doReload = async () => {
@@ -178,8 +180,8 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
   useEffect(() => {
     if (!replying) setSteered([]);
   }, [replying]);
-  // Typed while Claude replies: hand it over now. A bot chat runs differently, and a
-  // reply that's just ending can't take it: those wait in the queue instead.
+  // Typed while Claude replies: hand it over now. A reply that's just ending
+  // can't take it: those wait in the queue instead.
   const steer = async (text: string, images: ImageInput[]) => {
     const id = rootPending && chat.viewSessionId;
     if (id && !paused) {
@@ -236,7 +238,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
     setForking(null);
   };
 
-  // The Mac menus' Session items (bot chats too, except the ones about terminals).
+  // The Mac menus' Session items.
   useMenu({
     fork: () => void fork(false),
     "fork-terminal": () => void fork(true),
@@ -247,26 +249,36 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
     },
     compact: () => {
       if (!session) return;
-      if (elsewhere) return window.alert(`This session is open in ${elsewhere}. Use /compact there.`);
+      // (Shown above the Take over box: the status line below sits under it.)
+      if (elsewhere) return setHandoffErr(`This session is open in ${elsewhere === "desktop" ? "the desktop app" : "a terminal"}. Use /compact there.`);
+      if (reload?.state === "busy") return;
+      setReload({ state: "busy", text: "Compacting the context…" });
       void fetch(`/api/sessions/${session.id}/context`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "compact" }) })
         .then((r) => r.json())
-        .then((d) => d.error && window.alert(d.error));
+        .then((d: { error?: string }) => {
+          if (d.error) return setReload({ state: "error", text: `Couldn't compact: ${d.error}` });
+          setReload({ state: "done", text: "Context compacted. Claude keeps a summary of the conversation so far." });
+          setTimeout(() => setReload((r) => (r?.state === "done" ? null : r)), 6_000);
+        })
+        .catch((e: Error) => setReload({ state: "error", text: `Couldn't compact: ${e.message}` }));
     },
     "to-terminal": () => !elsewhere && void toTerminal(),
-    "take-over": () => elsewhere && void takeOver(),
+    // Same confirm as the Take over here button below the chat.
+    "take-over": () => elsewhere && handoff === "idle" && setHandoff("confirm"),
   });
 
   return (
     <CwdContext.Provider value={session?.cwd ?? newDraft?.cwd ?? null}>
     <main className="@container/chat flex min-w-0 flex-1 flex-col">
-      <header className="@container flex h-14 shrink-0 items-center gap-2 border-b border-line bg-bg/80 px-4 backdrop-blur">
+      {!compact && (
+      <header className="page-header @container gap-2 bg-bg/80 backdrop-blur">
         <MenuButton onClick={onMenu} />
         {session ? (
           <div className="min-w-[6rem] flex-1">
             <div className="flex items-center gap-2">
               <h1 className="truncate text-sm font-semibold">{session.title}</h1>
               {live && (
-                <span className="flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[0.68rem] font-medium text-emerald-600">
+                <span className="flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[0.68rem] font-medium text-success">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" /> live
                 </span>
               )}
@@ -396,6 +408,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
           </button>
         )}
       </header>
+      )}
 
       {/* The CLI view lies over the chat instead of replacing it, so switching
           back is instant and you're where you left off (no rebuild, no jumps). */}
@@ -479,7 +492,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
               </>
             )}
             {run?.error && (
-              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600">{run.error}</div>
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-danger">{run.error}</div>
             )}
           </div>
         )}
@@ -488,7 +501,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
       {(session || newDraft) && (
         <div className="px-4 pb-4 pt-2">
           <div className="mx-auto max-w-5xl">
-            {handoffErr && <p className="mb-2 text-xs text-red-600">{handoffErr}</p>}
+            {handoffErr && <p className="mb-2 text-xs text-danger">{handoffErr}</p>}
             {archivedAt && !rootPending && (
               <div className="mb-2 flex items-center gap-2 px-1 text-xs text-muted">
                 <Archive size={12} className="shrink-0" />
@@ -514,7 +527,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
                 {handoff === "confirm" ? (
                   <span className="flex items-center gap-2 text-xs">
                     {elsewhere === "cli" ? "End the claude in that terminal?" : "Stop the desktop app's claude for this session?"}
-                    <button onClick={takeOver} className="rounded-lg bg-accent px-2.5 py-1 font-medium text-white">Take over</button>
+                    <button onClick={takeOver} className="rounded-lg bg-accent px-2.5 py-1 font-medium text-on-accent">Take over</button>
                     <button onClick={() => setHandoff("idle")} className="rounded-lg px-2 py-1 text-muted hover:text-ink">Cancel</button>
                   </span>
                 ) : (
@@ -530,7 +543,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
             ) : (
             <>
             {live && (
-              <p className="mb-2 text-xs text-amber-600">
+              <p className="mb-2 text-xs text-warning">
                 This session changed in the last minute. If it&apos;s open in a terminal, send from there instead.
               </p>
             )}
@@ -538,7 +551,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
               <div className="mb-2 space-y-1">
                 {steered.map((q, i) => (
                   <div key={i} className="flex items-center gap-2 rounded-lg border border-line bg-sunken/60 px-3 py-1.5 text-xs">
-                    <Check size={12} className="shrink-0 text-emerald-600" />
+                    <Check size={12} className="shrink-0 text-success" />
                     <span className="min-w-0 flex-1 truncate">
                       {q.text || "(image)"}
                       {q.images > 0 && q.text && <span className="text-muted"> + {q.images} image{q.images > 1 ? "s" : ""}</span>}
@@ -580,7 +593,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
               <div
                 role="status"
                 className={`mb-2 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs ${
-                  reload.state === "error" ? "border-red-500/40 text-red-600" : "border-line text-muted"
+                  reload.state === "error" ? "border-red-500/40 text-danger" : "border-line text-muted"
                 }`}
               >
                 {reload.state === "busy" ? <Loader2 size={12} className="animate-spin" /> : <RotateCw size={12} />}
@@ -643,7 +656,7 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
                     onChange={(e) => setModel(e.target.value)}
                     aria-label="Model for this message"
                     title="Model for this message (default is set in Settings)"
-                    className="rounded-lg bg-sunken px-1.5 py-0.5 text-[0.7rem] text-muted outline-none hover:text-ink"
+                    className="rounded-lg bg-sunken px-1.5 py-0.5 text-[0.7rem] text-muted hover:text-ink"
                   >
                     {MODELS.map((m) => (
                       <option key={m.id} value={m.id}>
@@ -666,7 +679,6 @@ export function ChatWindow({ chat, onMenu }: { chat: TreeChat; onMenu: () => voi
   );
 }
 
-// A bot's mode, shown but not picked here: the bot's settings decide it.
 // "claude-opus-5-5" -> "Opus 5.5"
 function prettyModel(m: string | null) {
   const x = m?.match(/(opus|sonnet|haiku|fable)-(\d+)(?:-(\d+))?/i);
@@ -680,10 +692,10 @@ function ModePicker({ mode, cliMode, onChange, header }: { mode: RootMode; cliMo
   return (
     <label
       title={`${cur.hint}. Shift+Tab in the message box switches modes.`}
-      className={`items-center gap-1 rounded-lg ${header ? "hidden border border-line px-2 py-1 text-xs @2xl/chat:flex" : "flex bg-sunken px-1.5 py-0.5 text-[0.7rem]"} ${mode === "bypassPermissions" ? "text-red-600" : mode === "default" ? "text-muted" : "text-accent"}`}
+      className={`items-center gap-1 rounded-lg ${header ? "hidden border border-line px-2 py-1 text-xs @2xl/chat:flex" : "flex bg-sunken px-1.5 py-0.5 text-[0.7rem]"} ${mode === "bypassPermissions" ? "text-danger" : mode === "default" ? "text-muted" : "text-accent"}`}
     >
       <Icon size={11} className="shrink-0" />
-      <select value={mode} onChange={(e) => onChange(e.target.value as RootMode)} aria-label="Permission mode" className={`bg-transparent outline-none ${header ? "max-w-[7.5rem] @5xl:max-w-none" : ""}`}>
+      <select value={mode} onChange={(e) => onChange(e.target.value as RootMode)} aria-label="Permission mode" className={`bg-transparent ${header ? "max-w-[7.5rem] @5xl:max-w-none" : ""}`}>
         {PERMISSION_MODES.map((m) => (
           <option key={m.id} value={m.id}>
             {m.label}

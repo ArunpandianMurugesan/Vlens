@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 
-// Which Vlens sessions were started from which PR in Vlens Review, so each PR
+// Which Vlens sessions were started from which PR in PR Review, so each PR
 // shows its own tabs (Self-review, Address feedback, …) and you can carry on
 // those chats there. Kept in this browser only; the sessions themselves are
 // ordinary Claude Code sessions.

@@ -21,7 +21,6 @@ export interface ProviderCapabilities {
   skills: boolean;
   plugins: boolean;
   mcp: boolean;
-  bots: boolean; // Vlens bots run on this agent
 }
 
 // One session's agent, kept open between replies.
@@ -58,7 +57,7 @@ export interface AgentProvider {
   release(sessionId: string): Promise<"none" | "closed" | "busy">;
   // End the session's agent and start it again on the same conversation, so it re-reads its setup.
   reload(o: { sessionId: string; cwd: string | null; mode: string; model: string; extra: string[] }): Promise<{ ok: true } | { ok: false; busy?: boolean; error: string }>;
-  // A one-off run that returns the final text (slash commands, compact, bots).
+  // A one-off run that returns the final text (slash commands, compact).
   runOnce(o: { prompt: string; args: string[]; cwd: string | null; timeoutMs?: number }): Promise<{ ok: boolean; text: string; error?: string }>;
   compact(id: string): ReturnType<typeof import("../context").compactSession>;
   handoffNote(id: string): ReturnType<typeof import("../context").handoffNote>;

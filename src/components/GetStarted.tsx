@@ -33,7 +33,7 @@ function Step({ n, done, title, optional, children }: { n: number; done: boolean
   return (
     <li className="flex gap-3 rounded-xl border border-line bg-panel p-4">
       <span
-        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${done ? "bg-emerald-500 text-white" : "bg-sunken text-muted"}`}
+        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${done ? "bg-success text-on-accent" : "bg-sunken text-muted"}`}
       >
         {done ? <Check size={13} /> : n}
       </span>
@@ -49,7 +49,7 @@ function Step({ n, done, title, optional, children }: { n: number; done: boolean
 }
 
 // First launch (or signed out): install Claude Code, sign in, and optionally set up
-// the GitHub CLI for Vlens Review. Steps run in a terminal window; this page checks
+// the GitHub CLI for PR Review. Steps run in a terminal window; this page checks
 // again every few seconds, so it ticks off as you go.
 export function GetStarted({ initial, onDone }: { initial: SetupStatus; onDone: () => void }) {
   const [s, setS] = useState(initial);
@@ -83,15 +83,15 @@ export function GetStarted({ initial, onDone }: { initial: SetupStatus; onDone: 
 
   const ready = s.claude.installed && s.account.loggedIn;
   const btn = "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50";
-  const primary = `${btn} mt-2 bg-accent text-white`;
+  const primary = `${btn} mt-2 bg-accent text-on-accent`;
   const secondary = `${btn} mt-2 border border-line bg-panel text-ink hover:border-accent hover:text-accent`;
   const spin = (a: string) => busy === a && <Loader2 size={12} className="animate-spin" />;
 
   return (
-    <div className="fixed inset-0 z-[150] overflow-y-auto bg-bg">
+    <div className="no-drag-overlay fixed inset-0 z-[150] overflow-y-auto bg-bg">
       <div className="mx-auto flex min-h-full max-w-xl flex-col justify-center px-6 py-12">
         <div className="mb-6 flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-white">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-on-accent">
             <MessagesSquare size={20} />
           </span>
           <div>
@@ -138,11 +138,11 @@ export function GetStarted({ initial, onDone }: { initial: SetupStatus; onDone: 
           <Step n={3} done={!!s.gh.user} title="Connect GitHub" optional>
             {s.gh.user ? (
               <>
-                Signed in to GitHub as <span className="text-ink">{s.gh.user}</span>. Vlens Review shows your PRs.
+                Signed in to GitHub as <span className="text-ink">{s.gh.user}</span>. PR Review shows your PRs.
               </>
             ) : !s.gh.installed ? (
               <>
-                Vlens Review reads your pull requests with the GitHub CLI. Install it with Homebrew (from{" "}
+                PR Review reads your pull requests with the GitHub CLI. Install it with Homebrew (from{" "}
                 <a href="https://brew.sh" target="_blank" rel="noreferrer" className="text-accent hover:underline">brew.sh</a>):
                 <CopyCmd cmd="brew install gh" />
                 <button className={secondary} disabled={!!busy} onClick={() => step("install-gh")}>
@@ -162,13 +162,13 @@ export function GetStarted({ initial, onDone }: { initial: SetupStatus; onDone: 
           </Step>
         </ol>
 
-        {err && <p className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600">{err}</p>}
+        {err && <p className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-danger">{err}</p>}
         <p className="mt-3 text-xs text-muted">
           The first time Vlens opens Terminal, macOS asks whether it may control it. Click OK.
         </p>
 
         <div className="mt-6 flex items-center gap-3">
-          <button className={`${btn} bg-accent px-4 py-2 text-sm text-white`} disabled={!ready || busy === "finish"} onClick={finish}>
+          <button className={`${btn} bg-accent px-4 py-2 text-sm text-on-accent`} disabled={!ready || busy === "finish"} onClick={finish}>
             {ready ? "Get started" : "Finish steps 1 and 2"} {busy === "finish" ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
           </button>
           <button onClick={check} className="inline-flex items-center gap-1 text-xs text-muted hover:text-ink">

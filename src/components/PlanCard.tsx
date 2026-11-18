@@ -74,7 +74,7 @@ export function PlanCard({ ask, onMode }: { ask: PermissionAsk; onMode?: (m: Per
         {PROCEED.map((p, i) => (
           <button
             key={p.mode}
-            className={`${opt} ${i === 0 ? "border-accent bg-accent text-white" : "border-line bg-panel hover:border-accent hover:text-accent"}`}
+            className={`${opt} ${i === 0 ? "border-accent bg-accent text-on-accent" : "border-line bg-panel hover:border-accent hover:text-accent"}`}
             disabled={!!busy}
             onClick={() => proceed(p.mode)}
           >
@@ -111,7 +111,7 @@ export function PlanCard({ ask, onMode }: { ask: PermissionAsk; onMode?: (m: Per
           </button>
         )}
       </div>
-      {err && <p className="mt-2 text-xs text-red-600">{err}</p>}
+      {err && <p className="mt-2 text-xs text-danger">{err}</p>}
     </div>
   );
 }

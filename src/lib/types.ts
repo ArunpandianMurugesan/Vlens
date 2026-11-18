@@ -225,7 +225,7 @@ export interface HookEntry {
   plugin?: string;
 }
 
-// ── Vlens Review ──
+// ── PR Review ──
 
 // Whose move it is on a PR.
 // The same lanes as vTower's PR board (vendasta/vtower, electron/ipc.cjs classify()).
@@ -378,7 +378,7 @@ export interface Question {
 export interface SetupStatus {
   claude: { installed: boolean; version: string | null };
   account: Account;
-  gh: { installed: boolean; user: string | null }; // optional: only Vlens Review needs it
+  gh: { installed: boolean; user: string | null }; // optional: only PR Review needs it
   onboarded: boolean;
 }
 

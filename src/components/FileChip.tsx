@@ -58,13 +58,13 @@ export function FileChip({ run }: { run: ToolRun }) {
       title={failed ? `${run.name} failed: ${run.result?.text.slice(0, 200)}` : `Open ${c.path}`}
       className="flex w-full items-center gap-2 rounded-xl border border-line bg-panel px-3 py-2 text-left text-sm transition hover:border-accent"
     >
-      <Icon size={14} className={`shrink-0 ${failed ? "text-red-500" : "text-muted"}`} />
+      <Icon size={14} className={`shrink-0 ${failed ? "text-danger" : "text-muted"}`} />
       <span className={`min-w-0 flex-1 truncate ${failed ? "text-muted line-through" : ""}`}>{name}</span>
       {pending ? (
         <Loader2 size={12} className="shrink-0 animate-spin text-muted" />
       ) : (
         <span className="shrink-0 font-mono text-xs tabular-nums">
-          <span className="text-emerald-600 dark:text-emerald-400">+{c.add}</span> <span className="text-red-500">−{c.del}</span>
+          <span className="text-success">+{c.add}</span> <span className="text-danger">−{c.del}</span>
         </span>
       )}
     </button>

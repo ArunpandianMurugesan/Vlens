@@ -57,7 +57,7 @@ function ToolRow({ run }: { run: ToolRun }) {
       >
         <ChevronRight size={13} className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
         {run.result?.isError ? (
-          <XCircle size={13} className="shrink-0 text-red-500" />
+          <XCircle size={13} className="shrink-0 text-danger" />
         ) : (
           <Terminal size={13} className={`shrink-0 ${pending ? "animate-pulse text-accent" : ""}`} />
         )}
@@ -153,7 +153,7 @@ function ToolGroup({ runs }: { runs: ToolRun[] }) {
             {pending ? (
               <Loader2 size={13} className="shrink-0 animate-spin text-accent" />
             ) : failed ? (
-              <XCircle size={13} className="shrink-0 text-red-500" />
+              <XCircle size={13} className="shrink-0 text-danger" />
             ) : stopped ? (
               <CircleSlash size={13} className="shrink-0" />
             ) : (
@@ -162,7 +162,7 @@ function ToolGroup({ runs }: { runs: ToolRun[] }) {
             <span className="min-w-0 truncate">
               {shown}
               {labels.length > 4 && ` · +${labels.length - 4} more`}
-              {failed > 0 && <span className="text-red-500"> · {failed} failed</span>}
+              {failed > 0 && <span className="text-danger"> · {failed} failed</span>}
               {stopped > 0 && <span> · didn&apos;t finish</span>}
             </span>
             <ChevronRight size={12} className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />

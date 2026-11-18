@@ -34,7 +34,7 @@ export function UpdateBanner() {
       Vlens was updated.
       <button
         onClick={() => location.reload()}
-        className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-xs font-medium text-white"
+        className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-xs font-medium text-on-accent"
       >
         <RefreshCw size={12} /> Reload
       </button>

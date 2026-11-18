@@ -12,6 +12,7 @@ import { AutomationCard } from "./Autopilot";
 import { levelOf } from "@/lib/risk";
 import { Markdown } from "./Markdown";
 import { RISK_TONE, RiskBox } from "./RiskBadge";
+import { confirmPost, plural } from "./ReviewResults";
 import { ago, GROUPS, groupOf } from "./ReviewSidebar";
 
 // One PR, in four tabs (Summary, Discussion, Files changed, Checks) with a rail on the
@@ -86,8 +87,8 @@ const DISCARD_KEY = "lens.discardedDrafts";
 export type PrExtras = ReturnType<typeof usePrExtras>;
 
 const SEV_TONE: Record<string, string> = {
-  blocker: "bg-red-500/10 text-red-700 dark:text-red-300",
-  should: "bg-amber-500/15 text-amber-800 dark:text-amber-300",
+  blocker: "bg-danger/10 text-danger",
+  should: "bg-warning/15 text-warning",
   question: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
   nit: "bg-sunken text-muted",
 };
@@ -117,7 +118,7 @@ export function TabNavLabel({ tab, extras, detail }: { tab: PrTab; extras: PrExt
       return (
         <>
           Checks{" "}
-          {c.length > 0 && <span className={failed ? "text-red-500" : "text-emerald-600"}>{failed ? `✕ ${failed}` : `✓ ${c.length}`}</span>}
+          {c.length > 0 && <span className={failed ? "text-danger" : "text-success"}>{failed ? `✕ ${failed}` : `✓ ${c.length}`}</span>}
         </>
       );
     }
@@ -146,15 +147,18 @@ interface Props {
 export function PrPage(props: Props) {
   const { tab, detail } = props;
   return (
-    <div className="flex min-h-0 flex-1">
-      <div className="min-w-0 flex-1 overflow-y-auto scroll-thin">
+    // A container query, not the window's width: the rail sits beside the page when this
+    // area is wide, and under it when narrow (so Autopilot, Risk and Reviewers stay reachable).
+    <div className="@container flex min-h-0 min-w-0 flex-1">
+      <div className="flex min-h-0 w-full flex-col overflow-y-auto scroll-thin @4xl:flex-row @4xl:overflow-hidden">
+      <div className="min-w-0 @4xl:flex-1 @4xl:overflow-y-auto scroll-thin">
         <div className="mx-auto max-w-4xl space-y-4 px-6 py-5">
           {!detail?.data && !detail?.error && (
             <div className="flex items-center gap-2 text-xs text-muted">
               <Loader2 size={14} className="animate-spin" /> Loading details…
             </div>
           )}
-          {detail?.error && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600">{detail.error}</p>}
+          {detail?.error && <p className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{detail.error}</p>}
           {detail?.data && tab === "summary" && <SummaryTab {...props} d={detail.data} />}
           {detail?.data && tab === "discussion" && <DiscussionTab {...props} />}
           {detail?.data && tab === "files" && <FilesTab {...props} d={detail.data} />}
@@ -162,6 +166,7 @@ export function PrPage(props: Props) {
         </div>
       </div>
       <Rail {...props} />
+      </div>
     </div>
   );
 }
@@ -181,13 +186,13 @@ function SummaryTab({ pr, review, d, extras, sessions, busy, onTab, onReview }: 
   const hasSession = take && sessions.some((s) => s.id === take.sessionId);
   return (
     <>
-      <div className={`flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 text-sm ${group.id === "yours" ? "bg-amber-500/10" : group.id === "ready" ? "bg-emerald-500/10" : "bg-sunken"}`}>
+      <div className={`flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 text-sm ${group.id === "yours" ? "bg-warning/10" : group.id === "ready" ? "bg-success/10" : "bg-sunken"}`}>
         <span className={`font-medium ${group.tone}`}>{group.label}:</span> {pr.why}
         {pr.isDraft && <span className="rounded bg-panel px-1.5 text-xs text-muted">draft</span>}
         <span className="flex-1" />
         {confirmHide ? (
           <span className="flex items-center gap-1.5 text-xs text-muted">
-            Hide this PR from Vlens Review?
+            Hide this PR from PR Review? (Hidden in the list brings it back)
             <button onClick={() => review.dismiss(pr.url)} className="rounded-md border border-line px-2 py-0.5 hover:text-ink">
               Hide
             </button>
@@ -211,14 +216,14 @@ function SummaryTab({ pr, review, d, extras, sessions, busy, onTab, onReview }: 
               from the review at <span className="font-mono">{take.headSha.slice(0, 7)}</span>, {ago(take.at)} ago
             </span>
           )}
-          {stale && <span className="rounded bg-amber-500/15 px-1.5 text-[0.65rem] text-amber-800 dark:text-amber-300">PR changed since</span>}
+          {stale && <span className="rounded bg-warning/15 px-1.5 text-[0.65rem] text-warning">PR changed since</span>}
         </div>
         {!extras.takeLoaded ? (
           <p className="text-sm text-muted">Looking for a review…</p>
         ) : take ? (
           <>
             <div className="mb-2.5 flex flex-wrap gap-2 text-xs">
-              <Stat label="Verdict" value={take.result.verdict === "REQUEST_CHANGES" ? "Request changes" : "Comment"} tone={take.result.verdict === "REQUEST_CHANGES" ? "text-amber-700 dark:text-amber-400" : ""} />
+              <Stat label="Verdict" value={take.result.verdict === "REQUEST_CHANGES" ? "Request changes" : "Comment"} tone={take.result.verdict === "REQUEST_CHANGES" ? "text-warning" : ""} />
               <Stat label="Findings" value={sev.length ? sev.join(" · ") : "none"} />
               {(() => {
                 const base = review.riskOf(pr).score;
@@ -292,15 +297,19 @@ async function threadAction(body: object): Promise<{ ok?: boolean; error?: strin
     .catch(() => ({ error: "Couldn't reach Vlens." }));
 }
 
-function DiscussionTab({ pr, extras, busy, onAsk, review }: Props) {
+function DiscussionTab({ pr, extras, busy, onAsk, review, sessions }: Props) {
   const [filter, setFilter] = useState<Filter>("all");
   const [edits, setEdits] = useState<Record<string, string>>({}); // draft key -> edited text
   const [posting, setPosting] = useState<{ keys: string[]; error?: string; moved?: boolean } | null>(null);
+  const [postedNow, setPostedNow] = useState<{ what: string; url: string } | null>(null);
   const [comment, setComment] = useState("");
   const [commentState, setCommentState] = useState<{ busy?: boolean; error?: string; done?: boolean }>({});
   const take = extras.take;
   const disc = extras.discussion;
   const open = extras.openDrafts;
+  // Drafts from a run Autopilot did on its own wear "AP"; from a Review you clicked, "Claude".
+  const track = review.auto?.tracks[pr.url]?.lastRun;
+  const byAutopilot = !!take && ((track?.sessionId === take.sessionId && track.by === "autopilot") || sessions.some((s) => s.id === take.sessionId && s.kind === "Autopilot review"));
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
     for (const d of extras.drafts) if (d.state !== "discarded") out.push({ kind: "draft", key: d.key, file: d.f.file, line: d.f.line, d });
@@ -317,6 +326,10 @@ function DiscussionTab({ pr, extras, busy, onAsk, review }: Props) {
   // that draft as one comment.
   const post = async (ds: Draft[], whole: boolean, force = false) => {
     if (!take || !ds.length) return;
+    // "Post anyway" (force) follows a confirm already given.
+    const what = whole ? `${plural(ds.length, "comment")} as one review` : "1 comment";
+    if (!force && !confirmPost(pr, what, review.board?.login)) return;
+    setPostedNow(null);
     const keys = ds.map((d) => d.key);
     setPosting({ keys: whole ? ["*", ...keys] : keys });
     const all = whole;
@@ -342,6 +355,7 @@ function DiscussionTab({ pr, extras, busy, onAsk, review }: Props) {
     if (r.status === 409 && r.j.moved) return setPosting({ keys: whole ? ["*", ...keys] : keys, moved: true, error: `The PR has new commits since this review (${String(r.j.reviewedSha).slice(0, 7)} → ${String(r.j.currentSha).slice(0, 7)}).` });
     if (r.j.error) return setPosting({ keys: whole ? ["*", ...keys] : keys, error: r.j.error });
     setPosting(null);
+    setPostedNow({ what: whole ? `Posted ${plural(ds.length, "comment")} as one review.` : "Posted the comment.", url: r.j.url || pr.url });
     await Promise.all([extras.reload(), review.loadAuto()]);
   };
   const leaveComment = async () => {
@@ -358,16 +372,20 @@ function DiscussionTab({ pr, extras, busy, onAsk, review }: Props) {
       {open.length > 0 && take && (
         <section className="space-y-2 rounded-2xl border border-violet-500/30 bg-violet-500/5 px-4 py-3">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/15 text-[0.7rem] font-bold text-violet-700 dark:text-violet-300">AP</span>
+            <Mark ap={byAutopilot} big />
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold">
-                Claude drafted {open.length} comment{open.length === 1 ? "" : "s"}
+                {byAutopilot ? "Autopilot" : "Claude"} drafted {open.length} comment{open.length === 1 ? "" : "s"}
               </div>
               <div className="text-xs text-muted">
                 Reviewed at <span className="font-mono">{take.headSha.slice(0, 7)}</span> · nothing is posted yet
               </div>
             </div>
-            <button onClick={() => extras.discard(open.map((d) => d.key))} disabled={!!posting && !posting.error} className={secondary}>
+            <button
+              onClick={() => window.confirm(`Discard all ${plural(open.length, "draft")}? They won't be posted.`) && extras.discard(open.map((d) => d.key))}
+              disabled={!!posting && !posting.error}
+              className={secondary}
+            >
               Discard all
             </button>
             <button onClick={() => void post(open, true)} disabled={!!posting && !posting.error} className={primary}>
@@ -376,6 +394,17 @@ function DiscussionTab({ pr, extras, busy, onAsk, review }: Props) {
           </div>
           {posting?.error && posting.keys[0] === "*" && <PostError p={posting} onForce={() => void post(open, true, true)} onCancel={() => setPosting(null)} />}
         </section>
+      )}
+      {postedNow && (
+        <p role="status" className="flex flex-wrap items-center gap-2 rounded-lg bg-success/10 px-3 py-2 text-xs text-success">
+          <Check size={12} /> {postedNow.what}
+          <a href={postedNow.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline hover:text-accent">
+            Open on GitHub <ExternalLink size={11} />
+          </a>
+          <button onClick={() => setPostedNow(null)} className="ml-auto text-muted hover:text-ink" aria-label="Dismiss">
+            <X size={12} />
+          </button>
+        </p>
       )}
       <div className="flex flex-wrap gap-1.5">
         {(
@@ -396,7 +425,7 @@ function DiscussionTab({ pr, extras, busy, onAsk, review }: Props) {
           <Loader2 size={13} className="animate-spin" /> Loading comments…
         </p>
       )}
-      {disc?.error && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600">{disc.error}</p>}
+      {disc?.error && <p className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{disc.error}</p>}
       {disc?.data && !shown.length && <p className="text-sm text-muted">Nothing here.</p>}
       <div className="space-y-3">
         {shown.map((x) =>
@@ -404,6 +433,7 @@ function DiscussionTab({ pr, extras, busy, onAsk, review }: Props) {
             <DraftCard
               key={x.key}
               d={x.d}
+              ap={byAutopilot}
               text={edits[x.d.key]}
               onEdit={(t) => setEdits((e) => ({ ...e, [x.d.key]: t }))}
               posting={posting && posting.keys[0] !== "*" && posting.keys[0] === x.d.key ? posting : null}
@@ -451,7 +481,7 @@ function DiscussionTab({ pr, extras, busy, onAsk, review }: Props) {
         </section>
       )}
       <section className="space-y-1.5">
-        <label className="flex items-start gap-2 rounded-xl border border-line bg-panel px-3 py-2">
+        <label className="flex items-start gap-2 rounded-xl border border-line bg-panel px-3 py-2 focus-within:border-accent">
           <textarea
             value={comment}
             onChange={(e) => {
@@ -467,9 +497,16 @@ function DiscussionTab({ pr, extras, busy, onAsk, review }: Props) {
             {commentState.busy ? <Loader2 size={12} className="animate-spin" /> : null} Comment
           </button>
         </label>
-        {commentState.error && <p className="text-xs text-red-600">{commentState.error}</p>}
-        {commentState.done && <p className="text-xs text-emerald-700 dark:text-emerald-400">Posted on GitHub.</p>}
-        <p className="text-xs text-muted">Posts go out from your GitHub account when you click. Vlens and Autopilot never approve.</p>
+        {commentState.error && <p className="text-xs text-danger">{commentState.error}</p>}
+        {commentState.done && (
+          <p className="text-xs text-success">
+            Posted on GitHub.{" "}
+            <a href={pr.url} target="_blank" rel="noreferrer" className="underline hover:text-accent">
+              Open the PR
+            </a>
+          </p>
+        )}
+        <p className="text-xs text-muted">Posts go out from your GitHub account after you confirm. Vlens and Autopilot never approve.</p>
       </section>
     </>
   );
@@ -477,7 +514,7 @@ function DiscussionTab({ pr, extras, busy, onAsk, review }: Props) {
 
 function PostError({ p, onForce, onCancel }: { p: { error?: string; moved?: boolean }; onForce: () => void; onCancel: () => void }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-800 dark:text-amber-300">
+    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
       <span className="min-w-0 flex-1">{p.error}</span>
       {p.moved && (
         <button onClick={onForce} className="rounded-md border border-current px-2 py-0.5 font-medium">
@@ -498,21 +535,53 @@ function match(x: Item, f: Filter) {
   return f === "resolved" ? x.t.resolved : !x.t.resolved;
 }
 
-function Where({ file, line, chip }: { file: string; line: number | null; chip: ReactNode }) {
+// A file path that keeps the file's name in view: the folder is muted and gives way first.
+function FilePath({ path, line }: { path: string; line?: number | null }) {
+  const cut = path.lastIndexOf("/") + 1;
+  return (
+    <span className="flex min-w-0 flex-1 items-baseline overflow-hidden whitespace-nowrap" title={line ? `${path}:${line}` : path}>
+      {cut > 0 && <span className="min-w-0 truncate text-muted">{path.slice(0, cut)}</span>}
+      <span className="shrink-0">{path.slice(cut)}</span>
+      {line ? <span className="shrink-0 text-muted">&nbsp;line {line}</span> : null}
+    </span>
+  );
+}
+
+// A card's file-and-line header. With `toggle`, the path is the button that folds the card.
+function Where({ file, line, chip, toggle }: { file: string; line: number | null; chip: ReactNode; toggle?: { open: boolean; onClick: () => void } }) {
+  const path = (
+    <>
+      <FileCode size={12} className="shrink-0 text-muted" />
+      <FilePath path={file} line={line} />
+    </>
+  );
   return (
     <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 font-mono text-xs">
-      <FileCode size={12} className="shrink-0 text-muted" />
-      <span className="min-w-0 flex-1 truncate" title={file}>
-        {file}
-        {line ? <span className="text-muted"> line {line}</span> : null}
-      </span>
+      {toggle ? (
+        <button onClick={toggle.onClick} aria-expanded={toggle.open} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          {path}
+        </button>
+      ) : (
+        path
+      )}
       {chip}
     </div>
   );
 }
 
+// Who wrote a draft: "AP" for Autopilot's own runs, Claude's mark for a Review you clicked.
+function Mark({ ap, big = false }: { ap: boolean; big?: boolean }) {
+  const size = big ? "h-8 w-8 rounded-lg text-[0.7rem]" : "h-6 w-6 rounded-full text-[0.6rem]";
+  return (
+    <span title={ap ? "Autopilot" : "Claude"} className={`flex shrink-0 items-center justify-center bg-violet-500/15 font-bold text-violet-700 dark:text-violet-300 ${size}`}>
+      {ap ? "AP" : <Sparkles size={big ? 14 : 12} />}
+    </span>
+  );
+}
+
 function DraftCard({
   d,
+  ap,
   text,
   onEdit,
   posting,
@@ -521,6 +590,7 @@ function DraftCard({
   onDiscard,
 }: {
   d: Draft;
+  ap: boolean;
   text: string | undefined;
   onEdit: (t: string) => void;
   posting: { error?: string; moved?: boolean } | null;
@@ -540,11 +610,11 @@ function DraftCard({
         chip={
           posted ? (
             d.url ? (
-              <a href={d.url} target="_blank" rel="noreferrer" className="rounded bg-emerald-500/10 px-1.5 font-sans text-[0.65rem] text-emerald-700 hover:underline dark:text-emerald-400">
+              <a href={d.url} target="_blank" rel="noreferrer" className="rounded bg-success/10 px-1.5 font-sans text-[0.65rem] text-success hover:underline">
                 Posted
               </a>
             ) : (
-              <span className="rounded bg-emerald-500/10 px-1.5 font-sans text-[0.65rem] text-emerald-700 dark:text-emerald-400">Posted</span>
+              <span className="rounded bg-success/10 px-1.5 font-sans text-[0.65rem] text-success">Posted</span>
             )
           ) : (
             <span className="rounded bg-violet-500/10 px-1.5 font-sans text-[0.65rem] text-violet-700 dark:text-violet-300">Draft · not posted</span>
@@ -552,10 +622,10 @@ function DraftCard({
         }
       />
       <div className="flex gap-2.5 px-3 py-2.5">
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-[0.6rem] font-bold text-violet-700 dark:text-violet-300">AP</span>
+        <Mark ap={ap} />
         <div className="min-w-0 flex-1 space-y-2 text-sm">
           <div className="flex items-center gap-1.5 text-xs">
-            <span className="font-medium">Claude</span>
+            <span className="font-medium">{ap ? "Autopilot" : "Claude"}</span>
             <span className={`rounded px-1 text-[0.65rem] ${SEV_TONE[s]}`}>{s}</span>
             {text !== undefined && text !== d.f.body && <span className="text-muted">· edited</span>}
           </div>
@@ -599,21 +669,19 @@ function ThreadCard({ pr, t, busy, onAsk, onChanged }: { pr: PrSummary; t: Revie
     onChanged();
   };
   const chip = t.resolved ? (
-    <span className="rounded bg-emerald-500/10 px-1.5 font-sans text-[0.65rem] text-emerald-700 dark:text-emerald-400">Resolved</span>
+    <span className="rounded bg-success/10 px-1.5 font-sans text-[0.65rem] text-success">Resolved</span>
   ) : (
-    <span className="rounded bg-amber-500/15 px-1.5 font-sans text-[0.65rem] text-amber-800 dark:text-amber-300">Open · {t.comments.length > 1 ? `${t.comments.length - 1} repl${t.comments.length === 2 ? "y" : "ies"}` : "no replies"}</span>
+    <span className="rounded bg-warning/15 px-1.5 font-sans text-[0.65rem] text-warning">Open · {t.comments.length > 1 ? `${t.comments.length - 1} repl${t.comments.length === 2 ? "y" : "ies"}` : "no replies"}</span>
   );
   return (
     <article className={`overflow-hidden rounded-xl border border-line ${t.resolved ? "bg-sunken/40" : "bg-panel"}`}>
-      <button onClick={() => setOpen((o) => !o)} className="block w-full text-left">
-        <Where file={t.file} line={t.line} chip={<>{t.outdated && <span className="font-sans text-[0.65rem] text-muted">outdated</span>}{chip}</>} />
-      </button>
+      <Where file={t.file} line={t.line} toggle={{ open, onClick: () => setOpen((o) => !o) }} chip={<>{t.outdated && <span className="font-sans text-[0.65rem] text-muted">outdated</span>}{chip}</>} />
       {open && (
         <>
           {hunk.some((l) => l.trim()) && (
             <pre className="overflow-x-auto border-b border-line bg-sunken/60 px-3 py-1.5 text-[0.7rem] leading-relaxed scroll-thin">
               {hunk.map((l, i) => (
-                <div key={i} className={l.startsWith("+") ? "text-emerald-700 dark:text-emerald-400" : l.startsWith("-") ? "text-red-600" : "text-muted"}>
+                <div key={i} className={l.startsWith("+") ? "text-success" : l.startsWith("-") ? "text-danger" : "text-muted"}>
                   {l || " "}
                 </div>
               ))}
@@ -635,7 +703,7 @@ function ThreadCard({ pr, t, busy, onAsk, onChanged }: { pr: PrSummary; t: Revie
               </div>
             ))}
             <div className="flex flex-wrap items-center gap-2 pt-1">
-              <label className="flex min-w-[12rem] flex-1 items-center rounded-lg border border-line bg-bg px-2.5 py-1">
+              <label className="flex min-w-[12rem] flex-1 items-center rounded-lg border border-line bg-bg px-2.5 py-1 focus-within:border-accent">
                 <input
                   value={reply}
                   onChange={(e) => setReply(e.target.value)}
@@ -657,7 +725,7 @@ function ThreadCard({ pr, t, busy, onAsk, onChanged }: { pr: PrSummary; t: Revie
                 {state.busy === "resolve" || state.busy === "unresolve" ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} {t.resolved ? "Unresolve" : "Resolve"}
               </button>
             </div>
-            {state.error && <p className="text-xs text-red-600">{state.error}</p>}
+            {state.error && <p className="text-xs text-danger">{state.error}</p>}
           </div>
         </>
       )}
@@ -682,13 +750,11 @@ function FilesTab({ d, extras }: Props & { d: PrDetail }) {
           return (
             <li key={f.path} className="flex items-center gap-2 py-1.5 font-mono text-xs">
               <FileCode size={12} className="shrink-0 text-muted" />
-              <span className="min-w-0 flex-1 truncate" title={f.path}>
-                {f.path}
-              </span>
-              {n?.drafts ? <span className="rounded bg-violet-500/10 px-1.5 font-sans text-[0.65rem] text-violet-700 dark:text-violet-300">{n.drafts} draft{n.drafts === 1 ? "" : "s"}</span> : null}
-              {n?.threads ? <span className="rounded bg-amber-500/15 px-1.5 font-sans text-[0.65rem] text-amber-800 dark:text-amber-300">{n.threads} open</span> : null}
-              {f.additions > 0 && <span className="text-emerald-600">+{f.additions}</span>}
-              {f.deletions > 0 && <span className="text-red-500">−{f.deletions}</span>}
+              <FilePath path={f.path} />
+              {n?.drafts ? <span className="shrink-0 rounded bg-violet-500/10 px-1.5 font-sans text-[0.65rem] text-violet-700 dark:text-violet-300">{n.drafts} draft{n.drafts === 1 ? "" : "s"}</span> : null}
+              {n?.threads ? <span className="shrink-0 rounded bg-warning/15 px-1.5 font-sans text-[0.65rem] text-warning">{n.threads} open</span> : null}
+              {f.additions > 0 && <span className="shrink-0 text-success">+{f.additions}</span>}
+              {f.deletions > 0 && <span className="shrink-0 text-danger">−{f.deletions}</span>}
             </li>
           );
         })}
@@ -699,14 +765,14 @@ function FilesTab({ d, extras }: Props & { d: PrDetail }) {
 
 function ChecksTab({ pr, d }: { pr: PrSummary; d: PrDetail }) {
   return (
-    <Card title="Checks" note={pr.mergeable === "CONFLICTING" ? <span className="text-red-500">has conflicts</span> : pr.mergeable === "MERGEABLE" ? "no conflicts" : "checking conflicts"}>
+    <Card title="Checks" note={pr.mergeable === "CONFLICTING" ? <span className="text-danger">has conflicts</span> : pr.mergeable === "MERGEABLE" ? "no conflicts" : "checking conflicts"}>
       {d.checks.length ? (
         <ul className="space-y-1.5">
           {d.checks.map((c, i) => (
             <li key={i} className="flex items-center gap-2 text-sm">
               <CheckMark state={c.state} />
               <span className="min-w-0 flex-1 truncate">{c.name}</span>
-              <span className={`text-xs ${checkTone(c.state) === "bg-red-500" ? "text-red-500" : "text-muted"}`}>{checkWord(c.state)}</span>
+              <span className={`text-xs ${checkTone(c.state) === "bg-red-500" ? "text-danger" : "text-muted"}`}>{checkWord(c.state)}</span>
               {c.url && (
                 <a href={c.url} target="_blank" rel="noreferrer" className="text-muted hover:text-accent" aria-label={`Open ${c.name}`}>
                   <ExternalLink size={12} />
@@ -737,7 +803,7 @@ function Rail({ pr, review, detail, extras, sessions, clone, home, onTab }: Prop
   const shortPath = (p: string) => (p.startsWith(home) ? `~${p.slice(home.length)}` : p);
   const failed = d?.checks.filter((c) => checkTone(c.state) === "bg-red-500").length ?? 0;
   return (
-    <aside className="hidden w-80 shrink-0 space-y-3 overflow-y-auto border-l border-line px-4 py-5 scroll-thin lg:block">
+    <aside className="grid w-full gap-3 border-t border-line px-4 py-5 @xl:grid-cols-2 @4xl:flex @4xl:w-80 @4xl:shrink-0 @4xl:flex-col @4xl:overflow-y-auto @4xl:border-l @4xl:border-t-0 scroll-thin">
       <AutomationCard review={review} pr={pr} />
       <RiskBox risk={review.riskOf(pr)} adjust={extras.take?.headSha === pr.headSha ? extras.take.result.risk : null} />
       <RailBox title="Details">
@@ -747,7 +813,7 @@ function Rail({ pr, review, detail, extras, sessions, clone, home, onTab }: Prop
           </span>
         </Row>
         <Row k="Changes">
-          <span className="text-emerald-600">+{pr.additions}</span> <span className="text-red-500">−{pr.deletions}</span> <span className="text-muted">· {pr.changedFiles} files</span>
+          <span className="text-success">+{pr.additions}</span> <span className="text-danger">−{pr.deletions}</span> <span className="text-muted">· {pr.changedFiles} files</span>
         </Row>
         {pr.labels.length > 0 && (
           <Row k="Labels">
@@ -760,20 +826,24 @@ function Rail({ pr, review, detail, extras, sessions, clone, home, onTab }: Prop
             </span>
           </Row>
         )}
-        <Row k="Merge">{pr.mergeable === "CONFLICTING" ? <span className="text-red-500">Conflicts</span> : pr.mergeable === "MERGEABLE" ? "No conflicts" : "Checking…"}</Row>
+        <Row k="Merge">{pr.mergeable === "CONFLICTING" ? <span className="text-danger">Conflicts</span> : pr.mergeable === "MERGEABLE" ? "No conflicts" : "Checking…"}</Row>
         <Row k="Checks">
-          {!d?.checks.length ? <span className="text-muted">None</span> : failed ? <span className="text-red-500">{failed} failing</span> : <span className="text-emerald-600">All pass</span>}
+          {!d?.checks.length ? <span className="text-muted">None</span> : failed ? <span className="text-danger">{failed} failing</span> : <span className="text-success">All pass</span>}
         </Row>
       </RailBox>
       <RailBox title="Reviewers">
         {reviewers.length ? (
           reviewers.map(([who, state]) => (
-            <Row key={who} k={`@${who}`}>
-              <span className={`flex items-center gap-1 ${state === "APPROVED" ? "text-emerald-600" : state === "CHANGES_REQUESTED" ? "text-amber-700 dark:text-amber-400" : "text-muted"}`}>
+            // Their own layout: a name gets the room it needs, the state stays whole.
+            <div key={who} className="flex items-center gap-2 text-xs">
+              <span className="min-w-0 flex-1 truncate" title={`@${who}`}>
+                @{who}
+              </span>
+              <span className={`flex shrink-0 items-center gap-1 ${state === "APPROVED" ? "text-success" : state === "CHANGES_REQUESTED" ? "text-warning" : "text-muted"}`}>
                 {state === "APPROVED" ? <Check size={12} /> : state === "CHANGES_REQUESTED" ? <CircleDot size={12} /> : <MessageSquare size={12} />}
                 {REVIEW_STATE[state] ?? state.toLowerCase()}
               </span>
-            </Row>
+            </div>
           ))
         ) : (
           <p className="text-xs text-muted">No reviews yet.</p>
@@ -783,7 +853,7 @@ function Rail({ pr, review, detail, extras, sessions, clone, home, onTab }: Prop
       <RailBox title="This PR's sessions">
         {sessions.map((s) => (
           <div key={s.id} className="flex items-center gap-2 text-sm">
-            <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
+            <span className="h-2 w-2 shrink-0 rounded-full bg-success" aria-hidden />
             <span className="min-w-0 flex-1 truncate">{s.kind}</span>
             <span className="text-xs text-muted">{ago(new Date(s.at).toISOString())}</span>
             <button onClick={() => onTab(s.id)} className="rounded-md border border-line px-2 py-0.5 text-xs hover:border-accent hover:text-accent">
@@ -819,7 +889,9 @@ function RailBox({ title, children }: { title: string; children: ReactNode }) {
 function Row({ k, children }: { k: string; children: ReactNode }) {
   return (
     <div className="flex items-center gap-2 text-xs">
-      <span className="w-16 shrink-0 truncate text-muted">{k}</span>
+      <span className="w-16 shrink-0 truncate text-muted" title={k}>
+        {k}
+      </span>
       <span className="min-w-0 flex-1">{children}</span>
     </div>
   );
@@ -827,7 +899,7 @@ function Row({ k, children }: { k: string; children: ReactNode }) {
 
 // ── Shared bits ──
 
-const primary = "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50";
+const primary = "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-on-accent disabled:opacity-50";
 const secondary = "inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1 text-xs hover:border-accent hover:text-accent disabled:opacity-50";
 
 function Card({ title, note, children }: { title: string; note?: ReactNode; children: ReactNode }) {
@@ -855,7 +927,7 @@ function checkWord(state: string) {
 
 function CheckMark({ state }: { state: string }) {
   const t = checkTone(state);
-  if (t === "bg-emerald-500") return <Check size={13} className="shrink-0 text-emerald-600" aria-label="passed" />;
-  if (t === "bg-red-500") return <X size={13} className="shrink-0 text-red-500" aria-label="failed" />;
-  return <Loader2 size={13} className="shrink-0 animate-spin text-amber-500" aria-label="running" />;
+  if (t === "bg-emerald-500") return <Check size={13} className="shrink-0 text-success" aria-label="passed" />;
+  if (t === "bg-red-500") return <X size={13} className="shrink-0 text-danger" aria-label="failed" />;
+  return <Loader2 size={13} className="shrink-0 animate-spin text-warning" aria-label="running" />;
 }

@@ -4,14 +4,70 @@ Every Vlens release (called Claude Lens up to 1.0.1), newest first. The version 
 
 Versions follow [semantic versioning](https://semver.org): **major** for big changes in how Vlens works, **minor** for new features, **patch** for fixes.
 
-## 1.2.0 — 2026-11-17
+## 1.2.0 — 2026-11-18
+
+A big one: PR Review with Claude and an optional Autopilot, a new Home, and many session tools. Coach and Retro are gone.
+
+**PR Review**
+- The PR space is now called **PR Review** (⌘2). Three lists: **New** (what changed since you last looked), **My PRs** and **Needs my review**, grouped by whose move it is. Recent PRs from your teammates show up too.
+- One page per PR with four tabs: **Summary**, **Discussion**, **Files changed** and **Checks**, and a rail with risk, reviewers and what Autopilot will do.
+- **Risk score** from 0 to 100 for every PR, with the reasons. Claude can move it by up to 20 when it reviews.
+- **Review with Claude** at Quick, Standard or Deep depth. It uses the dev-agent toolkit's `lens:review` skill when you have it, and checks whether earlier review comments were fixed. It posts nothing on its own.
+- **Discussion actions**: post Claude's drafts (one or all as one review), edit or discard them, reply to threads, resolve or unresolve them, and comment on the PR. All from your own GitHub account, and Vlens never approves.
+- **Merge** your own approved PRs (squash, merge commit or rebase).
+- **Address feedback** and, for galaxy, **Before/after** screenshots.
+- Hidden PRs can be brought back from **Hidden (n)**.
+
+**Autopilot** (off by default)
+- Reviews PRs in the background with Claude, one at a time, on your schedule and within a daily cap.
+- **Workflows**: when (asked to review, team asked, your own PR, a label), how deep, and then what (draft only, for you only, or post comments itself). The defaults never post.
+- Hands a PR to you when it's too big, too risky, or touches your sensitive paths. Pause it per PR, **Run now**, **Stop**, **Retry**.
+- Optional state labels on GitHub, and desktop alerts.
+- Claude can only read the saved PR files (Read, Grep, Glob): no shell, no network.
+
+**Sessions**
+- **Home** is a start screen: start a session in any folder, see what needs you and what's running, today's numbers, and heavy sessions with Compact / Fresh start.
+- Sidebar with **Pinned**, **Sessions** (by folder or one list) and **Archived**. Hide it with ⌘B.
+- **Fork** a session (in Vlens or in Terminal); forks show under their parent.
+- **Archive** sessions (⌘⌫) and open them again later.
+- Start a session in its own **git worktree**.
+- **Reload** a session (menu or `/reload`) so Claude re-reads its settings, skills, hooks and MCP servers.
+- **CLI view**: switch a session to the real `claude --resume` inside Vlens. **Take over** works for desktop-app sessions too, and the sidebar can end idle desktop-app sessions.
+- **⌘K quick switcher** for sessions, PRs and actions.
+- **Inspector** beside the chat: context, changed files, plan usage, terminal.
+- Each session gets its own terminal beside the chat, over a fast connection.
+- Comment or ask a sub-agent right at the text you select. Long pastes show as a card. `/` commands are interactive.
+- See what Claude and its background agents are doing, and stop one task without stopping the rest.
+- Vlens chats show up in the terminal's `claude --resume` list.
+
+**Mac app**
+- Real **File, Session, Go and View** menus with shortcuts.
+- A **menu bar icon** that shows what needs you, with Allow / Always Allow / Deny for permission requests.
+- Real Mac notifications when a session needs you.
+- An update check: **Download**, **Later** or **Skip this version**.
+- Settings as cards with a section list, accent colours, and an **AI agent** setting.
 
 **Terminal profiles**
 - Settings → Appearance → **Terminal profile** sets the colours, font, size, line height and cursor for the Terminal panel and the CLI view. Open terminals change right away.
 - Built in: Vlens (matches the app, the default), Dracula, Nord, One Dark, Tokyo Night, Catppuccin Mocha, Gruvbox Dark, Solarized Dark and Light, and GitHub Light.
-- macOS Terminal's own profiles too: Basic, Clear Dark, Clear Light, Grass, Homebrew, Man Page, Novel, Ocean, Pro, Red Sands, Silver Aerogel and Solid Colors, with their colours, fonts and cursors. Basic follows light and dark like it does in Terminal. Translucent ones are solid here, and Solid Colors has no background picture.
-- **Customize a copy** of any profile to make your own: name, colour scheme, font, size, line height, cursor style and blink, and your own background, text and cursor colours.
-- Open terminals now also follow light/dark and accent changes, instead of keeping the colours they started with.
+- macOS Terminal's own profiles too: Basic, Clear Dark, Clear Light, Grass, Homebrew, Man Page, Novel, Ocean, Pro, Red Sands, Silver Aerogel and Solid Colors.
+- **Customize a copy** of any profile to make your own.
+
+**Removed**
+- Coach, Retro and lessons, and the 14-day activity chart on Home.
+
+**Fixes and safety**
+- Vlens's local server refuses requests from other websites, and only listens on this Mac (also when you run it with `npm run dev`).
+- Image previews (SVG too) open sandboxed. The file panel follows symlinks before checking a file is allowed.
+- The Mac app checks that requests really come from Vlens's own page.
+- Safer data files: writes can't leave half a file, and a file that can't be read is kept aside instead of being overwritten.
+- Autopilot posts nothing if you pause the PR, turn Autopilot off or change its workflow while a review runs. It never posts a review that looks like it contains a secret.
+- Only one Vlens per Mac runs Autopilot at a time.
+- A review that times out on the way to GitHub isn't posted twice.
+- Vlens asks before posting a review, merging, or switching your clone to a PR's branch.
+- Terminals nobody uses any more are closed. Quitting Vlens no longer leaves its server running.
+- The release script can pick up where a failed release stopped.
+- Better contrast in dark mode, visible focus rings, and layout fixes for narrow windows.
 
 ## 1.1.0 — 2026-10-28
 

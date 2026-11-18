@@ -15,7 +15,7 @@ export interface Picked {
 // and Enter sends it to a sub-agent, or the button opens one with nothing asked yet.
 // Sub-agents go one level deep: text in a sub-agent's reply doesn't spawn another.
 export function SelectionPopover({ onAsk }: { onAsk: (p: Picked, prompt?: string) => void }) {
-  const [state, setState] = useState<(Picked & { x: number; y: number }) | null>(null);
+  const [state, setState] = useState<(Picked & { x: number; y: number; below: boolean }) | null>(null);
   const [q, setQ] = useState("");
 
   useEffect(() => {
@@ -32,12 +32,16 @@ export function SelectionPopover({ onAsk }: { onAsk: (p: Picked, prompt?: string
       const b = host(range.endContainer);
       if (!a || a !== b || a.dataset.ctx !== "root") return setState(null);
       const rect = range.getBoundingClientRect();
+      // Above the selection, unless that's too close to the top (the header there
+      // drags the window in the Mac app): then below it.
+      const below = rect.top < 100;
       setState({
         ctx: a.dataset.ctx!,
         messageId: a.dataset.msg!,
         text,
         x: Math.min(Math.max(rect.left + rect.width / 2, 170), window.innerWidth - 170),
-        y: Math.max(rect.top - 8, 48),
+        y: below ? Math.min(rect.bottom + 8, window.innerHeight - 48) : rect.top - 8,
+        below,
       });
     };
     const onUp = () => setTimeout(check, 0);
@@ -47,10 +51,17 @@ export function SelectionPopover({ onAsk }: { onAsk: (p: Picked, prompt?: string
         setQ("");
       }
     };
+    // ⌘K (the quick switcher) covers the page: close this box.
+    const hide = () => {
+      setState(null);
+      setQ("");
+    };
     document.addEventListener("mouseup", onUp);
     document.addEventListener("keyup", onUp);
     document.addEventListener("mousedown", onDown);
+    window.addEventListener("lens:switcher-open", hide);
     return () => {
+      window.removeEventListener("lens:switcher-open", hide);
       document.removeEventListener("mouseup", onUp);
       document.removeEventListener("keyup", onUp);
       document.removeEventListener("mousedown", onDown);
@@ -70,12 +81,12 @@ export function SelectionPopover({ onAsk }: { onAsk: (p: Picked, prompt?: string
       {state && (
         <motion.div
           data-ask-btn
-          initial={{ opacity: 0, y: 4, scale: 0.96 }}
+          initial={{ opacity: 0, y: state.below ? -4 : 4, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 4, scale: 0.96 }}
+          exit={{ opacity: 0, y: state.below ? -4 : 4, scale: 0.96 }}
           transition={{ duration: 0.12 }}
           style={{ left: state.x, top: state.y }}
-          className="fixed z-[100] flex w-80 max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-full items-center gap-1 rounded-full bg-ink p-1 text-xs text-bg shadow-lg"
+          className={`no-drag-overlay fixed z-[100] flex w-80 max-w-[calc(100vw-32px)] -translate-x-1/2 ${state.below ? "" : "-translate-y-full"} items-center gap-1 rounded-full bg-ink p-1 text-xs text-bg shadow-lg`}
         >
           <input
             value={q}
@@ -94,7 +105,7 @@ export function SelectionPopover({ onAsk }: { onAsk: (p: Picked, prompt?: string
             className="min-w-0 flex-1 bg-transparent px-2.5 py-1 text-bg outline-none placeholder:text-bg/55"
           />
           {q.trim() ? (
-            <button onClick={() => ask(q)} className="rounded-full bg-accent p-1.5 text-white" aria-label="Ask the sub-agent">
+            <button onClick={() => ask(q)} className="rounded-full bg-accent p-1.5 text-on-accent" aria-label="Ask the sub-agent">
               <ArrowUp size={13} />
             </button>
           ) : (

@@ -6,12 +6,12 @@ import type { PrLane, PrSummary } from "@/lib/types";
 
 // vTower's lanes (vendasta/vtower, renderer/app.js LANES), in its order.
 export const LANES: Record<PrLane, { label: string; dot: string; text: string }> = {
-  needsYou: { label: "Needs you", dot: "bg-amber-500", text: "text-amber-700 dark:text-amber-400" },
+  needsYou: { label: "Needs you", dot: "bg-amber-500", text: "text-warning" },
   mine: { label: "Your PRs", dot: "bg-accent", text: "text-accent" },
   team: { label: "Needs your team", dot: "bg-sky-500", text: "text-sky-700 dark:text-sky-400" },
   approvedWaiting: { label: "Approved · awaiting others", dot: "bg-violet-500", text: "text-violet-700 dark:text-violet-400" },
   waitingAuthor: { label: "Waiting on author", dot: "bg-muted", text: "text-muted" },
-  done: { label: "Done · your part", dot: "bg-emerald-500", text: "text-emerald-700 dark:text-emerald-400" },
+  done: { label: "Done · your part", dot: "bg-emerald-500", text: "text-success" },
   fyi: { label: "FYI", dot: "bg-line", text: "text-muted" },
 };
 
@@ -33,9 +33,9 @@ export function ago(iso: string) {
 // Whose move is it? The sidebar's sections, from each PR's lane and reason.
 export type Group = "yours" | "waiting" | "ready" | "radar";
 export const GROUPS: { id: Group; label: string; tone: string }[] = [
-  { id: "yours", label: "Your move", tone: "text-amber-700 dark:text-amber-400" },
+  { id: "yours", label: "Your move", tone: "text-warning" },
   { id: "waiting", label: "Waiting on others", tone: "text-muted" },
-  { id: "ready", label: "Ready to merge", tone: "text-emerald-700 dark:text-emerald-400" },
+  { id: "ready", label: "Ready to merge", tone: "text-success" },
   { id: "radar", label: "On your radar", tone: "text-muted" },
 ];
 export function groupOf(p: PrSummary): Group {
@@ -49,19 +49,19 @@ export function groupOf(p: PrSummary): Group {
 export type Section = { id: string; label: string; tone: string; head?: string; folded?: boolean; test: (p: PrSummary) => boolean };
 export const SECTIONS: Record<"reviews" | "mine", Section[]> = {
   reviews: [
-    { id: "needsYou", label: "Needs you", tone: "text-amber-700 dark:text-amber-400", test: (p) => p.lane === "needsYou" },
+    { id: "needsYou", label: "Needs you", tone: "text-warning", test: (p) => p.lane === "needsYou" },
     { id: "team", label: "Needs your team", tone: "text-sky-700 dark:text-sky-400", test: (p) => p.lane === "team" && !p.isDraft && p.priority !== "stale" },
     { id: "approvedWaiting", label: "Approved · awaiting others", tone: "text-violet-700 dark:text-violet-400", test: (p) => p.lane === "approvedWaiting" },
     { id: "waitingAuthor", label: "Waiting on author", tone: "text-muted", head: "text-teal-700 dark:text-teal-400", test: (p) => p.lane === "waitingAuthor" },
-    { id: "done", label: "Done · your part", tone: "text-emerald-700 dark:text-emerald-400", test: (p) => p.lane === "done" },
+    { id: "done", label: "Done · your part", tone: "text-success", test: (p) => p.lane === "done" },
     { id: "teamDrafts", label: "Your team's drafts", tone: "text-muted", head: "text-violet-700 dark:text-violet-400", folded: true, test: (p) => p.lane === "team" && p.isDraft },
     { id: "teamQuiet", label: "Your team · quiet 30+ days", tone: "text-muted", head: "text-slate-500 dark:text-slate-400", folded: true, test: (p) => p.lane === "team" && !p.isDraft && p.priority === "stale" },
     { id: "fyi", label: "FYI", tone: "text-muted", head: "text-slate-500 dark:text-slate-400", folded: true, test: (p) => p.lane === "fyi" },
   ],
-  // vTower's "Your PRs" lane, ranked: blocked on you, ready, awaiting review, stale.
+  // vTower's "Your PRs" lane, ranked: your move, ready, awaiting review, stale.
   mine: [
-    { id: "fix", label: "Blocked on you", tone: "text-red-700 dark:text-red-400", test: (p) => p.lane === "mine" && p.priority === "high" },
-    { id: "ready", label: "Ready to merge", tone: "text-emerald-700 dark:text-emerald-400", test: (p) => p.lane === "mine" && p.priority === "normal" },
+    { id: "fix", label: "Your move", tone: "text-danger", test: (p) => p.lane === "mine" && p.priority === "high" },
+    { id: "ready", label: "Ready to merge", tone: "text-success", test: (p) => p.lane === "mine" && p.priority === "normal" },
     { id: "awaiting", label: "Awaiting review", tone: "text-muted", head: "text-sky-700 dark:text-sky-400", test: (p) => p.lane === "mine" && p.priority === "low" && !p.isDraft },
     { id: "drafts", label: "Drafts", tone: "text-muted", head: "text-violet-700 dark:text-violet-400", test: (p) => p.lane === "mine" && p.isDraft },
     { id: "stale", label: "Stale (30+ days)", tone: "text-muted", head: "text-slate-500 dark:text-slate-400", folded: true, test: (p) => p.lane === "mine" && p.priority === "stale" },
@@ -89,7 +89,7 @@ export function statusLine(p: PrSummary) {
   return bits.join(" · ");
 }
 
-// The Vlens Review left panel: where to go, not the lists themselves (those fill the
+// The PR Review left panel: where to go, not the lists themselves (those fill the
 // main area, PrInbox.tsx). New, My PRs, Needs my review, then Autopilot and how its day
 // is going.
 export function ReviewSidebar({ review, onDone }: { review: Review; onDone: () => void }) {
@@ -112,7 +112,7 @@ export function ReviewSidebar({ review, onDone }: { review: Review; onDone: () =
   return (
     <div className="flex min-h-0 flex-1 flex-col px-2.5">
       <div className="flex items-center gap-2 px-2 pb-2 text-[0.7rem] text-muted">
-        <strong className="flex-1 text-[0.95rem] text-ink">PR Reviews</strong>
+        <strong className="flex-1 text-[0.95rem] text-ink">PR Review</strong>
         <span title={board?.login ? `Signed in to GitHub as @${board.login}` : undefined}>
           {loading ? "Syncing…" : !board?.fetchedAt ? "" : Date.now() - Date.parse(board.fetchedAt) < 60_000 ? "Synced now" : `Synced ${ago(board.fetchedAt)} ago`}
         </span>
@@ -135,7 +135,7 @@ export function ReviewSidebar({ review, onDone }: { review: Review; onDone: () =
             >
               <Icon size={15} className={on ? "text-accent" : "text-muted"} />
               <span className="flex-1">{label}</span>
-              {count[id] > 0 && <span className={`min-w-[1.25rem] rounded-full px-1.5 text-center text-[0.7rem] ${hot ? "bg-amber-600 text-white" : "bg-line/70 text-muted"}`}>{count[id]}</span>}
+              {count[id] > 0 && <span className={`min-w-[1.25rem] rounded-full px-1.5 text-center text-[0.7rem] ${hot ? "bg-warning/15 font-semibold text-warning" : "bg-line/70 text-muted"}`}>{count[id]}</span>}
             </button>
           );
         })}
@@ -151,9 +151,9 @@ export function ReviewSidebar({ review, onDone }: { review: Review; onDone: () =
       >
         <Bot size={15} className={boardOpen || rulesOpen ? "text-accent" : "text-muted"} />
         <span className="flex-1">Autopilot</span>
-        {needsYou > 0 && <span className="rounded-full bg-red-500/15 px-1.5 text-[0.7rem] text-red-700 dark:text-red-300">{needsYou}</span>}
-        <span className={`flex items-center gap-1 text-[0.7rem] ${r?.enabled ? "text-emerald-700 dark:text-emerald-400" : "text-muted"}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${r?.enabled ? "bg-emerald-500" : "bg-muted"}`} aria-hidden /> {r?.enabled ? "On" : "Off"}
+        {needsYou > 0 && <span className="rounded-full bg-danger/15 px-1.5 text-[0.7rem] text-danger">{needsYou}</span>}
+        <span className={`flex items-center gap-1 text-[0.7rem] ${r?.enabled ? "text-success" : "text-muted"}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${r?.enabled ? "bg-success" : "bg-muted"}`} aria-hidden /> {r?.enabled ? "On" : "Off"}
         </span>
       </button>
       <span className="flex-1" />

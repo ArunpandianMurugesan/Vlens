@@ -10,12 +10,11 @@ Claude Code is great, but a working day with it looks like eight terminal tabs a
 | --- | --- | --- |
 | **Lost in tabs** | Which tab was the pixel fix? Which one is waiting for me? | One sidebar with every session, grouped by folder, with a dot for "working" vs "waiting for you". Sessions you open in a terminal show up live. |
 | **Walls of text** | Flows, architectures and plans come back as long text. | Replies render as a chat: markdown, tool calls you can expand, Mermaid diagrams, a teaching whiteboard, and a file panel for every edit. |
-| **Missing the moment Claude needs you** | A permission prompt sat unanswered for 20 minutes in a hidden tab. | Permission, question and plan cards with the terminal's exact choices, plus desktop notifications. |
-| **Sessions you forgot** | "I worked on that three days ago, which session was it?" | History: the last 15 days, day by day, with Resume here / Terminal. Crashed sessions are offered back with Restore. |
-| **Hidden limits and context** | You hit the 5-hour limit, or a session got slow and expensive. | Home shows 5-hour and weekly limits, tokens per day, and your heaviest sessions with Compact and Fresh start. |
-| **The same mistakes again** | Claude keeps making the same wrong move across sessions. | Coach and Retro: spot error streaks and corrections, turn them into one-line lessons, and write them to `CLAUDE.md` so every Claude (terminal and desktop too) learns. |
-| **Setup scattered across files** | Skills, hooks and MCP servers live in different JSON files. | One Settings page for account, model, skills, hooks, MCP servers, notifications and the coach, plus a Marketplace for your team's skills. |
-| **PR reviews in another tool** | Review requests live on GitHub, the work lives in Claude. | Vlens Review: your PRs by "whose move it is", with one-click Review with Claude and Address feedback sessions. |
+| **Missing the moment Claude needs you** | A permission prompt sat unanswered for 20 minutes in a hidden tab. | Permission, question and plan cards with the terminal's exact choices, desktop notifications, and a menu bar icon that lists what's waiting. |
+| **Sessions you forgot** | "I worked on that three days ago, which session was it?" | History: the last 15 days, day by day, with Resume here / Terminal. Crashed sessions are offered back with Restore. ⌘K finds any session. |
+| **Hidden limits and context** | You hit the 5-hour limit, or a session got slow and expensive. | Home and the sidebar show 5-hour and weekly limits. Home lists heavy sessions with Compact and Fresh start. |
+| **Setup scattered across files** | Skills, hooks and MCP servers live in different JSON files. | One Settings page for account, model, skills, hooks, MCP servers and notifications, plus a Marketplace for your team's skills. |
+| **PR reviews in another tool** | Review requests live on GitHub, the work lives in Claude. | PR Review: your PRs by whose move it is, one page per PR, Review with Claude, Address feedback, and an optional Autopilot. |
 
 ## How Vlens is different
 
@@ -26,48 +25,92 @@ There are already three good ways to work with Claude Code. Vlens is the layer t
 | **What it is** | The CLI itself | A multi-tab terminal that shows which agent needs you | Anthropic's app with chat and a Code tab | A visual window over all your Claude Code sessions |
 | **Best at** | Speed, every CLI feature | Running many terminal sessions, attention alerts, limits in the status line | A polished chat for the sessions it starts | Seeing, answering and reviewing everything in one place |
 | **Sees sessions from other tools, live** | No, one session per tab | Its own tabs | Its own sessions | **Yes**: terminal, vTower, desktop app and Vlens, in one list |
-| **Move a session between tools** | `claude --resume` by hand | No | No | **Take over here** / **Continue in terminal**, one writer at a time |
+| **Move a session between tools** | `claude --resume` by hand | No | No | **Take over here** / **Continue in terminal** / **CLI** view, one writer at a time |
 | **Output** | Text | Text | Rich chat | Rich chat, **Mermaid diagrams, Excalidraw whiteboard**, file panel with the changed lines |
 | **Prompts (permissions, questions, plans)** | Yes | Yes (it's a terminal) | Yes | Yes, same choices as the terminal (keys 1–3, Esc, Shift+Tab modes) |
 | **History of closed sessions** | `claude --resume` picker | No | Its own sessions | **15 days by day**, with resume in Vlens or the terminal |
-| **Learns from your mistakes** | `CLAUDE.md` you write, auto memory | Same as the CLI | Same as the CLI | Adds **Coach + Retro**: spots error streaks and corrections across sessions, suggests lessons, writes the ones you approve to `CLAUDE.md` |
-| **Limits and context health** | `/usage`, `/context` | Status line | Settings | **Home dashboard**: limits, tokens per day, heaviest sessions with Compact / Fresh start |
-| **Team tools** | `gh` by hand | No | PR status for its own sessions | **Vlens Review** (all your PRs by whose move it is) and a skills **Marketplace** |
+| **Limits and context health** | `/usage`, `/context` | Status line | Settings | Home and sidebar: limits, heavy sessions with Compact / Fresh start |
+| **Team tools** | `gh` by hand | No | PR status for its own sessions | **PR Review** (all your PRs, Claude reviews, Autopilot) and a skills **Marketplace** |
 | **Skills, hooks, MCP** | Edit JSON files | No | Partly | One Settings page, writes the same files the CLI reads |
 
-**Vlens and vTower work together.** vTower is where you type in terminals; Vlens is where you see every session at once, read the diagrams, review the plan and learn from it. A session you open in a vTower tab shows up in Vlens's sidebar live (before its first message, too), Vlens's notifications cover it when it goes from working to waiting, and the Hooks page marks the hooks vTower installed so you don't edit them by accident. If you want to keep typing in Vlens instead, **Take over here** ends the terminal process and continues the same conversation.
+**Vlens and vTower work together.** vTower is where you type in terminals; Vlens is where you see every session at once, read the diagrams and review the plan. A session you open in a vTower tab shows up in Vlens's sidebar live (before its first message, too), Vlens's notifications cover it when it goes from working to waiting, and the Hooks page marks the hooks vTower installed so you don't edit them by accident. If you want to keep typing in Vlens instead, **Take over here** ends the terminal process and continues the same conversation.
 
 **Why not just the desktop app?** Use it if all your work starts there. Vlens is for when your sessions are spread across terminals, vTower and the app: it reads them all from `~/.claude`, so nothing has to start in Vlens to show up in Vlens.
 
 ## Features in detail
 
-- **Home dashboard**: what Vlens opens to (click the logo to come back). Who you're signed in as, your 5-hour and weekly limits, sessions running and used this week, messages and tokens today, and a 14-day activity chart (tokens read or messages; hover for numbers, or switch to a table).
-- **Coach** (Home): "Fix this now" cards from this week's sessions (tool-error streaks, corrections, huge pastes, files Claude keeps re-reading, sessions used for days on end), each with Open session / Retro / Add as lesson. **Retro** has a small model review a digest of a session (your messages, corrections, errors; not the whole history) and suggest what went well, what cost time, and one-line lessons. **Apply** writes a lesson into a block Vlens owns at the end of the project's `CLAUDE.md` or `~/.claude/CLAUDE.md`, so the terminal and desktop app learn too; your own lines are never touched, and Take out / Delete rewrite only that block. Settings → Coach turns each part on or off.
-- **Context health**: every reply re-sends the whole session, so long sessions burn your limits fastest. The dashboard shows how many tokens Claude read vs. wrote today and lists your heaviest sessions with two fixes: **Compact** (runs `/compact`) and **Fresh start** (Claude writes a handoff note, then a new session in the same folder starts from it). Both are disabled for sessions that are open in a terminal or the desktop app. Compactions show in a session as a "Conversation compacted" divider you can expand.
-- **Sidebar**: shows **Active** sessions, meaning ones open in a running Claude Code process (terminal or desktop app), plus **Pinned** ones, the session you have open, and **Recent**: sessions Vlens started or replied in during the last 24 hours (their `claude -p` process exits after each reply, so they'd otherwise drop off). Remove one with ⋯ → Remove from Recent. A solid green dot means it's working, a hollow dot means it's waiting for you. Refreshes every 5s.
-- **Session menu** (`⋯` on each item): **Rename** (the same as `/rename`, so the CLI sees it), **Pin / Unpin**, **End session** (stops the Claude CLI process; desktop-app sessions have to be ended in the app), and **Delete** (only once it's stopped; files move to Vlens's `trash/` folder, so you can move them back to `~/.claude/projects/<project>/`).
-- **Usage**: the bottom of the sidebar shows your plan's **5-hour** and **weekly** limits (how much is used and when each resets). Each session shows how full its **context window** is, in the bar and in the header. Limits update whenever Vlens runs Claude; the refresh button sends one tiny Haiku request (about $0.0004). The page refreshes on its own only when the data is over 15 minutes old.
+### Sessions
+
+- **Home**: what Vlens opens to (the Home button at the top of the sidebar, or ⇧⌘H). A greeting and a message box: pick a folder, permission mode and model, and start a session. Under it: **Needs you**, **Running now** and **Recent** sessions, sessions that are past half full with **Compact** / **Fresh start**, and a strip of today's numbers (5-hour and weekly limits, messages and tokens read today, sessions running and used this week).
+- **Context health**: every reply re-sends the whole session, so long sessions burn your limits fastest. **Compact** runs `/compact`. **Fresh start** has Claude write a handoff note, then starts a new session in the same folder from it. Both are off for sessions open in a terminal or the desktop app. Compactions show in a session as a "Conversation compacted" divider you can expand.
+- **Sidebar**: three lists.
+  - **Pinned**: sessions you pinned.
+  - **Sessions**: ones open in a running Claude Code process (terminal or desktop app), the one you have open, and ones Vlens started or replied in lately. Grouped by folder, or as one list (the button next to the heading). Forks show under the session they came from.
+  - **Archived**: sessions you put away.
+  
+  A solid green dot means it's working, a hollow dot means it's waiting for you, amber means it needs you. The list refreshes every 5 seconds. Hide the sidebar with ⌘B.
+- **Session menu** (`⋯` on each item):
+
+  | Item | What it does |
+  | --- | --- |
+  | **Rename** | Same as `/rename`, so the CLI sees it. |
+  | **Fork** / **Fork in Terminal** | A copy with its whole history in the same folder (`claude --resume … --fork-session`). The original stays as it is. Also ⇧⌘F. |
+  | **Pin / Unpin** | Keep it at the top. |
+  | **Archive / Unarchive** | Put it away in Archived (⌘⌫). Sending a message brings it back. Not for sessions open in a terminal or the desktop app. |
+  | **Remove from Recent** | Drops a session Vlens used lately from the list. |
+  | **Reload** | Restarts Claude on the same conversation, so it re-reads `CLAUDE.md`, settings, skills, hooks and MCP servers. Also `/reload`. |
+  | **Continue in terminal** | Opens `claude --resume` in Terminal or iTerm. |
+  | **End session** | Stops the Claude process. Works for terminal sessions, and for desktop-app sessions while Claude isn't working on them. |
+  | **Delete** | Only once it's stopped. Files move to Vlens's `trash/` folder, so you can move them back to `~/.claude/projects/<project>/`. |
+- **New session**: click **New session** (⌘N), pick a folder (a recent one, browse, or type a path like `~/Desktop/app`), and type the first message. It starts a real `claude` session there.
+- **Worktrees**: turn on **New worktree** before you start a session (or File → New Session in Worktree, ⇧⌘N). The session gets its own copy of the repo at `<repo>/.claude/worktrees/<name>` on a branch `worktree-<name>`, so two sessions on one repo never edit the same files. Needs a git repo with at least one commit. Remembered per folder.
+- **Quick switcher**: ⌘K from anywhere. Find a session, a PR or an app action. ↩ opens it, ⌘↩ starts a new session in that folder, ⌥↩ opens the session in Terminal.
+- **Inspector**: a panel beside the chat (button in the chat header, or ⌥⌘I) with how full the context is (and Compact), the files the session changed, your plan usage, and its terminal.
+- **Usage**: the bottom of the sidebar shows your plan's **5-hour** and **weekly** limits (how much is used and when each resets). Each session shows how full its context window is. Limits update whenever Vlens runs Claude; the refresh button sends one tiny Haiku request (about $0.0004).
+- **History**: lists sessions you closed in the last 15 days, by day, with search (⌘Y). **Resume here** opens one in Vlens, **Terminal** continues it with `claude --resume`, and the pin keeps it in the sidebar.
+
+### Chat
+
 - **Chat view**: renders a session like a chat (markdown, thinking, tool calls with their output). A session that's still running in the terminal updates live.
-- **Claude's questions**: when Claude asks you something (its multiple-choice question tool), Vlens shows the options as a card: pick one or more, or type your own under Other, then **Send**. Earlier questions show what you picked. For a session open in a terminal, answer there; Vlens shows the question and your answer once it's in.
-- **Permission modes**: the picker under the message box has the CLI's five modes (Ask before edits, Accept edits, Plan mode, Auto mode, Bypass permissions) and starts in your terminal's default (`permissions.defaultMode` in `~/.claude/settings.json`). Shift+Tab in the message box cycles them, like the terminal.
-- **Permission prompts** offer the terminal's choices: Yes, Yes and don't ask again (showing the rule it saves), and No with a note telling Claude what to do instead. Keys 1-3 pick, Esc stops.
-- **Plan approval**: when Claude finishes a plan, Vlens shows it with Yes + auto mode / auto-accept edits / manually approve edits, or No, keep planning. Vlens switches to the mode you picked.
-- **Type ahead**: send while Claude is working and the message waits above the box, then goes out when Claude is done (several are sent together). Stopping the reply pauses them.
-- **History**: the sidebar's History page lists sessions you closed in the last 15 days, by day, with search. **Resume here** opens one in Vlens (type to carry on), **Terminal** continues it with `claude --resume`, and the pin keeps it in the sidebar.
+- **CLI view**: the **CLI** switch in the chat header runs the real `claude --resume` for this session inside Vlens. **Chat** switches back (that ends the claude in the CLI view; the conversation is kept).
+- **One writer at a time**: a running `claude` keeps the conversation in memory, so Vlens can't type into it. While a session is open in a terminal or the desktop app, Vlens shows it live but swaps the message box for a banner. Type there, or click **Take over here**: Vlens asks first, then ends the terminal's claude (or the desktop app lets go of it) and you continue in Vlens. Going the other way, **Continue in terminal** opens `claude --resume` in Terminal or iTerm.
+- **Claude's questions**: when Claude asks you something (its multiple-choice question tool), Vlens shows the options as a card: pick one or more, or type your own under Other, then **Send**. For a session open in a terminal, answer there.
+- **Permission modes**: the picker under the message box has the CLI's five modes (Ask before edits, Accept edits, Plan mode, Auto mode, Bypass permissions) and starts in your terminal's default (`permissions.defaultMode` in `~/.claude/settings.json`). Shift+Tab cycles them.
+- **Permission prompts** offer the terminal's choices: Yes, Yes and don't ask again (showing the rule it saves), and No with a note telling Claude what to do instead. Keys 1–3 pick, Esc stops.
+- **Plan approval**: when Claude finishes a plan, Vlens shows it with Yes + auto mode / auto-accept edits / manually approve edits, or No, keep planning.
+- **Type ahead**: send while Claude is working and the message waits above the box, then goes out when Claude is done. Stopping the reply pauses them.
+- **Message box**: paste, drop or 📎 attach images (PNG, JPEG, GIF, WebP; large ones are scaled down). Long pastes show as a card. Type `/` for slash commands and skills for that folder. Pick a model per message.
+- **File panel**: when Claude writes or edits a file, the reply shows a chip like `step1_basics.py +59 −0`; click it (or any file path in a reply) to open the file beside the chat, scrolled to the changed lines. Markdown has Preview / Code, images preview, folders list their files. Buttons: reload, copy path, open in VS Code at that line, reveal in Finder, full width. Only files in your home folder open, never folders like `~/.ssh` or `~/.aws`, and a symlink can't point around that.
+- **Terminal**: a real shell in the session's folder beside the chat (**Terminal** button or Ctrl+`). It keeps running while hidden. Shells no window has used for 30 minutes are closed.
+- **Sub-agents**: select any text in an answer to comment or ask about it. A panel slides in and runs a real `claude -p` in that session's folder, focused on the snippet. Sub-agents run read-only and are one level deep. The bottom of each panel shows the commands it ran.
+- **Background tasks**: Vlens shows what Claude and its background agents are doing. Stop one task without stopping the rest.
 - **Desktop notifications**: when Claude asks permission, asks a question, has a plan ready or finishes, and you're in another window. Terminal and desktop-app sessions notify when they go from working to waiting. Click one to open that session. Turn it off in Settings → Notifications.
-- **One writer at a time**: a running `claude` keeps the conversation in memory, so Vlens can't type into it, and replying from Vlens would split the session. While a session is open in a terminal or the desktop app, Vlens shows it live but swaps the message box for a banner: type there, or click **Take over here** (terminal sessions only) to end that process and continue in Vlens. Going the other way, **Continue in terminal** in the chat header opens `claude --resume` in Terminal or iTerm.
-- **New session**: click **New session**, pick a folder (a recent project folder, browse, or type a path like `~/Desktop/app`), and type the first message. It starts a real `claude` session there, the same as running `claude` in that folder.
-- **File panel**: when Claude writes or edits a file, the reply shows a chip like `step1_basics.py +59 −0`; click it (or any file path in a reply, or the ↗ on a Read row) to open the file beside the chat. Tabs, a clickable folder breadcrumb, line numbers and syntax highlighting (Shiki, following the Vlens theme). Opening from an edit highlights and scrolls to the changed lines. Markdown has Preview / Code, images preview, folders list their files. Buttons: reload, copy path, open in VS Code at that line, reveal in Finder, full width. Only files in your home folder open, and never folders like `~/.ssh` or `~/.aws`.
-- **Message box**: paste, drop or 📎 attach images (PNG, JPEG, GIF, WebP; large ones are scaled down). Type `/` for a menu of slash commands and skills for that folder (arrow keys + Enter or Tab to pick). Commands you ran in a terminal, like `/compact`, show up in the chat with their output.
-- **Reply to a session**: type at the bottom to continue the session with `claude --resume`. The reply is saved in the same session file, so the CLI sees it too. Pick **Can edit files** or **Read-only** under the box.
-- **Sub-agents**: select any text in an answer and click **Ask Sub-Agent**. A panel slides in and runs a real `claude -p` in that session's project folder, focused on the snippet. Sub-agents are one level deep: a side question about the main session, not a chain.
-- **Terminal console**: the bottom of each panel shows the real commands the sub-agent ran.
+- **Menu bar icon** (Mac app): shows your 5-hour and weekly use, sessions waiting for you, and what's working. For a permission request it shows the tool and a short summary of the request, with **Allow**, **Always Allow** (when offered), **Deny** or **Open in Vlens**. Also New Session, Quick Switcher and Quit.
+
+### Keyboard shortcuts (Mac app menus)
+
+| Shortcut | Action |
+| --- | --- |
+| ⌘N / ⇧⌘N | New session / new session in a worktree |
+| ⌘O | Open folder |
+| ⌘⌫ | Archive session |
+| ⌘. | Stop Claude |
+| ⌥⌘K | Compact context |
+| ⇧⌘F | Fork session |
+| ⌥⌘T / ⌥⌘H | Continue in terminal / Take over here |
+| ⌘1 / ⌘2 | Sessions / PR Review |
+| ⇧⌘H, ⌘Y | Home, History |
+| ⌘K | Quick switcher |
+| ⌘] | Next session that needs you |
+| ⌘B | Hide or show the sidebar (also ⌃⌘S) |
+| ⌥⌘I | Inspector |
+| Ctrl+` | Terminal |
 
 ## Flow diagrams (built in)
 
 Replies that contain a ```` ```mermaid ```` block are drawn as diagrams (flowcharts, sequence, state, ER, timeline…), in light or dark to match your system, with **code / copy / full screen** buttons. Arrows marked `animate: true` in the diagram move; Settings can animate every arrow.
 
-Vlens also ships its own Claude Code plugin in [`lens-plugin/`](../lens-plugin) with a **`lens:diagrams`** skill that tells Claude when and how to draw a diagram. Vlens passes it with `--plugin-dir` only to the runs it starts, so your terminal `claude` doesn't get it. Settings → **Flow diagrams** turns drawing, animate-every-arrow and the skill on or off separately. More built-in skills can go in the same plugin.
+Vlens also ships its own Claude Code plugin in [`lens-plugin/`](../lens-plugin) with a **`lens:diagrams`** skill that tells Claude when and how to draw a diagram. Vlens passes it with `--plugin-dir` only to the runs it starts, so your terminal `claude` doesn't get it. Settings → **Diagrams & whiteboard** turns drawing, animate-every-arrow and the skill on or off separately. More built-in skills can go in the same plugin.
 
 ## Whiteboard (built in)
 
@@ -77,17 +120,119 @@ Replies with an ```` ```excalidraw ```` block (a JSON list of simple shapes, lab
 
 The built-in **`lens:whiteboard`** skill (in `lens-plugin/`) tells Claude to teach with a board when boxes, arrows and notes explain it better. Settings → **Diagrams & whiteboard** switches drawing and each skill on or off separately. (Vlens builds a small `lens` plugin with only the skills that are on, in its data folder, and passes it with `--plugin-dir`.) Excalidraw's fonts ship with Vlens in `public/excalidraw-assets/`, so boards work offline.
 
-## Vlens Review
+## PR Review
 
-Switch the sidebar to **Vlens Review** to see your open GitHub PRs, grouped by repo. It reads GitHub through the `gh` CLI (so it uses the account `gh` is signed in with) in one GraphQL request: PRs asking for your review or your teams' review, your own PRs, mentions, and ones you commented on. It refreshes every 10 minutes, or with the ↻ button.
+Click **PR Review** in the sidebar (⌘2). It reads GitHub through the `gh` CLI, so it uses the account `gh` is signed in with. The list reloads every 10 minutes; the ↻ button gets the latest now.
 
-Each PR lands in one lane by whose move it is: **Needs you**, **Yours**, **Team**, **Waiting** (on the author, or on other approvals), **Done**, or **FYI**. The badge on the tab counts the ones that need you. Click a PR for its description, approvals vs. required, CI checks, reviews and changed files.
+**Lists** (left panel):
 
-- **Review with Claude** starts a read-only Vlens session that reviews the PR (`/code-review <number>` inside your local clone, or a gh-based review from your home folder if you don't have one). Nothing is posted to GitHub.
-- **Address feedback** (your own PRs, needs a local clone) starts a session that checks out the branch, reads the review comments and failing checks, and makes the fixes. It asks before pushing.
-- **Hide** removes a PR from the list in this browser.
+| List | What's in it |
+| --- | --- |
+| **New** | What changed on your PRs and reviews since you last looked. |
+| **My PRs** | PRs you opened: Your move, Ready to merge, Awaiting review, Drafts, Stale (30+ days). |
+| **Needs my review** | Needs you, Needs your team, Approved · awaiting others, Waiting on author, Done · your part, FYI. Recent PRs from your teammates show under Needs your team. |
+
+Each card shows a risk badge and a mark for who reviewed it: a Claude mark for a review you started, **AP** for one Autopilot did. **Hide** (on a PR's Summary tab) takes a PR off the lists in this browser; **Hidden (n)** in the list brings it back.
+
+**The PR page** has four tabs:
+
+| Tab | What's on it |
+| --- | --- |
+| **Summary** | The description, Claude's take (findings, risk, earlier comments fixed), and Hide. |
+| **Discussion** | Claude's draft comments and the PR's review threads, by file and line. |
+| **Files changed** | The changed files. |
+| **Checks** | CI checks and merge conflicts. |
+
+The rail on the right (wide windows) shows the **Automation** card (what Autopilot will do with this PR, and **Pause autopilot for this PR**), the **risk** score, details, **Reviewers**, and this PR's sessions.
+
+**Actions** at the top:
+
+| Button | What it does |
+| --- | --- |
+| **Open on GitHub** | Opens the PR in your browser. |
+| **Refresh** | Gets the latest from GitHub. |
+| **Review with Claude** | Starts a Vlens session that reviews the PR, at Quick, Standard or Deep depth. It runs in your local clone, or reads the PR with `gh` from your home folder if you don't have one. It posts nothing. The findings show in a results panel, where you keep, edit and post them (see below). |
+| **Address feedback** | Your own PRs, needs a local clone. It switches your clone to the PR's branch (it asks first), then a session reads the review comments and failing checks and makes the fixes. Claude is told not to push or reply on GitHub without asking you. |
+| **Before/after** | Only for `vendasta/galaxy`, with a local clone. Uses galaxy's own `galaxy-before-after` skill to take before and after screenshots of what the PR changes. |
+| **Merge** | Your own PRs, once they're approved, CI isn't failing and there are no conflicts. Pick squash, merge commit or rebase, then confirm. |
 
 Local clones are found from the folders your sessions run in (and one level inside them, e.g. `~/code/<repo>`).
+
+**The review skill.** If the Vendasta dev-agent toolkit is installed (its marketplace clone at `~/.claude/plugins/marketplaces/vendasta-dev-agent-toolkit`) and **Settings → Diagrams & whiteboard → PR review skill (lens:review)** is on, Review with Claude uses the toolkit's `lens:review` skill. Otherwise Claude reviews with `gh pr diff` and the code in your clone.
+
+**Drafts and posting.** On the Discussion tab, each of Claude's drafts has **Post**, **Edit** and **Discard**; **Post N as one review** sends them all at once. Review threads have reply, **Resolve** / **Unresolve** and **Ask Claude**, and there's a box to leave a comment on the PR. Everything posts from your GitHub account. If the PR has new commits since the review, Vlens asks again (**Post anyway** pins the comments to the commit the review read).
+
+### Risk score
+
+Every PR gets a score from 0 to 100, with the reasons listed. It's worked out from the files, not by AI, so it's free and instant.
+
+- Points for: many changed lines or files, your sensitive paths, secrets or credentials, schema or migrations, auth / billing / permissions code, CI or deploy config, dependency changes, code changed without tests, mostly deletions.
+- Points off: only tests or docs.
+- Low is under 30, medium 30–59, high 60 and up.
+- When Claude reviews the PR it can move the score by up to 20, and says why.
+
+### What Vlens can do on GitHub as you
+
+> Everything below uses your own `gh` login. **Vlens never approves a PR.** Review with Claude on its own posts nothing.
+>
+> | Action | Where | When it asks first |
+> | --- | --- | --- |
+> | Post a review (Comment or Request changes) | Results panel **Post review as me**; Discussion tab **Post** / **Post N as one review** | Always: a confirm names the PR and your account. Asks again if the PR has new commits. |
+> | Reply to a thread, resolve or unresolve it, comment on the PR | Discussion tab | Only when you click. The text is what you typed. |
+> | Merge | **Merge** on your own PR | A confirm bar with the merge method. |
+> | Add or swap a state label (and create the label in the repo if it's missing) | Autopilot | Only if you turn on **GitHub labels** in Autopilot settings. Off by default. |
+> | Post a review by itself | Autopilot | Only for a workflow you set to **Post comments itself**. No confirm per post. Off in every default workflow. |
+>
+> **Address feedback** and **Before/after** are normal Claude sessions in your clone: they follow your permission prompts, and Claude is told not to push or post without asking you.
+
+## Autopilot
+
+Autopilot reviews PRs for you in the background, with Claude, one at a time. It is **off by default**. Open it from **Autopilot** in the PR Review panel.
+
+**The board** shows four columns: **Needs you** (PRs handed to you, and failed reviews with **Retry**), **Running** (the review going on now, with its steps and **Stop**), **In queue**, and **Reviewed today**, plus an **Activity** log. At the top:
+
+- **Run now**: review the next PR in the queue now, even when Autopilot is off.
+- **Turn on** / **Pause**: the main switch.
+- **Settings**: workflows and limits.
+
+**Workflows** decide which PRs it reviews and what it does with the review. They're checked top to bottom; the first one that fits a PR handles it.
+
+| Part | Choices |
+| --- | --- |
+| **When** | Someone asks me to review · My team is asked to review · I open or push to my PR · A PR gets a label |
+| **Review** | Quick (blockers only) · Standard (bugs and risks) · Deep (slow and thorough) |
+| **Then** | Draft only, I post it · Show findings to me only · Post comments itself |
+| **Re-check** | Review again when the PR gets new commits |
+
+The four built-in workflows all keep reviews as drafts or private. Only "Review PRs that need me" is on at first.
+
+**Limits and hand-offs** (shared by all workflows):
+
+| Setting | Default |
+| --- | --- |
+| Look for PRs every | 10 min (5–240) |
+| At most, reviews per day | 10 (1–100) |
+| Skip draft PRs | On |
+| Skip PRs with this label | `skip-ai-review` |
+| Hand it to me: more changed lines than | 1000 |
+| Hand it to me: risk score at or above | 70 (0 = off) |
+| Hand it to me: touches these paths | migrations, auth / billing / payments, `.github/workflows`, `CODEOWNERS`, `CLAUDE.md` |
+| Hand it to me: in my own words | Empty. Claude reads this and can hand a PR to you. |
+| Only these repos / never these repos | Empty (all repos) |
+
+A PR that's handed to you shows under **Needs you**. **Pause autopilot for this PR** on the PR's Automation card leaves that one alone.
+
+**GitHub labels** (off by default): put `ai-reviewed` or `ai-handed-off` (names you can change) on PRs Autopilot handles. **Desktop alerts**: when a PR is handed to you, a review is ready, Autopilot posted, or a review failed.
+
+**Safety:**
+
+- Before Claude starts, Vlens saves the PR, its diff and earlier comments to a folder. Claude can then only **Read, Grep and Glob**: no shell, no MCP, no network, no `.env`, `.pem` or `.key` files. It can't post, push or run anything.
+- Posting is done by Vlens, only for a "Post comments itself" workflow: Comment or Request changes, never approve.
+- If you pause the PR, turn Autopilot off, or change or remove the workflow while a review runs, nothing is posted. The review is kept as drafts for you.
+- A review whose text looks like it contains a secret (a private key or an API token) is never posted. It's kept as drafts.
+- Only one Vlens per Mac runs Autopilot at a time (the app and a dev server share the data folder).
+- A review stops after 20 minutes. **Stop** counts as a failed review at that commit: it isn't picked again until you **Retry** or the PR gets new commits.
+- If the PR was only rebased (same changes), the last review still stands.
 
 ## Marketplace
 
@@ -101,14 +246,21 @@ Local clones are found from the folders your sessions run in (and one level insi
 
 Open **Settings** at the bottom of the sidebar.
 
-- **Appearance**: System (follows your Mac), Light or Dark. The button next to the logo cycles through them. The choice is saved in your browser and applied before the page paints, so there's no flash. Diagrams follow it too.
+- **Appearance**: System (follows your Mac), Light or Dark, and an accent colour. Saved in this browser and applied before the page paints, so there's no flash. Diagrams follow it too.
+- **Terminal profile** (in Appearance): colours, font, size, line height and cursor for the Terminal panel and the CLI view. Built-in schemes (Vlens, Dracula, Nord, One Dark, Tokyo Night, Catppuccin Mocha, Gruvbox Dark, Solarized, GitHub Light), macOS Terminal's own profiles, or **Customize a copy** of any of them. Open terminals change right away.
 
 - **Account**: who the CLI is signed in as (email, org, plan). **Switch account** runs `claude auth login` in a new terminal window; **Sign out** runs `claude auth logout`.
+- **AI agent**: the coding agent Vlens runs sessions with (Claude Code today).
 - **Model**: the default model for replies, new sessions and sub-agents started from Vlens. You can also pick a model per message next to the message box. Your terminal `claude` is not changed. In read-only (plan) mode the CLI uses at least Sonnet.
 - **Auto-restore**: when a terminal session stops without closing normally (crash, closed window, reboot), Claude Code leaves its `~/.claude/sessions/<pid>.json` behind. Vlens spots that and shows it in the sidebar with **Restore**, which reopens it with `claude --resume` in Terminal or iTerm. Turn on **Reopen automatically** to skip the click. This only works while Vlens is running.
 - **Skills**: your skills (`~/.claude/skills`) and, if you pick a project, that project's skills (`.claude/skills`). You can create, edit `SKILL.md`, turn on/off (off moves it into a `.disabled` folder the CLI doesn't load) and delete (moves it into `.trash`). Skills synced from claude.ai and plugin skills are view-only. Changes apply to new and resumed sessions.
 - **Hooks**: every hook from `~/.claude/settings.json` and, if you pick a project, its `.claude/settings.json` and `.claude/settings.local.json`, grouped by event. Plugin hooks are view-only. You can add a hook (command, prompt, agent or URL; all 33 events the CLI knows), edit it as JSON, turn it off/on, delete it, or pause all hooks (the CLI's `disableAllHooks`). Hooks another app installed are marked (e.g. "added by my-tool" when its command ends in `# my-tool-hook`). Vlens changes only the `hooks` key, keeps the file's formatting, refuses to write if the file changed meanwhile, and saves a backup in `~/.claude/backups` first (last 5 kept). The CLI has no per-hook off switch, so "off" parks the hook in `hooks-off.json` in Vlens's data folder until you turn it back on.
 - **MCP servers & connectors**: lists everything from `claude mcp list` with its status. You can add a server (HTTP, SSE or a local command, for all projects or one project folder), remove one, and sign in or out. claude.ai connectors are added and removed on claude.ai; here you can sign in to them. Connectors are grouped (connected, needs sign-in) with a search box.
+- **Diagrams & whiteboard**: drawing and the built-in skills on or off, including the **PR review skill (lens:review)** used by Review with Claude.
+- **Notifications**: desktop notifications on or off.
+- **About & updates**: your version, and whether a new release is out.
+
+**GitHub** shows whether the GitHub CLI (`gh`) is installed and which account it's signed in to, with **Install gh**, **Sign in to GitHub** or **Switch account**. Use it if you skipped GitHub on the Get started page.
 
 The first time Vlens opens a terminal window, macOS asks whether it may control Terminal (or iTerm). Click OK. If you said no, allow it in System Settings → Privacy & Security → Automation.
 
@@ -139,14 +291,40 @@ That builds `desktop/dist/Vlens-<version>-arm64.dmg`: it runs `next build`, stag
 
 Vlens is a Mac app (`Vlens.app`) that starts its own server, so you don't need a terminal.
 
-**Get started**: the first time Vlens opens (or whenever Claude Code is missing or signed out) it shows a setup page with three steps: install Claude Code, sign in to Claude, and optionally connect GitHub for Vlens Review. Each button runs the step in a Terminal window, and the page ticks it off once it's done.
+**Get started**: the first time Vlens opens (or whenever Claude Code is missing or signed out) it shows a setup page with three steps: install Claude Code, sign in to Claude, and optionally connect GitHub for PR Review. Each button runs the step in a Terminal window, and the page ticks it off once it's done.
 
 The app is only ad-hoc signed (no Apple developer ID), so the first time, open it, click **Done** on the warning, then System Settings → Privacy & Security → **Open Anyway**.
 
-- It runs the bundled server on `127.0.0.1:3459` (or the next free port) with Electron's own Node, so you don't need Node installed, only Claude Code (and `gh` for Vlens Review).
+- It runs the bundled server on `127.0.0.1:3459` (or the next free port) with Electron's own Node, so you don't need Node installed, only Claude Code (and `gh` for PR Review).
+- **Optional, for Review with Claude:** the Vendasta dev-agent toolkit's marketplace (`claude plugin marketplace add` it, so it lands in `~/.claude/plugins/marketplaces/vendasta-dev-agent-toolkit`). With it, reviews use its `lens:review` skill; without it, Claude reviews with `gh` and your local code. Switch it in Settings → Diagrams & whiteboard.
 - It reads your login shell's `PATH` at startup, so it finds `claude`, `gh` and `git` like your terminal does.
 - **Vlens → Open at Login** starts it when you log in. **Show Server Log** opens `~/Library/Logs/Vlens/server.log`.
-- Vlens's data (pins, settings, threads, trash) lives in `~/Library/Application Support/Vlens/`, shared with the dev server. If you used Claude Lens before, its folder is copied here the first time Vlens starts (Claude Lens keeps its own).
+- Vlens's data (pins, settings, threads, Autopilot settings and log, trash) lives in `~/Library/Application Support/Vlens/`, shared with the dev server. If you used Claude Lens before, its folder is copied here the first time Vlens starts (Claude Lens keeps its own).
+
+## Updating
+
+Vlens checks GitHub for a new release a few times a day. When one is out, a card offers:
+
+- **Download**: opens the new dmg.
+- **Later**: hides the card for a day.
+- **Skip this version**: never shows this version again.
+
+To install it:
+
+1. Quit Vlens (⌘Q).
+2. Open the download and drag **Vlens** to Applications, replacing the old one.
+3. If macOS blocks it: System Settings → Privacy & Security → **Open Anyway**.
+
+Your sessions, pins and settings stay; they live outside the app.
+
+## Security
+
+- The local server only listens on `127.0.0.1` (this Mac), in the app and in `npm run dev`.
+- It refuses API requests from other websites, and any request whose host isn't this Mac. A page in your browser can't use it to run Claude or a shell.
+- The terminal socket needs a secret token per shell.
+- The file panel opens only files in your home folder, never folders like `~/.ssh` or `~/.aws`, and follows symlinks before it checks.
+- Image previews (SVG too) open sandboxed, so a file can't run script as Vlens.
+- On GitHub, Vlens only does what's listed in [What Vlens can do on GitHub as you](#what-vlens-can-do-on-github-as-you).
 
 ## How it works
 
@@ -163,7 +341,7 @@ The app is only ad-hoc signed (no Apple developer ID), so the first time, open i
 | Hooks | `src/lib/hooks.ts` |
 | File panel | `src/lib/files.ts`, `src/components/FileViewer.tsx`, `FileContext.tsx`, `FileChip.tsx` |
 | Marketplace (via `claude plugin`) | `src/lib/marketplace.ts`, `src/components/MarketplaceView.tsx` |
-| Home dashboard and stats | `src/components/HomeView.tsx`, `src/lib/stats.ts` |
+| Home and stats | `src/components/HomeView.tsx`, `src/lib/stats.ts` |
 | Compact / fresh start | `src/lib/context.ts` |
 | Permission prompts | `src/lib/permissions.ts`, `src/components/PermissionCard.tsx` |
 | Mermaid diagrams | `src/components/Mermaid.tsx` |
@@ -171,7 +349,14 @@ The app is only ad-hoc signed (no Apple developer ID), so the first time, open i
 | Built-in skills (plugin) | `lens-plugin/`, `src/lib/lensPlugin.ts` |
 | Mac app (Electron) | `desktop/main.cjs`, `desktop/scripts/prepare-server.mjs` |
 | Where Vlens keeps its data | `src/lib/paths.ts` (`~/Library/Application Support/Vlens`, or `LENS_DATA_DIR`) |
-| Vlens Review (GitHub via `gh`) | `src/lib/github.ts` |
+| PR Review (GitHub via `gh`) | `src/lib/github.ts`, `src/components/PrInbox.tsx`, `PrPage.tsx`, `ReviewView.tsx` |
+| Posting a review, merge, thread actions | `src/lib/postReview.ts`, `src/app/api/review/{post,merge,thread}` |
+| Risk score | `src/lib/risk.ts` |
+| Autopilot (rules, runner, labels) | `src/lib/autopilotPlan.ts`, `autopilot.ts`, `autopilotRunner.ts`, `prLabelsGh.ts`, `src/components/Autopilot.tsx` |
+| Worktrees, forks, archive | `src/lib/worktree.ts`, `fork.ts`, `archive.ts` |
+| Terminal panel and CLI view | `src/lib/terminals.ts`, `src/components/TerminalPanel.tsx` |
+| Terminal profiles | `src/lib/termProfiles.ts`, `termThemes.ts` |
+| Blocks requests from other sites | `src/middleware.ts` |
 | Slash command list (from the CLI's start-up event) | `src/lib/commands.ts` |
 | Account and MCP (via `claude auth` / `claude mcp`) | `src/lib/account.ts`, `src/lib/mcp.ts` |
 | Plan limits and context window sizes | `src/lib/limits.ts` → `limits.json` |

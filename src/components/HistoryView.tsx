@@ -62,7 +62,7 @@ export function HistoryView({ chat, onMenu, onOpen }: { chat: TreeChat; onMenu: 
   const btn = "inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs text-muted hover:border-accent hover:text-accent disabled:opacity-50";
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <header className="flex items-center gap-3 border-b border-line px-4 py-3">
+      <header className="page-header">
         <button onClick={onMenu} className="rounded-md p-1 text-muted hover:bg-sunken hover:text-ink" aria-label="Back" title="Back">
           <ArrowLeft size={18} />
         </button>
@@ -80,7 +80,7 @@ export function HistoryView({ chat, onMenu, onOpen }: { chat: TreeChat; onMenu: 
               <Search size={14} className="text-muted" />
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by title or folder" className="w-full bg-transparent outline-none placeholder:text-muted" />
             </label>
-            {err && <p className="mt-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600">{err}</p>}
+            {err && <p className="mt-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-danger">{err}</p>}
           </div>
 
           {!chat.sessions.length ? (
@@ -106,8 +106,8 @@ export function HistoryView({ chat, onMenu, onOpen }: { chat: TreeChat; onMenu: 
                         <button onClick={() => onOpen(s.id)} className="min-w-0 flex-1 text-left">
                           <div className="flex items-center gap-2">
                             <span className="truncate text-sm font-medium hover:text-accent">{s.title}</span>
-                            {running && <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[0.65rem] font-medium text-emerald-600">already open in the {s.active!.entrypoint === "desktop" ? "desktop app" : "terminal"}</span>}
-                            {crash && <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[0.65rem] font-medium text-amber-700 dark:text-amber-400">stopped unexpectedly at {time(new Date(crash.stoppedAt))}</span>}
+                            {running && <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[0.65rem] font-medium text-success">already open in the {s.active!.entrypoint === "desktop" ? "desktop app" : "terminal"}</span>}
+                            {crash && <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[0.65rem] font-medium text-warning">stopped unexpectedly at {time(new Date(crash.stoppedAt))}</span>}
                           </div>
                           <div className="mt-0.5 flex items-center gap-3 truncate text-xs text-muted">
                             <span className="flex min-w-0 items-center gap-1 truncate" title={s.cwd ?? undefined}>
@@ -123,7 +123,7 @@ export function HistoryView({ chat, onMenu, onOpen }: { chat: TreeChat; onMenu: 
                         <div className="flex shrink-0 items-center gap-1.5">
                           {crash && (
                             <button
-                              className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
+                              className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-on-accent disabled:opacity-50"
                               disabled={busy === s.id}
                               onClick={async () => {
                                 setBusy(s.id);

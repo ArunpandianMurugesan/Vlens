@@ -33,7 +33,10 @@ export async function postReview(o: { repo: string; number: number; sha: string;
   try {
     return { url: await ghReview(o.repo, o.number, { commit_id: o.sha, event: o.event, body: o.body, comments }), inline: comments.length };
   } catch (e) {
-    if (!comments.length) throw e;
+    // Fold the findings into the body only when GitHub refused to place them (422).
+    // After a timeout or network error the first review may already exist: posting
+    // again would leave two reviews on the PR.
+    if (!comments.length || !/HTTP 422|Unprocessable/i.test((e as Error).message)) throw e;
     const folded = `${o.body}\n\n${comments.map((c, i) => `${i + 1}. **${c.path}:${c.line}**: ${c.body}`).join("\n\n")}`;
     return { url: await ghReview(o.repo, o.number, { commit_id: o.sha, event: o.event, body: folded }), inline: 0, note: `GitHub couldn't place the findings on the diff (${(e as Error).message.slice(0, 120)}), so they're in the review's text instead.` };
   }

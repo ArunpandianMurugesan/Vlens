@@ -7,7 +7,7 @@ import { type PriorCheck, parseResult, type ReviewResult, type ShotsResult } fro
 import { Markdown } from "./Markdown";
 
 // What a PR session's skill handed back, shown above its chat on the Review page:
-//   review        lens:review in PR Studio mode: findings you pick, edit and post as you
+//   review        lens:review in PR Review mode: findings you pick, edit and post as you
 //   before/after  galaxy-before-after: the screenshots, side by side
 // Both come from a ```json block at the end of Claude's reply (see reviewPrompt and
 // beforeAfterPrompt in ReviewView.tsx).
@@ -15,7 +15,14 @@ import { Markdown } from "./Markdown";
 export type { Finding, PriorCheck } from "@/lib/reviewResult";
 
 const btn = "inline-flex items-center gap-1 rounded-lg border border-line bg-bg px-2.5 py-1 text-xs hover:border-accent hover:text-accent disabled:opacity-50";
-const primary = "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50";
+const primary = "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:opacity-90 disabled:opacity-50";
+
+// One confirm for everything that posts to GitHub from PR Review (results panel, drafts,
+// "Post N as one review"), so they all read the same: "Post 4 comments on owner/repo#12 as @you?"
+export function confirmPost(pr: { repo: string; number: number }, what: string, login?: string | null, extra = ""): boolean {
+  return window.confirm(`Post ${what} on ${pr.repo}#${pr.number} as ${login ? `@${login}` : "you (your GitHub account)"}?${extra}`);
+}
+export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 // The last ```json block in Claude's replies that holds findings or shots.
 export function resultOf(messages: ChatMessage[]): ReviewResult | ShotsResult | null {
@@ -81,7 +88,7 @@ function useTrack(prUrl: string, sessionId: string) {
   return [track, () => setN((x) => x + 1)] as const;
 }
 
-export function ReviewResults({ pr, sessionId, messages }: { pr: PrSummary; sessionId: string; messages: ChatMessage[] }) {
+export function ReviewResults({ pr, sessionId, messages, login }: { pr: PrSummary; sessionId: string; messages: ChatMessage[]; login?: string | null }) {
   const latest = useMemo(() => resultOf(messages), [messages]);
   const text = latest ? JSON.stringify(latest) : "";
   // The same review keeps the same object, so its edits and state survive refreshes.
@@ -125,7 +132,7 @@ export function ReviewResults({ pr, sessionId, messages }: { pr: PrSummary; sess
     retrack();
   };
   return (
-    <section className={`flex flex-col border-b border-line bg-sunken/30 ${open && big ? "min-h-0 flex-[5]" : "max-h-[72vh] shrink-0"}`}>
+    <section className={`flex flex-col border-b border-line bg-sunken/30 ${open && big ? "min-h-0 flex-[5]" : "max-h-[45vh] shrink-0"}`}>
       <div className="flex items-center gap-2 px-4 py-2 text-sm">
         <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-2 text-left">
           {result.kind === "review" ? <Check size={14} className="shrink-0 text-accent" /> : <ImageIcon size={14} className="shrink-0 text-accent" />}
@@ -135,7 +142,7 @@ export function ReviewResults({ pr, sessionId, messages }: { pr: PrSummary; sess
         </button>
         {result.kind === "review" && posted && (
           <span className="flex shrink-0 items-center gap-2 text-xs">
-            <span className="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-green-700 dark:text-green-400">
+            <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-success">
               <Check size={11} /> Posted {when(posted.at)}
             </span>
             {posted.url && (
@@ -151,7 +158,7 @@ export function ReviewResults({ pr, sessionId, messages }: { pr: PrSummary; sess
           </button>
         )}
       </div>
-      {open && (result.kind === "review" ? <Findings key={key} reviewKey={key} sessionId={sessionId} track={track} pr={pr} r={result} posted={posted} onPosted={onPosted} /> : <div className="overflow-y-auto px-4 pb-3 scroll-thin"><Shots r={result} /></div>)}
+      {open && (result.kind === "review" ? <Findings key={key} login={login} reviewKey={key} sessionId={sessionId} track={track} pr={pr} r={result} posted={posted} onPosted={onPosted} /> : <div className="overflow-y-auto px-4 pb-3 scroll-thin"><Shots r={result} /></div>)}
     </section>
   );
 }
@@ -182,8 +189,8 @@ function TrackLine({ track }: { track: Track | null }) {
 }
 
 const STATUS_TONE: Record<PriorCheck["status"], string> = {
-  fixed: "bg-green-500/10 text-green-700 dark:text-green-400",
-  unfixed: "bg-amber-500/10 text-amber-800 dark:text-amber-300",
+  fixed: "bg-success/10 text-success",
+  unfixed: "bg-warning/10 text-warning",
   unverified: "bg-sunken text-muted",
 };
 
@@ -223,7 +230,7 @@ function PriorChecks({ pr, checks }: { pr: PrSummary; checks: PriorCheck[] }) {
 
 type Moved = { sameDiff: boolean; reviewedSha: string; currentSha: string };
 
-function Findings({ pr, r, posted, onPosted, reviewKey, sessionId, track }: { pr: PrSummary; r: ReviewResult; posted: Posted | null; onPosted: (p: Posted) => void; reviewKey: string; sessionId: string; track: Track | null }) {
+function Findings({ pr, r, posted, onPosted, reviewKey, sessionId, track, login }: { pr: PrSummary; r: ReviewResult; posted: Posted | null; onPosted: (p: Posted) => void; reviewKey: string; sessionId: string; track: Track | null; login?: string | null }) {
   // Mounted again (by key) for a different review, so this state is per review.
   const [keep, setKeep] = useState<boolean[]>(() => r.findings.map(() => true));
   const [bodies, setBodies] = useState<string[]>(() => r.findings.map((f) => f.body));
@@ -238,7 +245,7 @@ function Findings({ pr, r, posted, onPosted, reviewKey, sessionId, track }: { pr
     const what = event === "REQUEST_CHANGES" ? "a request-changes review" : "a comment review";
     const again = posted ? "\n\nYou already posted this review once; this posts a second one." : "";
     const pinned = force && moved ? `\n\nIt goes on the commit the review read (${short(moved.reviewedSha)}), not the PR's latest.` : "";
-    if (!window.confirm(`Post ${what} with ${kept.length} inline finding${kept.length === 1 ? "" : "s"} on ${pr.repo}#${pr.number}, from your GitHub account?${again}${pinned}`)) return;
+    if (!confirmPost(pr, `${what} with ${plural(kept.length, "inline comment")}`, login, `${again}${pinned}`)) return;
     setBusy(true);
     setErr(null);
     const res = await fetch("/api/review/post", {
@@ -257,9 +264,9 @@ function Findings({ pr, r, posted, onPosted, reviewKey, sessionId, track }: { pr
   };
   const tone = (s?: string) =>
     s === "blocker" || s === "high" || s === "critical"
-      ? "bg-red-500/10 text-red-700 dark:text-red-300"
+      ? "bg-danger/10 text-danger"
       : s === "should" || s === "medium"
-        ? "bg-amber-500/10 text-amber-800 dark:text-amber-300"
+        ? "bg-warning/10 text-warning"
         : s === "question"
           ? "bg-sky-500/10 text-sky-700 dark:text-sky-300"
           : "bg-sunken text-muted";
@@ -291,7 +298,7 @@ function Findings({ pr, r, posted, onPosted, reviewKey, sessionId, track }: { pr
                 )}
               </div>
               {editing === i ? (
-                <textarea value={bodies[i]} onChange={(e) => setBodies((b) => b.map((x, j) => (j === i ? e.target.value : x)))} rows={5} className="block w-full resize-y border-0 bg-bg px-3 py-2 font-mono text-xs outline-none" />
+                <textarea value={bodies[i]} onChange={(e) => setBodies((b) => b.map((x, j) => (j === i ? e.target.value : x)))} rows={5} className="block w-full resize-y border-0 bg-bg px-3 py-2 font-mono text-xs" />
               ) : (
                 <div className="px-3 py-2 text-[0.85rem] leading-relaxed">
                   <Markdown text={bodies[i]} />
@@ -305,7 +312,7 @@ function Findings({ pr, r, posted, onPosted, reviewKey, sessionId, track }: { pr
       </div>
       {/* Always in view, however long the findings are. */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line bg-bg/60 px-4 py-2">
-        {err && <p className="w-full text-xs text-red-600">{err}</p>}
+        {err && <p className="w-full text-xs text-danger">{err}</p>}
         {moved && (
           <div className="flex w-full flex-wrap items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
             <AlertTriangle size={13} className="shrink-0 text-amber-700 dark:text-amber-300" />
@@ -324,7 +331,12 @@ function Findings({ pr, r, posted, onPosted, reviewKey, sessionId, track }: { pr
         )}
         {posted ? (
           <>
-            <span className="text-xs text-green-700 dark:text-green-400">Posted from your account {when(posted.at)}.</span>
+            <span className="text-xs text-success">
+              Posted from your account {when(posted.at)}.{" "}
+              <a href={posted.url || pr.url} target="_blank" rel="noreferrer" className="underline hover:text-accent">
+                Open on GitHub
+              </a>
+            </span>
             <button onClick={() => void post()} disabled={busy} className={`${btn} ml-auto`}>
               {busy ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Post again
             </button>

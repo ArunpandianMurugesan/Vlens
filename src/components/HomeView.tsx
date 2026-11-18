@@ -86,7 +86,7 @@ function HeavyRow({ h, chat, onDone }: { h: HeavySession; chat: TreeChat; onDone
           {busy === "compact" ? "Compacting… this can take a minute on a long session." : "Writing a handoff note… then a new session opens."}
         </p>
       )}
-      {err && <p className="mt-1.5 pl-[46px] text-xs text-red-600">{err}</p>}
+      {err && <p className="mt-1.5 pl-[46px] text-xs text-danger">{err}</p>}
     </li>
   );
 }
@@ -181,15 +181,15 @@ export function HomeView({ chat, onMenu, onNew, onReview }: { chat: TreeChat; on
     const h = new Date().getHours();
     return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
   })();
-  const sel = "rounded-lg bg-sunken px-1.5 py-0.5 text-[0.7rem] text-muted outline-none hover:text-ink";
+  const sel = "rounded-lg bg-sunken px-1.5 py-0.5 text-[0.7rem] text-muted hover:text-ink";
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <header className="flex items-center gap-3 border-b border-line px-4 py-3">
+      <header className="page-header">
         <MenuButton onClick={onMenu} />
         <h1 className="flex-1 text-sm font-semibold">Home</h1>
         <button onClick={onReview} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs text-muted hover:border-accent hover:text-accent">
-          <GitBranch size={12} /> Vlens Review
+          <GitBranch size={12} /> PR Review
         </button>
       </header>
 
@@ -239,9 +239,9 @@ export function HomeView({ chat, onMenu, onNew, onReview }: { chat: TreeChat; on
           </div>
 
           {waiting.length > 0 && (
-            <Group title="Needs you" icon={<BellRing size={12} className="text-amber-600" />}>
+            <Group title="Needs you" icon={<BellRing size={12} className="text-warning" />}>
               {waiting.map((s) => (
-                <Row key={s.id} s={s} onOpen={() => open(s.id)} right={<span className="w-14 shrink-0 text-right text-xs font-semibold text-amber-700 dark:text-amber-400">{/plan/i.test(s.active!.waitingFor!) ? "plan" : "asks"}</span>} />
+                <Row key={s.id} s={s} onOpen={() => open(s.id)} right={<span className="w-14 shrink-0 text-right text-xs font-semibold text-warning">{/plan/i.test(s.active!.waitingFor!) ? "plan" : "asks"}</span>} />
               ))}
             </Group>
           )}

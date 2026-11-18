@@ -119,7 +119,7 @@ export function Inspector({ chat }: { chat: TreeChat }) {
               {compact.busy ? <Loader2 size={11} className="animate-spin" /> : <Minimize2 size={11} />} Compact
             </button>
             {pct > 0.5 && !compact.busy && <p className="text-[0.7rem] text-muted">Past half full: compact before the next big step.</p>}
-            {compact.error && <p className="text-[0.7rem] text-red-600">{compact.error}</p>}
+            {compact.error && <p className="text-[0.7rem] text-danger">{compact.error}</p>}
           </>
         ) : (
           <p className="text-xs text-muted">Shows after its first reply.</p>
@@ -148,13 +148,13 @@ export function Inspector({ chat }: { chat: TreeChat }) {
                 <FileCode size={11} className="shrink-0 text-muted" />
                 <span className={`min-w-0 flex-1 truncate ${c.state === "committed" ? "text-muted" : ""}`}>{c.path.split("/").slice(-2).join("/")}</span>
                 {c.state === "new" ? (
-                  <span className="text-emerald-600">new</span>
+                  <span className="text-success">new</span>
                 ) : c.state === "committed" ? (
                   <span className="text-muted">committed</span>
                 ) : (
                   <>
-                    {c.add > 0 && <span className="text-emerald-600">+{c.add}</span>}
-                    {c.del > 0 && <span className="text-red-500">−{c.del}</span>}
+                    {c.add > 0 && <span className="text-success">+{c.add}</span>}
+                    {c.del > 0 && <span className="text-danger">−{c.del}</span>}
                   </>
                 )}
               </button>

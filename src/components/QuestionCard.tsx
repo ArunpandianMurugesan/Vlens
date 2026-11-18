@@ -80,7 +80,7 @@ export function QuestionCard({ ask }: { ask: PermissionAsk }) {
                   >
                     <span
                       className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center border ${q.multiSelect ? "rounded" : "rounded-full"} ${
-                        on ? "border-accent bg-accent text-white" : "border-line"
+                        on ? "border-accent bg-accent text-on-accent" : "border-line"
                       }`}
                     >
                       {on && <Check size={10} />}
@@ -107,14 +107,14 @@ export function QuestionCard({ ask }: { ask: PermissionAsk }) {
         ))}
       </div>
       <div className="mt-3 flex items-center gap-2">
-        <button className={`${btn} bg-accent text-white`} disabled={!ready || !!busy} onClick={send}>
+        <button className={`${btn} bg-accent text-on-accent`} disabled={!ready || !!busy} onClick={send}>
           {busy === "send" && <Loader2 size={12} className="animate-spin" />} Send {questions.length > 1 ? "answers" : "answer"}
         </button>
         <button className={`${btn} text-muted hover:text-ink`} disabled={!!busy} onClick={skip} title="Claude carries on without an answer">
           {busy === "skip" && <Loader2 size={12} className="animate-spin" />} Skip
         </button>
       </div>
-      {err && <p className="mt-2 text-xs text-red-600">{err}</p>}
+      {err && <p className="mt-2 text-xs text-danger">{err}</p>}
     </div>
   );
 }

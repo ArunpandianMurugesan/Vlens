@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChatWindow } from "@/components/ChatWindow";
 import { messageText } from "@/components/MessageBubble";
 import { type Picked, SelectionPopover } from "@/components/SelectionPopover";
@@ -30,6 +30,9 @@ import { GetStarted, needsSetup } from "@/components/GetStarted";
 import type { SetupStatus } from "@/lib/types";
 import { usePrSessionIds } from "@/lib/prSessions";
 
+type Page = "settings" | "marketplace" | "history";
+type View = "chat" | "review" | Page;
+
 // How far each panel underneath peeks out to the left of the one on top.
 const PEEK = 28;
 
@@ -52,31 +55,32 @@ export default function Home() {
   }, []);
   // The header's menu button: slides the sidebar over on a narrow window, brings it back on a wide one.
   const showSidebar = () => setSidebarOpen(true);
-  const [view, setView] = useState<"chat" | "settings" | "review" | "marketplace" | "history">("chat");
+  const [view, setView] = useState<View>("chat");
   const [tab, setTab] = useState<"sessions" | "review">("sessions");
-  // Where Settings' back button goes: the space you came from.
-  const [back, setBack] = useState<"chat" | "review">("chat");
-  const openShared = (page: "settings" | "marketplace") => {
-    setView((v) => {
-      if (v === "chat" || v === "review") setBack(v);
-      return page;
-    });
+  // Where a page's Back button goes: the views you opened it from, latest last.
+  // Opening a page from a space starts over from that space.
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const backStack = useRef<View[]>([]);
+  const openPage = (page: Page) => {
+    const from = viewRef.current;
+    if (from === page) return;
+    backStack.current = from === "chat" || from === "review" ? [from] : [...backStack.current.filter((v) => v !== page), from].slice(-5);
+    setView(page);
+  };
+  const goBack = () => {
+    const to = backStack.current.pop() ?? "chat";
+    setView(to);
   };
   // "/mcp" and "/hooks" open their Settings page.
-  const [settingsCard, setSettingsCard] = useState<"mcp" | "hooks" | null>(null);
+  const [settingsCard, setSettingsCard] = useState<"mcp" | "hooks" | "github" | null>(null);
   useEffect(() => {
     const open = (e: Event) => {
-      setSettingsCard((e as CustomEvent<"mcp" | "hooks">).detail);
-      setView("settings");
+      setSettingsCard((e as CustomEvent<"mcp" | "hooks" | "github">).detail);
+      openPage("settings");
     };
     window.addEventListener("lens:open-settings", open);
     return () => window.removeEventListener("lens:open-settings", open);
-  }, []);
-  // A bot's Skills card: get more from the Marketplace.
-  useEffect(() => {
-    const open = () => setView("marketplace");
-    window.addEventListener("lens:open-marketplace", open);
-    return () => window.removeEventListener("lens:open-marketplace", open);
   }, []);
   const review = useReview();
   // First launch, or Claude Code missing / signed out: show Get started over the app.
@@ -130,7 +134,7 @@ export default function Home() {
         } else if (p === "review") {
           setTab("review");
           setView("review");
-        } else setView(p);
+        } else openPage(p);
       },
       newIn: (cwd) => {
         setTab("sessions");
@@ -189,8 +193,8 @@ export default function Home() {
           space={view === "settings" || view === "marketplace" ? null : view === "review" ? "review" : "sessions"}
           badge={{ review: review.prs.filter((p) => p.lane === "needsYou").length }}
           page={view === "settings" || view === "marketplace" ? view : null}
-          onSettings={() => openShared("settings")}
-          onMarketplace={() => openShared("marketplace")}
+          onSettings={() => openPage("settings")}
+          onMarketplace={() => openPage("marketplace")}
           limits={chat.limits}
           refreshingLimits={chat.refreshingLimits}
           onRefreshLimits={chat.refreshLimits}
@@ -212,10 +216,10 @@ export default function Home() {
             setView("chat");
             chat.newSession();
           }}
-          onSettings={() => setView("settings")}
-        onMarketplace={() => setView("marketplace")}
+          onSettings={() => openPage("settings")}
+        onMarketplace={() => openPage("marketplace")}
         marketplaceOpen={false}
-        onHistory={() => setView("history")}
+        onHistory={() => openPage("history")}
         historyOpen={false}
         onHome={() => {
           setTab("sessions");
@@ -241,7 +245,7 @@ export default function Home() {
         {view === "history" ? (
           <HistoryView
             chat={chat}
-            onMenu={() => setView(back)}
+            onMenu={goBack}
             onOpen={(id) => {
               setTab("sessions");
               setView("chat");
@@ -249,7 +253,7 @@ export default function Home() {
             }}
           />
         ) : view === "marketplace" ? (
-          <MarketplaceView chat={chat} onMenu={() => setView(back)} />
+          <MarketplaceView chat={chat} onMenu={goBack} />
         ) : view === "settings" ? (
           <SettingsView
             key={settingsCard ?? "all"}
@@ -257,7 +261,7 @@ export default function Home() {
             initial={settingsCard}
             onBack={() => {
               setSettingsCard(null);
-              setView(back);
+              goBack();
             }}
           />
         ) : view === "review" ? (
@@ -267,7 +271,7 @@ export default function Home() {
             onMenu={showSidebar}
             chat={chat}
             // A PR's sessions open in its own tabs, right on the Review page.
-            renderChat={() => <ChatWithFiles chat={chat} onMenu={showSidebar} />}
+            renderChat={(o) => <ChatWithFiles chat={chat} onMenu={showSidebar} compact={o?.compact} />}
           />
         ) : !chat.activeId && !chat.draft ? (
           // Nothing open: the home dashboard (also what the app opens to).
@@ -328,7 +332,7 @@ export default function Home() {
 // The chat, with the file panel and/or the terminal beside it (files on top,
 // terminal below when both are open). Maximized files fill the space. On a
 // phone-width window the panel covers the chat.
-function ChatWithFiles({ chat, onMenu }: { chat: ReturnType<typeof useTreeChat>; onMenu: () => void }) {
+function ChatWithFiles({ chat, onMenu, compact }: { chat: ReturnType<typeof useTreeChat>; onMenu: () => void; compact?: boolean }) {
   const files = useFiles()!;
   const showFiles = files.tabs.length > 0;
   const open = showFiles || files.terminal;
@@ -367,7 +371,7 @@ function ChatWithFiles({ chat, onMenu }: { chat: ReturnType<typeof useTreeChat>;
     // chat and its file/terminal pane left of it, so neither hides under it.
     <div className={`flex min-w-0 flex-1 transition-[padding] duration-300 ${chat.stack.length ? "xl:pr-[560px]" : ""}`}>
       <div className={`min-w-0 flex-1 ${showFiles && files.maximized ? "hidden" : "flex"}`}>
-        <ChatWindow chat={chat} onMenu={onMenu} />
+        <ChatWindow chat={chat} onMenu={onMenu} compact={compact} />
       </div>
       {/* Its inspector, when nothing else is open beside the chat. */}
       {!open && inspector && chat.session && <Inspector chat={chat} />}

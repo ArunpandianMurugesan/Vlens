@@ -30,7 +30,8 @@ interface Props {
   onMenu: () => void;
   chat: TreeChat;
   // The open session's chat (with its file and terminal panels), shown in a PR's session tab.
-  renderChat: () => ReactNode;
+  // `compact`: this view already has the PR header, so the chat should hide its own.
+  renderChat: (opts?: { compact?: boolean }) => ReactNode;
   home: string;
 }
 
@@ -90,18 +91,39 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
   );
   const [depth, setDepth] = useState<Depth>("standard"); // Review with Claude's depth
   const [merging, setMerging] = useState<{ method: "squash" | "merge" | "rebase"; busy: boolean; error: string | null } | null>(null);
+  // A PR you just merged: it drops off the lists on the next refresh, so say so here.
+  const [merged, setMerged] = useState<{ url: string; label: string } | null>(null);
   // A new PR: start fresh.
   useEffect(() => {
     setMerging(null);
+    if (pr?.url) setMerged((m) => (m && m.url !== pr.url ? null : m));
   }, [pr?.url]);
 
   if (review.rulesOpen) return <RulesPage review={review} onMenu={onMenu} />;
   if (review.boardOpen) return <AutopilotBoard review={review} onMenu={onMenu} />;
-  if (!pr) return <PrInbox review={review} onMenu={onMenu} />;
-
+  const mergedLine = merged && (
+    <div role="status" className="flex flex-wrap items-center gap-2 border-b border-line bg-success/10 px-5 py-2 text-sm text-success">
+      <Check size={14} /> Merged ✓ <span className="min-w-0 truncate text-ink">{merged.label}</span>
+      <a href={merged.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline hover:text-accent">
+        Open on GitHub <ExternalLink size={12} />
+      </a>
+      <button onClick={() => setMerged(null)} className="ml-auto text-xs text-muted hover:text-ink">
+        Dismiss
+      </button>
+    </div>
+  );
+  if (!pr)
+    return mergedLine ? (
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {mergedLine}
+        <PrInbox review={review} onMenu={onMenu} />
+      </div>
+    ) : (
+      <PrInbox review={review} onMenu={onMenu} />
+    );
 
   const clone = cloneFor(pr);
-  const primaryBtn = "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50";
+  const primaryBtn = "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-on-accent disabled:opacity-50";
   const secondaryBtn = "inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:border-accent hover:text-accent disabled:opacity-50";
   // galaxy PRs: screenshots of the change, with galaxy's own skill, in your clone.
   const beforeAfter =
@@ -138,23 +160,29 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
     if (r.error) setMerging({ ...merging, busy: false, error: r.error });
     else {
       setMerging(null);
+      setMerged({ url: pr.url, label: `${pr.repo}#${pr.number} into ${pr.base}` });
       void refresh();
     }
   };
 
   const compact = !isPrTab(tab);
   const listName = { new: "New", mine: "My PRs", reviews: "Needs my review" }[review.inbox];
-  const reviewNow = () => start(mine ? "Self-review" : "Review", reviewPrompt(pr, !!clone, review.riskOf(pr), depth), "default", clone ?? home);
+  const reviewNow = async () => {
+    const useSkill = await fetch("/api/review-skill")
+      .then((r) => r.json())
+      .then((d: { useSkill?: boolean }) => !!d.useSkill, () => false);
+    start(mine ? "Self-review" : "Review", reviewPrompt(pr, !!clone, review.riskOf(pr), depth, useSkill), "default", clone ?? home);
+  };
   const reviewBtn = (
     <span className="inline-flex shrink-0 overflow-hidden rounded-lg">
-      <button onClick={reviewNow} disabled={busy} title={busy ? busyHint : `Review with Claude, ${depth} depth. Nothing is posted.`} className={`${mine ? "border border-r-0 border-line hover:text-accent" : "bg-accent text-white"} inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium disabled:opacity-50`}>
+      <button onClick={reviewNow} disabled={busy} title={busy ? busyHint : `Review with Claude, ${depth} depth. Nothing is posted.`} className={`${mine ? "border border-r-0 border-line hover:text-accent" : "bg-accent text-on-accent"} inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium disabled:opacity-50`}>
         <Sparkles size={14} /> Review with Claude
       </button>
       <select
         value={depth}
         onChange={(e) => setDepth(e.target.value as Depth)}
         aria-label={`Choose review depth: ${depth}`}
-        className={`${mine ? "border border-line bg-panel" : "border-l border-white/30 bg-accent text-white"} cursor-pointer px-1.5 text-xs outline-none`}
+        className={`${mine ? "border border-line bg-panel" : "border-l border-on-accent/30 bg-accent text-on-accent"} cursor-pointer px-1.5 text-xs`}
       >
         <option value="quick">Quick</option>
         <option value="standard">Standard</option>
@@ -180,23 +208,28 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
                 {pr.repo.split("/")[1]} #{pr.number}
               </span>
               ·
-              <span className="inline-flex items-center gap-1 font-mono">
-                <GitBranch size={11} /> {pr.head} → {pr.base}
+              <span className="inline-flex min-w-0 max-w-full items-center gap-1 font-mono" title={`${pr.head} → ${pr.base}`}>
+                <GitBranch size={11} className="shrink-0" /> <span className="min-w-0 truncate">{pr.head} → {pr.base}</span>
               </span>
               ·
               <span>
-                <span className="text-emerald-600">+{pr.additions}</span> <span className="text-red-500">−{pr.deletions}</span>
+                <span className="text-success">+{pr.additions}</span> <span className="text-danger">−{pr.deletions}</span>
               </span>
               · <span>by @{pr.author}</span>· <span>updated {ago(pr.updatedAt)} ago</span>
             </span>
           )}
-          <span className="flex shrink-0 flex-wrap items-center gap-2">
+          <span className="flex min-w-0 flex-wrap items-center gap-2">
             <a href={pr.url} target="_blank" rel="noreferrer" className={secondaryBtn}>
               <ExternalLink size={13} /> Open on GitHub
             </a>
             {refreshBtn}
             {mine && (
-              <button onClick={() => clone && start("Address feedback", addressPrompt(pr), "acceptEdits", clone)} disabled={!clone || busy} title={clone ? (busy ? busyHint : undefined) : "Clone this repo on your Mac first, so Claude can work on the branch."} className={primaryBtn}>
+              <button
+                onClick={() => {
+                  if (!clone) return;
+                  if (!window.confirm(`This switches ${clone} to branch ${pr.head}. Uncommitted work stays but the branch changes. Continue?`)) return;
+                  start("Address feedback", addressPrompt(pr), "acceptEdits", clone);
+                }} disabled={!clone || busy} title={clone ? (busy ? busyHint : undefined) : "Clone this repo on your Mac first, so Claude can work on the branch."} className={primaryBtn}>
                 <Wrench size={14} /> Address feedback
               </button>
             )}
@@ -231,6 +264,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
         </nav>
       </header>
 
+      {mergedLine}
       {merging && (
         <div className="flex flex-wrap items-center gap-2 border-b border-line bg-sunken/60 px-5 py-2 text-sm">
           <GitMerge size={14} className="text-accent" />
@@ -248,7 +282,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
           <button onClick={() => setMerging(null)} disabled={merging.busy} className="rounded-lg px-2 py-1 text-xs text-muted hover:text-ink">
             Cancel
           </button>
-          {merging.error && <span className="w-full text-xs text-red-600">{merging.error}</span>}
+          {merging.error && <span className="w-full text-xs text-danger">{merging.error}</span>}
         </div>
       )}
 
@@ -270,8 +304,8 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
         />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          {chat.session?.id === tab && <ReviewResults pr={pr} sessionId={tab} messages={chat.session.messages} />}
-          <div className="flex min-h-0 flex-1">{renderChat()}</div>
+          {chat.session?.id === tab && <ReviewResults pr={pr} sessionId={tab} messages={chat.session.messages} login={review.board?.login} />}
+          <div className="flex min-h-0 flex-1">{renderChat({ compact: true })}</div>
         </div>
       )}
     </main>

@@ -6,9 +6,9 @@ import { type Risk, type RiskLevel, levelOf } from "@/lib/risk";
 // The risk score as a small chip (lists, board) or a box with its reasons (a PR's rail).
 
 export const RISK_TONE: Record<RiskLevel, string> = {
-  low: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-  medium: "bg-amber-500/15 text-amber-800 dark:text-amber-300",
-  high: "bg-red-500/10 text-red-700 dark:text-red-300",
+  low: "bg-success/10 text-success",
+  medium: "bg-warning/15 text-warning",
+  high: "bg-danger/10 text-danger",
 };
 
 const tip = (r: Risk) => [`Risk ${r.score}/100 (${r.level})`, ...r.factors.map((f) => `${f.points > 0 ? "+" : ""}${f.points}  ${f.why}`), r.partial ? "Files not loaded yet: size only." : ""].filter(Boolean).join("\n");
@@ -37,7 +37,7 @@ export function RiskBox({ risk, adjust }: { risk: Risk; adjust?: { adjust: numbe
       <ul className="space-y-0.5 text-xs">
         {risk.factors.map((f, i) => (
           <li key={i} className="flex gap-2">
-            <span className={`w-7 shrink-0 text-right font-mono ${f.points < 0 ? "text-emerald-600" : "text-muted"}`}>
+            <span className={`w-7 shrink-0 text-right font-mono ${f.points < 0 ? "text-success" : "text-muted"}`}>
               {f.points > 0 ? "+" : ""}
               {f.points}
             </span>
@@ -46,7 +46,7 @@ export function RiskBox({ risk, adjust }: { risk: Risk; adjust?: { adjust: numbe
         ))}
         {adjust && adjust.adjust !== 0 && (
           <li className="flex gap-2">
-            <span className={`w-7 shrink-0 text-right font-mono ${adjust.adjust < 0 ? "text-emerald-600" : "text-violet-600 dark:text-violet-300"}`}>
+            <span className={`w-7 shrink-0 text-right font-mono ${adjust.adjust < 0 ? "text-success" : "text-violet-600 dark:text-violet-300"}`}>
               {adjust.adjust > 0 ? "+" : ""}
               {adjust.adjust}
             </span>

@@ -82,7 +82,7 @@ function Code({ tab }: { tab: FileTab }) {
 function Body({ tab, onOpen }: { tab: FileTab; onOpen: (p: string) => void }) {
   const [preview, setPreview] = useState(true);
   const v = tab.view;
-  if (tab.error) return <p className="m-4 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600">{tab.error}</p>;
+  if (tab.error) return <p className="m-4 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-danger">{tab.error}</p>;
   if (!v)
     return (
       <div className="flex items-center gap-2 p-4 text-sm text-muted">
@@ -224,7 +224,7 @@ export function FileViewer() {
           </span>
         </div>
       )}
-      {err && <p className="mx-3 mt-2 rounded-lg bg-red-500/10 px-3 py-1.5 text-xs text-red-600">{err}</p>}
+      {err && <p className="mx-3 mt-2 rounded-lg bg-red-500/10 px-3 py-1.5 text-xs text-danger">{err}</p>}
 
       <div className="min-h-0 flex-1">
         <Body tab={tab} onOpen={(p) => files.open(p)} />

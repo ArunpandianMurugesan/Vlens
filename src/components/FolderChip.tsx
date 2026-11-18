@@ -25,7 +25,7 @@ export function rememberFolder(path: string) {
 }
 
 const HOME = /^\/Users\/[^/]+/;
-const TEMP = /^\/(private\/)?(tmp|var\/folders)\/|\/Application Support\/Vlens\/bots\//; // and your bots' own folders
+const TEMP = /^\/(private\/)?(tmp|var\/folders)\//;
 const tilde = (p: string) => p.replace(HOME, "~");
 const name = (p: string) => (p.replace(HOME, "") === "" ? "Home" : (p.split("/").filter(Boolean).pop() ?? p));
 const parent = (p: string) => tilde(p.split("/").slice(0, -1).join("/") || "/");
@@ -175,7 +175,7 @@ export function FolderChip({ value, onChange, recent, down }: { value: string; o
             <span className="flex-1">Choose folder…</span>
             <span className="text-muted">Mac folder window</span>
           </button>
-          {err && <p className="border-t border-line px-3 py-1.5 text-[0.7rem] text-red-600">{err}</p>}
+          {err && <p className="border-t border-line px-3 py-1.5 text-[0.7rem] text-danger">{err}</p>}
         </div>
       )}
     </div>

@@ -26,7 +26,6 @@ export const claudeCode: AgentProvider = {
     skills: true,
     plugins: true,
     mcp: true,
-    bots: true,
   },
 
   async detect() {
