@@ -3,7 +3,7 @@ import type { PrSummary } from "./types";
 
 // Autopilot's rules, and what they mean for each PR. Shared by the server (which
 // stores the rules) and the Review screens (which show, per PR, what autopilot would
-// do). Nothing here runs a review: autopilot only plans until it is switched on.
+// do). Nothing here runs a review: the runner (autopilotRunner.ts) acts on these plans.
 
 export type Depth = "quick" | "standard" | "deep";
 export type WorkflowLane = "needsYou" | "team" | "mine";
@@ -138,7 +138,7 @@ export function workflowFor(pr: PrSummary, r: AutopilotRules): Workflow | null {
 
 // What Vlens knows about a PR's past reviews (from reviewRecords).
 export interface PrTrack {
-  lastRun: { headSha: string; at: string } | null;
+  lastRun: { headSha: string; at: string; sessionId: string; by?: "autopilot" } | null;
   lastPost: { headSha: string; at: string; url: string } | null;
 }
 
@@ -151,8 +151,22 @@ export interface Activity {
   detail: string;
 }
 
+// The review the runner is doing right now (autopilotRunner.ts).
+export interface RunningReview {
+  url: string;
+  title: string;
+  headSha: string;
+  workflow: string;
+  startedAt: string;
+  sessionId: string | null;
+  steps: { at: string; text: string }[]; // newest last
+}
+
 export interface AutopilotState {
   rules: AutopilotRules;
+  running: RunningReview | null;
+  failed: Record<string, { headSha: string; at: string; error: string; title?: string }>; // PR url -> its last failed run
+  lastCheck: string | null; // when the runner last looked for work
   paused: Record<string, string>; // PR url -> when
   activity: Activity[]; // newest first
   tracks: Record<string, PrTrack>; // PR url -> past reviews

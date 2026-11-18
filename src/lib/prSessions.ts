@@ -28,6 +28,7 @@ function read(): Record<string, PrSession[]> {
 
 export function addPrSession(url: string, s: PrSession) {
   const all = read();
+  if ((all[url] ?? []).some((x) => x.id === s.id && x.kind === s.kind && x.at === s.at)) return; // already there
   cache = { ...all, [url]: [...(all[url] ?? []).filter((x) => x.id !== s.id), s] };
   try {
     localStorage.setItem(KEY, JSON.stringify(cache));

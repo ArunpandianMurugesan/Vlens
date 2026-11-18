@@ -1,6 +1,7 @@
 import "server-only";
 import { type Activity, type AutopilotRules, type AutopilotState, normalizeRules, type PrTrack } from "./autopilotPlan";
 import { jsonStore } from "./jsonStore";
+import { runnerStatus } from "./autopilotStatus";
 import { allRecords } from "./reviewRecords";
 
 // Autopilot's settings and log, kept on this Mac (autopilot.json in Vlens's data
@@ -10,6 +11,8 @@ interface Saved {
   rules?: unknown;
   paused?: Record<string, string>;
   activity?: Activity[];
+  failed?: AutopilotState["failed"];
+  handed?: Record<string, string>; // PR url -> head sha already logged as handed to you
 }
 const store = jsonStore<Saved>("autopilot.json", () => ({}));
 const KEEP = 200; // activity entries kept
@@ -23,10 +26,30 @@ export async function autopilotState(): Promise<AutopilotState> {
   for (const [url, r] of Object.entries(records)) {
     const run = r.runs.at(-1);
     const post = r.posts.at(-1);
-    tracks[url] = { lastRun: run ? { headSha: run.headSha, at: run.at } : null, lastPost: post ? { headSha: post.headSha, at: post.at, url: post.url } : null };
-    today += r.runs.filter((x) => Date.parse(x.at) >= startOfDay.getTime()).length;
+    tracks[url] = { lastRun: run ? { headSha: run.headSha, at: run.at, sessionId: run.sessionId, ...(run.by ? { by: run.by } : {}) } : null, lastPost: post ? { headSha: post.headSha, at: post.at, url: post.url } : null };
+    today += r.runs.filter((x) => !x.carried && Date.parse(x.at) >= startOfDay.getTime()).length;
   }
-  return { rules: normalizeRules(saved.rules), paused: saved.paused ?? {}, activity: saved.activity ?? [], tracks, today };
+  const rt = runnerStatus();
+  return { rules: normalizeRules(saved.rules), paused: saved.paused ?? {}, activity: saved.activity ?? [], tracks, today, failed: saved.failed ?? {}, running: rt.running, lastCheck: rt.lastCheck };
+}
+
+// The runner's memory between runs: a failed review isn't retried at the same commit,
+// and a hand-off is logged once per commit.
+export function setFailed(url: string, f: AutopilotState["failed"][string] | null) {
+  return store.update((s) => {
+    const all = { ...(s.failed ?? {}) };
+    if (f) all[url] = f;
+    else delete all[url];
+    s.failed = all;
+  });
+}
+export async function handedAlready(url: string, sha: string) {
+  return (await store.load()).handed?.[url] === sha;
+}
+export function markHanded(url: string, sha: string) {
+  return store.update((s) => {
+    s.handed = { ...(s.handed ?? {}), [url]: sha };
+  });
 }
 
 export function logActivity(a: Omit<Activity, "at">) {

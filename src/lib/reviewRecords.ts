@@ -16,6 +16,8 @@ export interface ReviewRun {
   headSha: string;
   diffHash: string;
   at: string;
+  by?: "autopilot"; // started by the autopilot runner (else by you)
+  carried?: boolean; // a rebase: same diff as an earlier review, so that review carries over
 }
 export interface ReviewPost {
   sessionId: string | null;

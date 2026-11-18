@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { type AutopilotRules, type AutopilotState, DEFAULT_RULES, type Plan, planFor } from "@/lib/autopilotPlan";
 import { type Risk, riskOf as scoreRisk } from "@/lib/risk";
+import { addPrSession } from "@/lib/prSessions";
 import type { PrDetail, PrSummary, ReviewBoard } from "@/lib/types";
 
 const DISMISSED_KEY = "lens.dismissedPRs";
@@ -35,11 +36,28 @@ export function useReview() {
     const d = await fetch("/api/autopilot").then((r) => (r.ok ? r.json() : null)).catch(() => null);
     if (d?.rules) setAuto(d);
   }, []);
+  // Every 30 s; every 3 s while a review runs, so its steps move.
+  const runningNow = !!auto?.running;
   useEffect(() => {
     void loadAuto();
-    const t = setInterval(() => void loadAuto(), 30_000);
+    const t = setInterval(() => void loadAuto(), runningNow ? 3_000 : 30_000);
     return () => clearInterval(t);
-  }, [loadAuto]);
+  }, [loadAuto, runningNow]);
+  // Autopilot's reviews show as tabs on their PR, like the ones you start.
+  useEffect(() => {
+    if (!auto) return;
+    const r = auto.running;
+    if (r?.sessionId) addPrSession(r.url, { id: r.sessionId, kind: "Autopilot review", at: Date.parse(r.startedAt) });
+    for (const [url, t] of Object.entries(auto.tracks)) if (t.lastRun?.by === "autopilot") addPrSession(url, { id: t.lastRun.sessionId, kind: "Autopilot review", at: Date.parse(t.lastRun.at) });
+  }, [auto]);
+  const runAction = useCallback(
+    async (action: "run" | "stop" | "retry", url?: string): Promise<string> => {
+      const r = await fetch("/api/autopilot/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, url }) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach Vlens." }));
+      await loadAuto();
+      return r.error ?? r.message ?? "";
+    },
+    [loadAuto],
+  );
   const saveRules = useCallback(
     async (rules: AutopilotRules) => {
       const r = await fetch("/api/autopilot/rules", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(rules) });
@@ -105,7 +123,7 @@ export function useReview() {
   const pr = prs.find((p) => p.url === selected) ?? null;
   const cloneFor = (p: PrSummary) => board?.clones[p.repo.toLowerCase()] ?? null;
 
-  return { board, prs, loading, load, refresh, selected, pr, detail, select, dismiss, cloneFor, auto, loadAuto, saveRules, setPaused, planOf, riskOf, rulesOpen, setRulesOpen, boardOpen, setBoardOpen };
+  return { board, prs, loading, load, refresh, selected, pr, detail, select, dismiss, cloneFor, auto, loadAuto, saveRules, setPaused, planOf, riskOf, runAction, rulesOpen, setRulesOpen, boardOpen, setBoardOpen };
 }
 
 export type Review = ReturnType<typeof useReview>;

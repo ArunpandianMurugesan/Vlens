@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Bot, ChevronLeft, ChevronRight, Hand, LayoutGrid, Pause, Play, Plus, RotateCcw, Settings2, Trash2, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Bot, Check, ChevronLeft, ChevronRight, Hand, LayoutGrid, Loader2, Pause, Play, Plus, RotateCcw, Settings2, Trash2, Zap } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { Review } from "@/hooks/useReview";
 import {
@@ -27,8 +27,7 @@ import { MenuButton } from "./Sidebar";
 
 // Autopilot in Vlens Review: a status chip on each PR, its own sidebar tab (what it
 // handed back, what's queued, what it did), the Rules page, and a card on a PR's
-// Overview. Autopilot only plans for now: it shows what it would do, and reviews still
-// start from your click.
+// Overview. The runner (autopilotRunner.ts) does the reviews; this is where you watch it.
 
 const CHIP: Record<PlanState, string> = {
   handoff: "bg-red-500/10 text-red-700 dark:text-red-300",
@@ -102,7 +101,8 @@ export function AutopilotPanel({ review, prs, onPick }: { review: Review; prs: P
           </button>
         </div>
         <p className="text-[0.7rem] leading-relaxed text-muted">
-          {r.workflows.filter((w) => w.enabled).length} of {r.workflows.length} workflows on · {auto.today}/{r.dailyCap} reviews today. It plans only for now.
+          {auto.running ? <>Reviewing {auto.running.title.slice(0, 40)}… · </> : null}
+          {r.workflows.filter((w) => w.enabled).length} of {r.workflows.length} workflows on · {auto.today}/{r.dailyCap} reviews today.
         </p>
       </div>
 
@@ -254,8 +254,14 @@ function sentence(plan: Plan, enabled: boolean) {
 // ── The board: what autopilot does with every PR, in the main area ──
 
 export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () => void }) {
-  const { auto, prs, setRulesOpen, saveRules, setPaused, select } = review;
+  const { auto, prs, setRulesOpen, saveRules, setPaused, select, runAction } = review;
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const act = async (action: "run" | "stop" | "retry", url?: string) => {
+    setBusy(true);
+    setNote(await runAction(action, url));
+    setBusy(false);
+  };
   const [folded, setFolded] = useState(true);
   const plans = useMemo(() => (auto ? prs.map((p) => ({ p, plan: planFor(p, auto) })) : []), [prs, auto]);
   if (!auto) return <main className="flex flex-1 items-center justify-center text-sm text-muted">Loading autopilot…</main>;
@@ -264,8 +270,17 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
   const wfOf = (id?: string) => r.workflows.find((w) => w.id === id);
   // Re-checks of PRs that moved on wait in the queue when their workflow re-checks; otherwise they need you.
   const changed = by("changed");
-  const needsYou = [...by("handoff"), ...changed.filter((x) => !wfOf(x.plan.workflow?.id)?.recheck)];
-  const queue = [...changed.filter((x) => wfOf(x.plan.workflow?.id)?.recheck), ...by("queued")];
+  const running = auto.running;
+  const failedHere = (p: PrSummary) => auto.failed[p.url]?.headSha === p.headSha;
+  const failed = plans.filter((x) => failedHere(x.p));
+  // A PR that moved on since its review needs you only when its workflow doesn't re-check it.
+  const recheckOff = (x: { plan: Plan }) => {
+    const wf = wfOf(x.plan.workflow?.id);
+    return !!wf && !wf.recheck;
+  };
+  const needsYou = [...by("handoff"), ...changed.filter(recheckOff)].filter((x) => !failedHere(x.p));
+  const queue = [...changed.filter((x) => wfOf(x.plan.workflow?.id)?.recheck), ...by("queued")].filter((x) => !failedHere(x.p) && x.p.url !== running?.url);
+  const nextIn = r.enabled && auto.lastCheck ? Math.max(0, Math.ceil((Date.parse(auto.lastCheck) + r.intervalMinutes * 60_000 - Date.now()) / 60_000)) : null;
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
   const today = Object.entries(auto.tracks)
@@ -295,10 +310,11 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
           <span className={`h-1.5 w-1.5 rounded-full ${r.enabled ? "bg-emerald-500" : "bg-muted"}`} aria-hidden /> {r.enabled ? "On" : "Off"}
         </span>
         <span className="text-xs text-muted">
-          {auto.today} of {r.dailyCap} reviews today · checks every {r.intervalMinutes} min
+          {auto.today} of {r.dailyCap} reviews today · {nextIn === null ? `checks every ${r.intervalMinutes} min` : nextIn === 0 ? "checking soon" : `next check in ${nextIn} min`}
         </span>
+        {note && <span className="text-xs text-accent">{note}</span>}
         <span className="ml-auto flex items-center gap-2">
-          <button disabled title="Comes with the runner: autopilot doesn't start reviews by itself yet" className={btnS}>
+          <button onClick={() => void act("run")} disabled={busy || !!running} title="Review the next PR in the queue now, even when autopilot is off" className={btnS}>
             <Zap size={12} /> Run now
           </button>
           <button onClick={() => void toggle()} disabled={busy} className={btnS}>
@@ -311,7 +327,17 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
       </header>
       <div className="flex-1 overflow-y-auto scroll-thin">
         <div className="grid gap-4 px-5 py-5 lg:grid-cols-2 2xl:grid-cols-4">
-          <Column title="Needs you" n={needsYou.length} tone="text-red-700 dark:text-red-400" empty="Nothing handed to you.">
+          <Column title="Needs you" n={needsYou.length + failed.length} tone="text-red-700 dark:text-red-400" empty="Nothing handed to you.">
+            {failed.map(({ p }) => (
+              <BoardCard key={p.url} risk={review.riskOf(p)} title={p.title} where={`${p.repo.split("/")[1]} #${p.number}`} why={`Review failed: ${auto.failed[p.url].error}`} tone="border-red-500/30 bg-red-500/5">
+                <button onClick={() => void act("retry", p.url)} disabled={busy || !!running} className={btnS}>
+                  Retry
+                </button>
+                <button onClick={() => open(p.url)} className={btnS}>
+                  Review it myself
+                </button>
+              </BoardCard>
+            ))}
             {needsYou.map(({ p, plan }) => (
               <BoardCard key={p.url} risk={review.riskOf(p)} title={p.title} where={`${p.repo.split("/")[1]} #${p.number}`} wf={plan.workflow?.name} why={plan.state === "handoff" ? `Handed to you: ${plan.why}` : plan.why} tone="border-red-500/30 bg-red-500/5">
                 <button onClick={() => open(p.url)} className={btnS}>
@@ -323,7 +349,32 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
               </BoardCard>
             ))}
           </Column>
-          <Column title="Running" n={0} tone="text-sky-700 dark:text-sky-400" empty="Nothing running. Autopilot doesn't start reviews by itself yet; reviews you start run in the PR's session tab." />
+          <Column title="Running" n={running ? 1 : 0} tone="text-sky-700 dark:text-sky-400" empty={r.enabled ? "Nothing running. The next check picks the top of the queue." : "Nothing running. Autopilot is off: turn it on, or press Run now."}>
+            {running && (
+              <BoardCard title={running.title} where={`${label(running.url).where} · ${running.workflow}`} why={`Started ${ago(running.startedAt)} ago at ${running.headSha.slice(0, 7)}`} tone="border-sky-500/30 bg-sky-500/5">
+                <ol className="w-full space-y-0.5 text-xs">
+                  {running.steps.map((s, i) => {
+                    const lastStep = i === running.steps.length - 1;
+                    return (
+                      <li key={`${s.at}-${i}`} className={`flex items-center gap-1.5 ${lastStep ? "font-medium" : "text-muted"}`}>
+                        {lastStep ? <Loader2 size={11} className="shrink-0 animate-spin text-sky-600" /> : <Check size={11} className="shrink-0 text-emerald-600" />}
+                        <span className="min-w-0 truncate">{s.text}</span>
+                      </li>
+                    );
+                  })}
+                  {!running.steps.length && <li className="text-muted">Starting…</li>}
+                </ol>
+                {prs.some((x) => x.url === running.url) && (
+                  <button onClick={() => open(running.url)} className={btnS}>
+                    Watch
+                  </button>
+                )}
+                <button onClick={() => void act("stop")} disabled={busy} className={btnS}>
+                  Stop
+                </button>
+              </BoardCard>
+            )}
+          </Column>
           <Column title="In queue" n={queue.length} tone="text-violet-700 dark:text-violet-400" empty="The queue is empty.">
             {queue.map(({ p, plan }, i) => (
               <BoardCard key={p.url} n={i + 1} risk={review.riskOf(p)} title={p.title} where={`${p.repo.split("/")[1]} #${p.number}`} wf={plan.workflow?.name} why={plan.state === "changed" ? "re-check after new commits" : i === 0 ? "next up" : "waiting"}>
@@ -366,7 +417,7 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
               const posted = t.lastPost && Date.parse(t.lastPost.at) >= Date.parse(t.lastRun!.at);
               const known = prs.some((x) => x.url === url);
               return (
-                <BoardCard key={url} title={l.title} where={`${l.where} · ${new Date(t.lastRun!.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`} why={posted ? "you posted it" : "drafts waiting for you"}>
+                <BoardCard key={url} title={l.title} where={`${l.where} · ${new Date(t.lastRun!.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`} why={`${t.lastRun!.by === "autopilot" ? "Autopilot" : "You"} reviewed it · ${posted ? "posted" : "not posted"}`}>
                   {known && (
                     <button onClick={() => open(url)} className={btnS}>
                       Open
@@ -548,7 +599,7 @@ export function RulesPage({ review, onMenu }: { review: Review; onMenu: () => vo
             <span className="text-xs text-muted">Autopilot is {draft.enabled ? "on" : "off"}</span>
             <Switch on={draft.enabled} onChange={(v) => set({ enabled: v })} label="Autopilot" big />
           </section>
-          <p className="-mt-2 px-1 text-xs text-muted">For now, switching it on only fills the queue and the status chips. Running reviews by itself comes next; until then reviews start when you click.</p>
+          <p className="-mt-2 px-1 text-xs text-muted">When it&apos;s on, it checks for PRs on your interval and reviews one at a time with read-only tools: it can&apos;t post, push or run anything itself. Only a workflow set to &quot;Post comments itself&quot; posts, and never an approval.</p>
 
           <div className="flex items-center">
             <h2 className="flex-1 text-base font-semibold">Workflows</h2>
