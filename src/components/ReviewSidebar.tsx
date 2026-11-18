@@ -6,6 +6,7 @@ import type { Review } from "@/hooks/useReview";
 import type { PrLane, PrSummary } from "@/lib/types";
 import { type News, type NewsTone, newsFor, readSeen, type Seen, snapshot, writeSeen } from "@/lib/prSeen";
 import { AutopilotPanel, PlanChip } from "./Autopilot";
+import { RiskBadge } from "./RiskBadge";
 
 // vTower's lanes (vendasta/vtower, renderer/app.js LANES), in its order.
 export const LANES: Record<PrLane, { label: string; dot: string; text: string }> = {
@@ -288,6 +289,7 @@ export function ReviewSidebar({ review, onPick }: { review: Review; onPick: (url
                             {meter(p)}
                           </span>
                         )}
+                        <RiskBadge risk={review.riskOf(p)} />
                         <PlanChip plan={planOf(p)} enabled={!!auto?.rules.enabled} />
                         {p.ci !== "none" && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${CI_DOT[p.ci]}`} title={`CI ${p.ci}`} />}
                         <span className="shrink-0 text-muted">{ago(p.updatedAt)}</span>

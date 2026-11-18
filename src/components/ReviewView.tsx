@@ -16,6 +16,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { Review } from "@/hooks/useReview";
 import type { TreeChat } from "@/hooks/useTreeChat";
 import { addPrSession, usePrSessions } from "@/lib/prSessions";
+import type { Risk } from "@/lib/risk";
 import type { PrSummary } from "@/lib/types";
 import { ago, groupOf } from "./ReviewSidebar";
 import { ReviewResults } from "./ReviewResults";
@@ -41,7 +42,16 @@ function priorCommentsStep(p: PrSummary) {
   ].join("\n");
 }
 
-export function reviewPrompt(p: PrSummary, hasClone: boolean) {
+// The deterministic risk score goes in, and Claude may move it by up to 20 points.
+function riskStep(risk: Risk) {
+  const why = risk.factors.length ? risk.factors.map((f) => `${f.points > 0 ? "+" : ""}${f.points} ${f.why}`).join("; ") : "nothing stood out";
+  return [
+    `Vlens scored this PR's risk at ${risk.score}/100 from its file list and size (${why}).`,
+    'In the JSON add "risk": {"adjust": <a whole number from -20 to 20>, "why": "one plain sentence"}. Move it up when the code is riskier than those signals show (data loss, security, money, concurrency, a hard-to-undo change), down when it is safer (well tested, behind a flag, trivial). Use 0 when they are about right.',
+  ].join("\n");
+}
+
+export function reviewPrompt(p: PrSummary, hasClone: boolean, risk?: Risk) {
   return [
     `Review pull request #${p.number} in ${p.repo}: ${p.url}`,
     "",
@@ -50,6 +60,7 @@ export function reviewPrompt(p: PrSummary, hasClone: boolean) {
       : "Read it with the gh CLI (gh pr view, gh pr diff). Look for real bugs and risks first. Never post, approve, comment or push on GitHub.",
     "If the PR links a Jira ticket, check the change against its acceptance criteria and say which are met.",
     priorCommentsStep(p),
+    ...(risk ? [riskStep(risk)] : []),
     "",
     RESULT_JSON,
   ].join("\n");
@@ -246,7 +257,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
               <button onClick={() => clone && start("Address feedback", addressPrompt(pr), "acceptEdits", clone)} disabled={!clone || busy} title={clone ? (busy ? busyHint : undefined) : "Clone this repo on your Mac first, so Claude can work on the branch."} className={primaryBtn}>
                 <Wrench size={14} /> Address feedback
               </button>
-              <button onClick={() => start("Self-review", reviewPrompt(pr, !!clone), "default", clone ?? home)} disabled={busy} title={busy ? busyHint : undefined} className={secondaryBtn}>
+              <button onClick={() => start("Self-review", reviewPrompt(pr, !!clone, review.riskOf(pr)), "default", clone ?? home)} disabled={busy} title={busy ? busyHint : undefined} className={secondaryBtn}>
                 <Sparkles size={14} /> Review with Claude
               </button>
               {beforeAfter}
@@ -256,7 +267,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
             </>
           ) : (
             <>
-              <button onClick={() => start("Review", reviewPrompt(pr, !!clone), "default", clone ?? home)} disabled={busy} title={busy ? busyHint : undefined} className={primaryBtn}>
+              <button onClick={() => start("Review", reviewPrompt(pr, !!clone, review.riskOf(pr)), "default", clone ?? home)} disabled={busy} title={busy ? busyHint : undefined} className={primaryBtn}>
                 <Sparkles size={14} /> Review with Claude
               </button>
               {beforeAfter}
@@ -322,7 +333,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
           home={home}
           busy={busy}
           onTab={(t) => setTab(pr.url, t)}
-          onReview={() => (mine ? start("Self-review", reviewPrompt(pr, !!clone), "default", clone ?? home) : start("Review", reviewPrompt(pr, !!clone), "default", clone ?? home))}
+          onReview={() => (mine ? start("Self-review", reviewPrompt(pr, !!clone, review.riskOf(pr)), "default", clone ?? home) : start("Review", reviewPrompt(pr, !!clone, review.riskOf(pr)), "default", clone ?? home))}
           onAsk={(kind, prompt) => start(kind, prompt, "default", clone ?? home)}
         />
       ) : (

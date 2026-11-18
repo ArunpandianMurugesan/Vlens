@@ -8,7 +8,9 @@ import type { PrSession } from "@/lib/prSessions";
 import type { Finding } from "@/lib/reviewResult";
 import type { PrDetail, PrSummary } from "@/lib/types";
 import { AutomationCard } from "./Autopilot";
+import { levelOf } from "@/lib/risk";
 import { Markdown } from "./Markdown";
+import { RISK_TONE, RiskBox } from "./RiskBadge";
 import { ago, GROUPS, groupOf } from "./ReviewSidebar";
 
 // One PR, in four tabs (Summary, Discussion, Files changed, Checks) with a rail on the
@@ -178,6 +180,12 @@ function SummaryTab({ pr, review, d, extras, sessions, busy, onTab, onReview }: 
             <div className="mb-2.5 flex flex-wrap gap-2 text-xs">
               <Stat label="Verdict" value={take.result.verdict === "REQUEST_CHANGES" ? "Request changes" : "Comment"} tone={take.result.verdict === "REQUEST_CHANGES" ? "text-amber-700 dark:text-amber-400" : ""} />
               <Stat label="Findings" value={sev.length ? sev.join(" · ") : "none"} />
+              {(() => {
+                const base = review.riskOf(pr).score;
+                const adj = take.result.risk?.adjust ?? 0;
+                const fin = Math.max(0, Math.min(100, base + adj));
+                return <Stat label="Risk" value={adj ? `${base} → ${fin}` : `${fin}`} tone={`rounded px-1 ${RISK_TONE[levelOf(fin)]}`} />;
+              })()}
               {take.result.priorChecks.length > 0 && (
                 <Stat label="Earlier comments" value={`${take.result.priorChecks.filter((c) => c.status === "fixed").length} of ${take.result.priorChecks.length} fixed`} />
               )}
@@ -494,7 +502,7 @@ function ChecksTab({ pr, d }: { pr: PrSummary; d: PrDetail }) {
 
 const REVIEW_STATE: Record<string, string> = { APPROVED: "Approved", CHANGES_REQUESTED: "Changes requested", COMMENTED: "Commented", DISMISSED: "Dismissed" };
 
-function Rail({ pr, review, detail, sessions, clone, home, onTab }: Props) {
+function Rail({ pr, review, detail, extras, sessions, clone, home, onTab }: Props) {
   const d = detail?.data;
   // Each reviewer's latest review.
   const reviewers = useMemo(() => {
@@ -507,6 +515,7 @@ function Rail({ pr, review, detail, sessions, clone, home, onTab }: Props) {
   return (
     <aside className="hidden w-80 shrink-0 space-y-3 overflow-y-auto border-l border-line px-4 py-5 scroll-thin lg:block">
       <AutomationCard review={review} pr={pr} />
+      <RiskBox risk={review.riskOf(pr)} adjust={extras.take?.headSha === pr.headSha ? extras.take.result.risk : null} />
       <RailBox title="Details">
         <Row k="Branch">
           <span className="flex min-w-0 items-center gap-1 font-mono text-xs">

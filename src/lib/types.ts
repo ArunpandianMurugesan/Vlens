@@ -261,6 +261,13 @@ export interface PrSummary {
   why: string;
   pinged?: boolean; // your team was @-mentioned on it (from your GitHub notifications)
   teams?: string[]; // which of your teams were asked to review ("org/slug")
+  files?: PrFile[]; // the changed files (first 100), for the risk score; missing until fetched
+}
+
+export interface PrFile {
+  path: string;
+  additions: number;
+  deletions: number;
 }
 
 export interface ReviewBoard {

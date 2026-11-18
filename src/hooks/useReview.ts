@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { type AutopilotRules, type AutopilotState, type Plan, planFor } from "@/lib/autopilotPlan";
+import { type AutopilotRules, type AutopilotState, DEFAULT_RULES, type Plan, planFor } from "@/lib/autopilotPlan";
+import { type Risk, riskOf as scoreRisk } from "@/lib/risk";
 import type { PrDetail, PrSummary, ReviewBoard } from "@/lib/types";
 
 const DISMISSED_KEY = "lens.dismissedPRs";
@@ -55,6 +56,8 @@ export function useReview() {
     [loadAuto],
   );
   const planOf = useCallback((p: PrSummary): Plan | null => (auto ? planFor(p, auto) : null), [auto]);
+  // The PR's risk score (risk.ts), with your sensitive paths from the autopilot settings.
+  const riskOf = useCallback((p: PrSummary): Risk => scoreRisk(p, auto?.rules.sensitivePaths ?? DEFAULT_RULES.sensitivePaths), [auto]);
 
   const load = useCallback(async (fresh = false) => {
     setLoading(true);
@@ -102,7 +105,7 @@ export function useReview() {
   const pr = prs.find((p) => p.url === selected) ?? null;
   const cloneFor = (p: PrSummary) => board?.clones[p.repo.toLowerCase()] ?? null;
 
-  return { board, prs, loading, load, refresh, selected, pr, detail, select, dismiss, cloneFor, auto, loadAuto, saveRules, setPaused, planOf, rulesOpen, setRulesOpen, boardOpen, setBoardOpen };
+  return { board, prs, loading, load, refresh, selected, pr, detail, select, dismiss, cloneFor, auto, loadAuto, saveRules, setPaused, planOf, riskOf, rulesOpen, setRulesOpen, boardOpen, setBoardOpen };
 }
 
 export type Review = ReturnType<typeof useReview>;

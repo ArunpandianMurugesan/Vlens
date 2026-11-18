@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DATA_DIR } from "./paths";
-import type { PrDetail, PrLane, PrPriority, PrSummary, ReviewBoard } from "./types";
+import type { PrDetail, PrFile, PrLane, PrPriority, PrSummary, ReviewBoard } from "./types";
 import { getProvider } from "@/lib/providers";
 
 // Vlens Review reads GitHub through the `gh` CLI, so it uses whatever account
@@ -298,10 +298,43 @@ export async function reviewBoard(force = false): Promise<ReviewBoard> {
 
   const clones = await localClones();
   mark("clones");
+  await attachFiles(shown);
+  mark("files");
   if (process.env.NODE_ENV === "development") console.log(`  review board: ${lap.join(" · ")}`);
   const board: ReviewBoard = { login, prs: shown, fetchedAt: new Date().toISOString(), clones, home: os.homedir() };
   boardCache = { at: Date.now(), board };
   return board;
+}
+
+// Each PR's changed files, for the risk score (risk.ts). A commit's files never change,
+// so they're kept by PR and head commit: only new PRs and new pushes cost a call.
+const filesCache = new Map<string, PrFile[]>(); // "url@sha" -> files
+async function attachFiles(prs: PrSummary[]) {
+  const key = (p: PrSummary) => `${p.url}@${p.headSha}`;
+  const missing = prs.filter((p) => p.headSha && !filesCache.has(key(p)));
+  const batches: PrSummary[][] = [];
+  for (let i = 0; i < missing.length; i += 8) batches.push(missing.slice(i, i + 8));
+  await Promise.all(
+    batches.map(async (b) => {
+      const q = b
+        .map((p, i) => {
+          const ref = prRef(p.url);
+          return ref ? `  f${i}: repository(owner: ${lit(ref.owner)}, name: ${lit(ref.name)}) { pullRequest(number: ${ref.number}) { files(first: 100) { nodes { path additions deletions } } } }` : "";
+        })
+        .filter(Boolean)
+        .join("\n");
+      const r = await graphql(`query {\n${q}\n}`);
+      b.forEach((p, i) => {
+        const nodes = r.data?.[`f${i}`]?.pullRequest?.files?.nodes;
+        if (Array.isArray(nodes)) filesCache.set(key(p), nodes.map((n: PrFile) => ({ path: n.path, additions: n.additions, deletions: n.deletions })));
+      });
+    }),
+  );
+  if (filesCache.size > 500) for (const k of [...filesCache.keys()].slice(0, 100)) filesCache.delete(k);
+  for (const p of prs) {
+    const f = filesCache.get(key(p));
+    if (f) p.files = f;
+  }
 }
 
 const emptyBoard = (): ReviewBoard => ({ login: null, prs: [], fetchedAt: null, clones: {} });

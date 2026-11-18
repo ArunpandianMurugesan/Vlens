@@ -5,7 +5,9 @@
 export type Finding = { id?: string; file: string; line: number; body: string; severity?: string };
 // An earlier inline comment, checked against the code now (see reviewPrompt).
 export type PriorCheck = { commentId?: number; file?: string; line?: number; author?: string; status: "fixed" | "unfixed" | "unverified"; evidence?: string };
-export type ReviewResult = { kind: "review"; verdict: string; summary: string; findings: Finding[]; priorChecks: PriorCheck[] };
+// Claude's move of Vlens's risk score (risk.ts), -20 to +20, with its reason.
+export type RiskAdjust = { adjust: number; why: string };
+export type ReviewResult = { kind: "review"; verdict: string; summary: string; findings: Finding[]; priorChecks: PriorCheck[]; risk: RiskAdjust | null };
 export type Shot = { label: string; before?: string; after?: string };
 export type ShotsResult = { kind: "shots"; verdict: string; summary: string; shots: Shot[] };
 
@@ -24,6 +26,10 @@ export function parseResult(text: string): ReviewResult | ShotsResult | null {
           priorChecks: (Array.isArray(j.priorChecks) ? j.priorChecks : [])
             .filter((c: PriorCheck) => c && ["fixed", "unfixed", "unverified"].includes(c.status))
             .map((c: PriorCheck) => ({ ...c, commentId: Number(c.commentId) || undefined, line: Number(c.line) || undefined })),
+          risk:
+            j.risk && typeof j.risk === "object" && Number.isFinite(Number(j.risk.adjust))
+              ? { adjust: Math.max(-20, Math.min(20, Math.round(Number(j.risk.adjust)))), why: String(j.risk.why ?? "").slice(0, 300) }
+              : null,
         };
       if (Array.isArray(j.shots)) return { kind: "shots", verdict: String(j.verdict ?? ""), summary: String(j.summary ?? ""), shots: j.shots };
     } catch {}

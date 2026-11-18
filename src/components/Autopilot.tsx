@@ -19,7 +19,9 @@ import {
   type WorkflowLane,
   type WorkflowThen,
 } from "@/lib/autopilotPlan";
+import type { Risk } from "@/lib/risk";
 import type { PrSummary } from "@/lib/types";
+import { RiskBadge } from "./RiskBadge";
 import { ago } from "./ReviewSidebar";
 import { MenuButton } from "./Sidebar";
 
@@ -311,7 +313,7 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
         <div className="grid gap-4 px-5 py-5 lg:grid-cols-2 2xl:grid-cols-4">
           <Column title="Needs you" n={needsYou.length} tone="text-red-700 dark:text-red-400" empty="Nothing handed to you.">
             {needsYou.map(({ p, plan }) => (
-              <BoardCard key={p.url} title={p.title} where={`${p.repo.split("/")[1]} #${p.number}`} wf={plan.workflow?.name} why={plan.state === "handoff" ? `Handed to you: ${plan.why}` : plan.why} tone="border-red-500/30 bg-red-500/5">
+              <BoardCard key={p.url} risk={review.riskOf(p)} title={p.title} where={`${p.repo.split("/")[1]} #${p.number}`} wf={plan.workflow?.name} why={plan.state === "handoff" ? `Handed to you: ${plan.why}` : plan.why} tone="border-red-500/30 bg-red-500/5">
                 <button onClick={() => open(p.url)} className={btnS}>
                   Review it myself
                 </button>
@@ -324,7 +326,7 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
           <Column title="Running" n={0} tone="text-sky-700 dark:text-sky-400" empty="Nothing running. Autopilot doesn't start reviews by itself yet; reviews you start run in the PR's session tab." />
           <Column title="In queue" n={queue.length} tone="text-violet-700 dark:text-violet-400" empty="The queue is empty.">
             {queue.map(({ p, plan }, i) => (
-              <BoardCard key={p.url} n={i + 1} title={p.title} where={`${p.repo.split("/")[1]} #${p.number}`} wf={plan.workflow?.name} why={plan.state === "changed" ? "re-check after new commits" : i === 0 ? "next up" : "waiting"}>
+              <BoardCard key={p.url} n={i + 1} risk={review.riskOf(p)} title={p.title} where={`${p.repo.split("/")[1]} #${p.number}`} wf={plan.workflow?.name} why={plan.state === "changed" ? "re-check after new commits" : i === 0 ? "next up" : "waiting"}>
                 <button onClick={() => open(p.url)} className={btnS}>
                   Open
                 </button>
@@ -412,10 +414,15 @@ function Column({ title, n, tone, empty, children }: { title: string; n: number;
   );
 }
 
-function BoardCard({ n, title, where, wf, why, tone = "border-line bg-panel", children }: { n?: number; title: string; where: string; wf?: string; why: string; tone?: string; children?: ReactNode }) {
+function BoardCard({ n, title, where, wf, why, risk, tone = "border-line bg-panel", children }: { n?: number; title: string; where: string; wf?: string; why: string; risk?: Risk | null; tone?: string; children?: ReactNode }) {
   return (
     <article className={`space-y-1.5 rounded-xl border px-3 py-2.5 ${tone}`}>
       <div className="flex items-start gap-2">
+        {risk && (
+          <span className="order-last mt-0.5">
+            <RiskBadge risk={risk} always />
+          </span>
+        )}
         {n !== undefined && <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-sunken text-[0.65rem] font-semibold">{n}</span>}
         <div className="min-w-0 flex-1">
           <div className="line-clamp-2 text-sm font-medium leading-snug">{title}</div>
@@ -570,12 +577,15 @@ export function RulesPage({ review, onMenu }: { review: Review; onMenu: () => vo
 
           <div className="grid gap-3.5 md:grid-cols-2">
             <Box title="Hand it to me when…" hint="Applies to every workflow. These PRs come to you instead.">
-              <Field label="It touches these paths (regular expressions, one per line; checked when it runs)">
+              <Field label="It touches these paths (regular expressions, one per line)">
                 <textarea value={text.sensitive} onChange={(e) => setText({ ...text, sensitive: e.target.value })} rows={4} className={`${input} font-mono text-xs`} />
                 {!!badRegex?.length && <span className="text-xs text-red-600">Not valid, will be dropped: {badRegex.join(", ")}</span>}
               </Field>
               <Row label="More changed lines than">
                 <input type="number" min={50} value={draft.maxChangedLines} onChange={(e) => set({ maxChangedLines: Number(e.target.value) })} className={`${field} w-24`} />
+              </Row>
+              <Row label="Risk score at or above (0 = off)">
+                <input type="number" min={0} max={100} value={draft.riskHandoff} onChange={(e) => set({ riskHandoff: Number(e.target.value) })} className={`${field} w-24`} />
               </Row>
               <Row label="Skip PRs with this label">
                 <input value={draft.skipLabel} onChange={(e) => set({ skipLabel: e.target.value })} className={`${field} w-40 font-mono text-xs`} />

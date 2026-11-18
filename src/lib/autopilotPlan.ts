@@ -1,3 +1,4 @@
+import { riskOf } from "./risk";
 import type { PrSummary } from "./types";
 
 // Autopilot's rules, and what they mean for each PR. Shared by the server (which
@@ -32,7 +33,8 @@ export interface AutopilotRules {
   skipDrafts: boolean;
   skipLabel: string; // a PR with this GitHub label is never picked
   maxChangedLines: number; // bigger PRs go to you instead
-  sensitivePaths: string[]; // regexes: a PR touching these goes to you (checked when it runs)
+  riskHandoff: number; // a risk score (risk.ts) at or above this goes to you; 0 = off
+  sensitivePaths: string[]; // regexes: a PR touching these goes to you
   repos: { include: string[]; exclude: string[] }; // owner/name; empty include = every repo
   handoffNotes: string; // extra "hand it to me when…" rules, in plain words, for Claude
 }
@@ -51,6 +53,7 @@ export const DEFAULT_RULES: AutopilotRules = {
   skipDrafts: true,
   skipLabel: "skip-ai-review",
   maxChangedLines: 1000,
+  riskHandoff: 70,
   sensitivePaths: ["(^|/)migrations?/", "(^|/)(auth|billing|payments?)/", "\\.github/workflows/", "(^|/)(CODEOWNERS|CLAUDE\\.md)$"],
   repos: { include: [], exclude: [] },
   handoffNotes: "",
@@ -120,6 +123,7 @@ export function normalizeRules(x: unknown): AutopilotRules {
     skipDrafts: typeof r.skipDrafts === "boolean" ? r.skipDrafts : d.skipDrafts,
     skipLabel: typeof r.skipLabel === "string" ? r.skipLabel.trim().slice(0, 50) : d.skipLabel,
     maxChangedLines: num(r.maxChangedLines, d.maxChangedLines, 50, 100_000),
+    riskHandoff: num(r.riskHandoff, d.riskHandoff, 0, 100),
     sensitivePaths: list(r.sensitivePaths, d.sensitivePaths).filter(validRegex),
     repos: { include: list(r.repos?.include, []).map((s) => s.toLowerCase()), exclude: list(r.repos?.exclude, []).map((s) => s.toLowerCase()) },
     handoffNotes: typeof r.handoffNotes === "string" ? r.handoffNotes.slice(0, 2000) : d.handoffNotes,
@@ -191,6 +195,9 @@ export function planFor(pr: PrSummary, s: Pick<AutopilotState, "rules" | "paused
   if (r.skipDrafts && pr.isDraft) return { state: "skip", why: "it's a draft", workflow };
   if (r.skipLabel && pr.labels.some((l) => l.toLowerCase() === r.skipLabel.toLowerCase())) return { state: "skip", why: `labelled ${r.skipLabel}`, workflow };
   if (pr.additions + pr.deletions > r.maxChangedLines) return { state: "handoff", why: `${pr.additions + pr.deletions} changed lines, over the ${r.maxChangedLines} limit`, workflow };
+  const risk = riskOf(pr, r.sensitivePaths);
+  if (risk.sensitive.length) return { state: "handoff", why: `touches ${risk.sensitive[0]}${risk.sensitive.length > 1 ? ` and ${risk.sensitive.length - 1} more` : ""}`, workflow };
+  if (r.riskHandoff && risk.score >= r.riskHandoff) return { state: "handoff", why: `risk ${risk.score}, at or over your ${r.riskHandoff} limit`, workflow };
   if (changed) return { state: "changed", why: wf.recheck ? changedWhy : `${changedWhy}; re-check is off in "${wf.name}"`, workflow };
   return { state: "queued", why: r.enabled ? `next in line (${wf.name})` : `would be reviewed once autopilot is on (${wf.name})`, workflow };
 }
