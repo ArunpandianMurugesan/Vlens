@@ -3,8 +3,11 @@ import { getProvider } from "@/lib/providers";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// Stops what Claude is doing on its own in this session (after a background
-// task reported back). Its process, and any other background work, keep going.
+// Stop for this session: ends what Claude is doing in it, your reply or a turn
+// of its own (after a background task reported back), and denies its open
+// questions. A reply still waiting behind Claude's own turn is dropped instead,
+// leaving that turn alone. Closing a reply's stream doesn't stop it, so the
+// window calls this. Its process, and any other background work, keep going.
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   return (await (await getProvider()).interrupt(id)) ? Response.json({ ok: true }) : Response.json({ error: "Nothing to stop." }, { status: 409 });

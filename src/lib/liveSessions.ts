@@ -27,10 +27,11 @@ export function liveState(sessionId: string): LiveState | null {
   return bySession(sessionId)?.proc.snapshot() ?? null;
 }
 
-// Stops what Claude is doing on its own in this session (not the process).
+// Stops what Claude is doing in this session, a reply or a turn of its own,
+// and denies its open questions (not the process).
 export async function interruptLive(sessionId: string) {
   const l = bySession(sessionId);
-  return l ? l.proc.control({ subtype: "interrupt" }) : false;
+  return l ? l.proc.stop() : false;
 }
 
 // Hands a message to the session's Claude while it works. False when it isn't working.

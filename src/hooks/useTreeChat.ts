@@ -99,18 +99,25 @@ const bootId = () =>
 // fetch says only "network error" when the stream breaks. Find out why: if the
 // server restarted (the dev server does that when it runs low on memory), the
 // Claude it was running stopped with it, so don't promise it may still finish.
-async function runError(e: unknown, bootAtStart: Promise<string | null>) {
-  if (!(e instanceof TypeError)) return String(e);
+// alive: Vlens answered, and it's the same server, so the reply is still going
+// there and only this window's stream of it broke.
+async function runError(e: unknown, bootAtStart: Promise<string | null>): Promise<{ error: string; alive?: true }> {
+  if (!(e instanceof TypeError)) return { error: String(e) };
   const before = await bootAtStart;
   let now: string | null = null;
   for (let i = 0; i < 10 && !now; i++) {
     now = await bootId();
     if (!now) await new Promise((r) => setTimeout(r, 1500)); // still starting up
   }
-  return before && now && before !== now
-    ? "Vlens restarted in the middle of this reply, and that stopped Claude. Everything up to here is saved: send a message to carry on."
-    : "Lost the connection to Vlens mid-reply. Claude may still finish: the session updates here when it does.";
+  if (!now) return { error: "Lost the connection to Vlens mid-reply, and it isn't answering. If it's still running, Claude may still finish: open the session again once Vlens is back." };
+  if (before && before !== now)
+    return { error: "Vlens restarted in the middle of this reply, and that stopped Claude. Everything up to here is saved: send a message to carry on." };
+  const error = "Lost the connection to Vlens mid-reply. Claude may still finish: the session updates here when it does.";
+  return before ? { error, alive: true } : { error };
 }
+
+// Stops the reply (or Claude's own turn) in a session, denying its open questions.
+const stopSession = (id: string) => fetch(`/api/sessions/${id}/live`, { method: "DELETE" }).catch(() => {});
 
 // Reads the NDJSON stream from /api/agent or /api/chat and applies it to a LiveRun.
 async function readRun(
@@ -223,6 +230,10 @@ export function useTreeChat() {
   // id arrives). Each belongs to its own session: switching to another one
   // neither shows it there nor stops it, and several sessions can reply at once.
   const [rootRuns, setRootRuns] = useState<Record<string, RootRun>>({});
+  // Each reply's session id once known (a new session's arrives in its stream),
+  // and replies you stopped before it did: they're stopped when it arrives.
+  const runSessions = useRef<Record<string, string>>({});
+  const stopWanted = useRef(new Set<string>());
   // A session that doesn't exist yet: the user picked "New session" and is choosing a folder.
   // worktree: start it in its own git worktree (see lib/worktree.ts).
   const [draft, setDraft] = useState<{ cwd: string; worktree?: boolean } | null>(null);
@@ -616,7 +627,7 @@ export function useTreeChat() {
         });
       } catch (e) {
         if ((e as Error).name !== "AbortError") {
-          const error = await runError(e, boot);
+          const { error } = await runError(e, boot);
           patchLive((r) => ({ ...r, error }));
         }
       } finally {
@@ -668,6 +679,7 @@ export function useTreeChat() {
       setLive((l) => ({ ...l, [runId]: { text: "", tools: [], startedAt: Date.now() } }));
       const ac = new AbortController();
       aborts.current[runId] = ac;
+      if (sessionId) runSessions.current[runId] = sessionId;
       const boot = bootId();
       const patch = (fn: (r: LiveRun) => LiveRun) => setLive((l) => (l[runId] ? { ...l, [runId]: fn(l[runId]) } : l));
       // Swap the live view for the saved session only once the new file is loaded, so nothing flickers.
@@ -675,7 +687,9 @@ export function useTreeChat() {
       const finish = async () => {
         if (sessionId) setOwnWrite({ id: sessionId, at: Date.now() });
         const watching = viewRef.current === key;
-        const d = sessionId && watching ? await fetch(`/api/sessions/${sessionId}`).then((r) => r.json()) : {};
+        // A failed load still clears the run below; the session view's own refresh catches up.
+        const d: { session?: SessionDetail; live?: LiveState | null } =
+          sessionId && watching ? await fetch(`/api/sessions/${sessionId}`).then((r) => r.json()).catch(() => ({})) : {};
         if (d.session && viewRef.current === key) {
           setSession(d.session);
           setActiveId(d.session.id);
@@ -700,6 +714,9 @@ export function useTreeChat() {
         await readRun(res, patch, {
           session: (id) => {
             sessionId = id;
+            runSessions.current[runId] = id;
+            // Stopped before its id arrived: stop it now, then let go of the stream.
+            if (stopWanted.current.delete(runId)) void stopSession(id).finally(() => ac.abort());
             // From now on the run belongs to the session's real id, so opening
             // it from the sidebar (even after looking elsewhere) shows it live.
             if (key !== id) {
@@ -720,19 +737,36 @@ export function useTreeChat() {
       } catch (e) {
         if ((e as Error).name === "AbortError") void finish();
         else {
-          const error = await runError(e, boot);
-          patch((r) => ({ ...r, error }));
+          const { error, alive } = await runError(e, boot);
+          // The reply carries on without this stream: follow it in the session
+          // view instead (its progress and questions come with each refresh).
+          if (alive && sessionId) void finish();
+          else patch((r) => ({ ...r, error }));
         }
       } finally {
         delete aborts.current[runId];
+        delete runSessions.current[runId];
+        stopWanted.current.delete(runId);
       }
     },
     [session, draft, draftKey, rootRuns, loadSessions],
   );
 
   const stop = useCallback((threadId: string) => {
-    aborts.current[threadId]?.abort();
     setLive((l) => without(l, threadId));
+    const ac = aborts.current[threadId];
+    // A sub-agent's process ends with its stream.
+    if (!threadId.startsWith("root:")) return void ac?.abort();
+    // A reply in a session carries on when its stream closes (that's how it
+    // survives the window going away), so tell its Claude to stop.
+    const sessionId = runSessions.current[threadId];
+    if (sessionId) {
+      void stopSession(sessionId);
+      ac?.abort();
+    }
+    // A new session whose id hasn't arrived yet: keep reading the stream until it
+    // does, and stop it then (see the "session" handler in send).
+    else if (ac) stopWanted.current.add(threadId);
   }, []);
 
   return {
