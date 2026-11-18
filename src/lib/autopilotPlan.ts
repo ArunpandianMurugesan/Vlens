@@ -6,7 +6,7 @@ import type { PrSummary } from "./types";
 // do). Nothing here runs a review: the runner (autopilotRunner.ts) acts on these plans.
 
 export type Depth = "quick" | "standard" | "deep";
-export type WorkflowLane = "needsYou" | "team" | "mine";
+export type WorkflowLane = "needsYou" | "team" | "mine" | "label";
 // What a workflow does with a review: keep it as a draft you post, show it to you only
 // (a self-check), or post it as comments itself. Never an approval.
 export type WorkflowThen = "draft" | "private" | "comment";
@@ -17,7 +17,8 @@ export interface Workflow {
   id: string;
   name: string;
   enabled: boolean;
-  lane: WorkflowLane; // when: which PRs (whose move it is)
+  lane: WorkflowLane; // when: which PRs (whose move it is, or "label": any PR with `label`)
+  label: string; // for lane "label": the GitHub label that asks for a review
   repos: string[]; // and only in these repos (owner/name); empty = any
   depth: Depth; // review: how hard it looks
   then: WorkflowThen;
@@ -37,7 +38,14 @@ export interface AutopilotRules {
   sensitivePaths: string[]; // regexes: a PR touching these goes to you
   repos: { include: string[]; exclude: string[] }; // owner/name; empty include = every repo
   handoffNotes: string; // extra "hand it to me when…" rules, in plain words, for Claude
+  stateLabels: StateLabels; // labels autopilot puts on PRs on GitHub (off by default)
   alerts: AlertRules; // desktop alerts for autopilot's work (useAutopilotAlerts)
+}
+
+export interface StateLabels {
+  enabled: boolean;
+  reviewed: string; // after autopilot reviewed it
+  handed: string; // after autopilot handed it to you
 }
 
 export interface AlertRules {
@@ -48,9 +56,10 @@ export interface AlertRules {
 }
 
 export const DEFAULT_WORKFLOWS: Workflow[] = [
-  { id: "needs-me", name: "Review PRs that need me", enabled: true, lane: "needsYou", repos: [], depth: "standard", then: "draft", recheck: true },
-  { id: "self-check", name: "Self-check my own PRs", enabled: false, lane: "mine", repos: [], depth: "quick", then: "private", recheck: true },
-  { id: "team", name: "Team PRs in my repos", enabled: false, lane: "team", repos: [], depth: "quick", then: "draft", recheck: false },
+  { id: "needs-me", name: "Review PRs that need me", enabled: true, lane: "needsYou", label: "ai-review", repos: [], depth: "standard", then: "draft", recheck: true },
+  { id: "self-check", name: "Self-check my own PRs", enabled: false, lane: "mine", label: "ai-review", repos: [], depth: "quick", then: "private", recheck: true },
+  { id: "team", name: "Team PRs in my repos", enabled: false, lane: "team", label: "ai-review", repos: [], depth: "quick", then: "draft", recheck: false },
+  { id: "labelled", name: "PRs labelled ai-review", enabled: false, lane: "label", label: "ai-review", repos: [], depth: "standard", then: "draft", recheck: true },
 ];
 
 export const DEFAULT_RULES: AutopilotRules = {
@@ -65,26 +74,34 @@ export const DEFAULT_RULES: AutopilotRules = {
   sensitivePaths: ["(^|/)migrations?/", "(^|/)(auth|billing|payments?)/", "\\.github/workflows/", "(^|/)(CODEOWNERS|CLAUDE\\.md)$"],
   repos: { include: [], exclude: [] },
   handoffNotes: "",
+  stateLabels: { enabled: false, reviewed: "ai-reviewed", handed: "ai-handed-off" },
   alerts: { handed: true, ready: true, posted: true, failed: true },
 };
 
-export const LANE_LABEL: Record<WorkflowLane, string> = { needsYou: "Someone asks me to review", team: "My team is asked to review", mine: "I open or push to my PR" };
+export const LANE_LABEL: Record<WorkflowLane, string> = { needsYou: "Someone asks me to review", team: "My team is asked to review", mine: "I open or push to my PR", label: "A PR gets a label" };
 export const DEPTH_LABEL: Record<Depth, string> = { quick: "Quick: blockers only", standard: "Standard: bugs and risks", deep: "Deep: slow and thorough" };
 export const THEN_LABEL: Record<WorkflowThen, string> = { draft: "Draft only. I post it.", private: "Show findings to me only", comment: "Post comments itself" };
 
 const num = (v: unknown, def: number, min: number, max: number) => (typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(min, Math.round(v))) : def);
 const list = (v: unknown, def: string[]) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === "string" && !!s.trim()).map((s) => s.trim()).slice(0, 50) : def);
+// A GitHub label name: trimmed, at most 50 characters (GitHub's limit), no commas (gh
+// reads a comma as a list), else the default.
+const labelName = (v: unknown, def: string) => {
+  const n = typeof v === "string" ? v.replace(/,/g, "").trim().slice(0, 50) : "";
+  return n || def;
+};
 const oneOf = <T extends string>(v: unknown, all: readonly T[], def: T): T => (all.includes(v as T) ? (v as T) : def);
 
 function normalizeWorkflow(x: unknown, i: number): Workflow | null {
   if (!x || typeof x !== "object") return null;
   const w = x as Partial<Workflow>;
-  const lane = oneOf(w.lane, ["needsYou", "team", "mine"] as const, "needsYou");
+  const lane = oneOf(w.lane, ["needsYou", "team", "mine", "label"] as const, "needsYou");
   return {
     id: typeof w.id === "string" && /^[\w-]{1,40}$/.test(w.id) ? w.id : `wf-${i + 1}`,
     name: typeof w.name === "string" && w.name.trim() ? w.name.trim().slice(0, 80) : "Untitled workflow",
     enabled: typeof w.enabled === "boolean" ? w.enabled : false,
     lane,
+    label: labelName(w.label, "ai-review"),
     repos: list(w.repos, []).map((s) => s.toLowerCase()),
     depth: oneOf(w.depth, ["quick", "standard", "deep"] as const, "standard"),
     then: oneOf(w.then, ["draft", "private", "comment"] as const, "draft"),
@@ -136,6 +153,11 @@ export function normalizeRules(x: unknown): AutopilotRules {
     sensitivePaths: list(r.sensitivePaths, d.sensitivePaths).filter(validRegex),
     repos: { include: list(r.repos?.include, []).map((s) => s.toLowerCase()), exclude: list(r.repos?.exclude, []).map((s) => s.toLowerCase()) },
     handoffNotes: typeof r.handoffNotes === "string" ? r.handoffNotes.slice(0, 2000) : d.handoffNotes,
+    stateLabels: {
+      enabled: typeof r.stateLabels?.enabled === "boolean" ? r.stateLabels.enabled : d.stateLabels.enabled,
+      reviewed: labelName(r.stateLabels?.reviewed, d.stateLabels.reviewed),
+      handed: labelName(r.stateLabels?.handed, d.stateLabels.handed),
+    },
     alerts: {
       handed: typeof r.alerts?.handed === "boolean" ? r.alerts.handed : d.alerts.handed,
       ready: typeof r.alerts?.ready === "boolean" ? r.alerts.ready : d.alerts.ready,
@@ -148,7 +170,8 @@ export function normalizeRules(x: unknown): AutopilotRules {
 // The workflow that handles this PR: the first switched-on one that matches it.
 export function workflowFor(pr: PrSummary, r: AutopilotRules): Workflow | null {
   const repo = pr.repo.toLowerCase();
-  return r.workflows.find((w) => w.enabled && w.lane === pr.lane && (!w.repos.length || w.repos.includes(repo))) ?? null;
+  const has = (l: string) => pr.labels.some((x) => x.toLowerCase() === l.toLowerCase());
+  return r.workflows.find((w) => w.enabled && (w.lane === "label" ? has(w.label) : w.lane === pr.lane) && (!w.repos.length || w.repos.includes(repo))) ?? null;
 }
 
 // What Vlens knows about a PR's past reviews (from reviewRecords).

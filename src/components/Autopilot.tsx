@@ -552,7 +552,7 @@ export function RulesPage({ review, onMenu }: { review: Review; onMenu: () => vo
   };
   const addWf = () => {
     const id = `wf-${Date.now().toString(36)}`;
-    setWorkflows([...draft.workflows, { id, name: "New workflow", enabled: false, lane: "needsYou", repos: [], depth: "standard", then: "draft", recheck: true }]);
+    setWorkflows([...draft.workflows, { id, name: "New workflow", enabled: false, lane: "needsYou", label: "ai-review", repos: [], depth: "standard", then: "draft", recheck: true }]);
     setEditing(id);
   };
   const removeWf = (id: string) => {
@@ -662,6 +662,18 @@ export function RulesPage({ review, onMenu }: { review: Review; onMenu: () => vo
                 <textarea value={text.exclude} onChange={(e) => setText({ ...text, exclude: e.target.value })} rows={2} className={`${input} font-mono text-xs`} />
               </Field>
             </Box>
+            <Box title="GitHub labels" hint="Off by default: these change PRs on GitHub, from your account.">
+              <Row label="Put a state label on PRs autopilot handles">
+                <Switch on={draft.stateLabels.enabled} onChange={(v) => set({ stateLabels: { ...draft.stateLabels, enabled: v } })} label="State labels" />
+              </Row>
+              <Row label="After it reviews">
+                <input value={draft.stateLabels.reviewed} onChange={(e) => set({ stateLabels: { ...draft.stateLabels, reviewed: e.target.value } })} disabled={!draft.stateLabels.enabled} className={`${field} w-40 font-mono text-xs disabled:opacity-50`} />
+              </Row>
+              <Row label="After it hands one to you">
+                <input value={draft.stateLabels.handed} onChange={(e) => set({ stateLabels: { ...draft.stateLabels, handed: e.target.value } })} disabled={!draft.stateLabels.enabled} className={`${field} w-40 font-mono text-xs disabled:opacity-50`} />
+              </Row>
+              <p className="text-xs text-muted">A label missing in a repo is created there the first time. Each new state replaces the other. To skip a PR, use the skip label above; to ask for a review, use a workflow that starts on a label.</p>
+            </Box>
             <Box title="Desktop alerts" hint="When Vlens isn't the window you're looking at. Vlens Settings → Notifications silences them all.">
               {(
                 [
@@ -746,6 +758,11 @@ function WorkflowCard({
               ))}
             </select>
           </Field>
+          {w.lane === "label" && (
+            <Field label="The label (add it to a PR on GitHub to ask for a review)">
+              <input value={w.label} onChange={(e) => onChange({ label: e.target.value })} className={`${input} font-mono text-xs`} placeholder="ai-review" />
+            </Field>
+          )}
           <Field label="Only in these repos (owner/name, comma separated; empty = any)">
             <input
               value={repos}
@@ -785,6 +802,7 @@ function WorkflowCard({
           <dt className="text-muted">When</dt>
           <dd>
             {LANE_LABEL[w.lane]}
+            {w.lane === "label" && <span className="ml-1 rounded bg-sunken px-1 font-mono">{w.label}</span>}
             {w.repos.length ? <span className="text-muted"> · in {w.repos.map((r) => r.split("/")[1] ?? r).join(", ")}</span> : null}
           </dd>
           <dt className="text-muted">Review</dt>

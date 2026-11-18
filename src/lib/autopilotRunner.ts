@@ -8,6 +8,7 @@ import { runner } from "./autopilotStatus";
 import { gh, reviewBoard } from "./github";
 import { trackRun } from "./lensRuns";
 import { DATA_DIR } from "./paths";
+import { setStateLabel } from "./prLabelsGh";
 import { postReview, reviewHeader } from "./postReview";
 import { autopilotPrompt } from "./reviewPrompt";
 import { prSnapshot, recordPost, recordRun, recordsFor } from "./reviewRecords";
@@ -82,6 +83,7 @@ async function nextPr(prs: PrSummary[], s: AutopilotState): Promise<{ pr: PrSumm
     if (plan.state === "handoff" && !(await handedAlready(pr.url, pr.headSha))) {
       await markHanded(pr.url, pr.headSha);
       await logActivity({ kind: "handed", url: pr.url, title: pr.title, detail: `Handed to you: ${plan.why}` });
+      await label(pr, "handed", s.rules);
     }
     const wf = s.rules.workflows.find((w) => w.id === plan.workflow?.id);
     if (!wf) continue;
@@ -131,8 +133,10 @@ async function review(pr: PrSummary, wf: Workflow, rules: AutopilotRules, clone:
     const adj = result.risk?.adjust ? ` · risk ${risk.score} → ${Math.max(0, Math.min(100, risk.score + result.risk.adjust))}` : "";
     if (result.handoff) {
       await logActivity({ kind: "handed", url: pr.url, title: pr.title, detail: `Reviewed, then handed to you: ${result.handoff}` });
+      await label(pr, "handed", rules);
       return;
     }
+    if (wf.then !== "private") await label(pr, "reviewed", rules); // "for me only" stays off GitHub
     if (wf.then === "comment" && (n || result.summary)) {
       step("Posting the review");
       const r = await postReview({
@@ -157,6 +161,17 @@ async function review(pr: PrSummary, wf: Workflow, rules: AutopilotRules, clone:
     await fail((e as Error).message.slice(0, 300));
   } finally {
     runner.running = null;
+  }
+}
+
+// The state label on GitHub, when you switched them on. A failure is logged, and the
+// review stands.
+async function label(pr: PrSummary, state: "reviewed" | "handed", rules: AutopilotRules) {
+  if (!rules.stateLabels.enabled) return;
+  try {
+    await setStateLabel(pr, state, rules.stateLabels);
+  } catch (e) {
+    await logActivity({ kind: "error", url: pr.url, title: pr.title, detail: `Couldn't set the ${state} label: ${(e as Error).message}` });
   }
 }
 
