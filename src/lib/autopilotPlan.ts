@@ -37,6 +37,14 @@ export interface AutopilotRules {
   sensitivePaths: string[]; // regexes: a PR touching these goes to you
   repos: { include: string[]; exclude: string[] }; // owner/name; empty include = every repo
   handoffNotes: string; // extra "hand it to me when…" rules, in plain words, for Claude
+  alerts: AlertRules; // desktop alerts for autopilot's work (useAutopilotAlerts)
+}
+
+export interface AlertRules {
+  handed: boolean; // a PR handed to you
+  ready: boolean; // a review ready for you
+  posted: boolean; // a review autopilot posted itself
+  failed: boolean; // a review that failed
 }
 
 export const DEFAULT_WORKFLOWS: Workflow[] = [
@@ -57,6 +65,7 @@ export const DEFAULT_RULES: AutopilotRules = {
   sensitivePaths: ["(^|/)migrations?/", "(^|/)(auth|billing|payments?)/", "\\.github/workflows/", "(^|/)(CODEOWNERS|CLAUDE\\.md)$"],
   repos: { include: [], exclude: [] },
   handoffNotes: "",
+  alerts: { handed: true, ready: true, posted: true, failed: true },
 };
 
 export const LANE_LABEL: Record<WorkflowLane, string> = { needsYou: "Someone asks me to review", team: "My team is asked to review", mine: "I open or push to my PR" };
@@ -127,6 +136,12 @@ export function normalizeRules(x: unknown): AutopilotRules {
     sensitivePaths: list(r.sensitivePaths, d.sensitivePaths).filter(validRegex),
     repos: { include: list(r.repos?.include, []).map((s) => s.toLowerCase()), exclude: list(r.repos?.exclude, []).map((s) => s.toLowerCase()) },
     handoffNotes: typeof r.handoffNotes === "string" ? r.handoffNotes.slice(0, 2000) : d.handoffNotes,
+    alerts: {
+      handed: typeof r.alerts?.handed === "boolean" ? r.alerts.handed : d.alerts.handed,
+      ready: typeof r.alerts?.ready === "boolean" ? r.alerts.ready : d.alerts.ready,
+      posted: typeof r.alerts?.posted === "boolean" ? r.alerts.posted : d.alerts.posted,
+      failed: typeof r.alerts?.failed === "boolean" ? r.alerts.failed : d.alerts.failed,
+    },
   };
 }
 

@@ -662,6 +662,20 @@ export function RulesPage({ review, onMenu }: { review: Review; onMenu: () => vo
                 <textarea value={text.exclude} onChange={(e) => setText({ ...text, exclude: e.target.value })} rows={2} className={`${input} font-mono text-xs`} />
               </Field>
             </Box>
+            <Box title="Desktop alerts" hint="When Vlens isn't the window you're looking at. Vlens Settings → Notifications silences them all.">
+              {(
+                [
+                  ["handed", "A PR is handed to me"],
+                  ["ready", "A review is ready for me"],
+                  ["posted", "Autopilot posted a review"],
+                  ["failed", "A review failed"],
+                ] as const
+              ).map(([k, label]) => (
+                <Row key={k} label={label}>
+                  <Switch on={draft.alerts[k]} onChange={(v) => set({ alerts: { ...draft.alerts, [k]: v } })} label={label} />
+                </Row>
+              ))}
+            </Box>
           </div>
         </div>
       </div>

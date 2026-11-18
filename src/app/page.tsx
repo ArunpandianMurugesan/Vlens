@@ -23,6 +23,7 @@ import { type Go, QuickSwitcher } from "@/components/QuickSwitcher";
 import { useMenu } from "@/lib/menu";
 import { Inspector, useInspector } from "@/components/Inspector";
 import { LensSettingsContext } from "@/components/LensSettings";
+import { useAutopilotAlerts } from "@/hooks/useAutopilotAlerts";
 import { useReview } from "@/hooks/useReview";
 import { useTreeChat } from "@/hooks/useTreeChat";
 import { GetStarted, needsSetup } from "@/components/GetStarted";
@@ -140,6 +141,8 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the chat and review hooks' functions are stable
     [chat.selectSession, chat.goHome, chat.newSession, review.select],
   );
+  // Autopilot's desktop alerts; a click opens the PR.
+  useAutopilotAlerts(review, go.pr);
 
   // The Mac menus (desktop/main.cjs).
   const [inspectorOn, setInspectorOn] = useInspector();
