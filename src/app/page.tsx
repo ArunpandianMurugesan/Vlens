@@ -184,7 +184,7 @@ export default function Home() {
       {setup && <GetStarted initial={setup} onDone={() => setSetup(null)} />}
       <QuickSwitcher chat={chat} review={review} go={go} />
       <FilesProvider>
-      <div className="flex h-dvh overflow-hidden">
+      <div className="flex h-dvh overflow-clip">
         <SpaceRail
           space={view === "settings" || view === "marketplace" ? null : view === "review" ? "review" : "sessions"}
           badge={{ review: review.prs.filter((p) => p.lane === "needsYou").length }}

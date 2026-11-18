@@ -161,6 +161,9 @@
 html,
 body {
   height: 100%;
+  /* The app is one fixed frame; only its panels scroll. Without this, focusing or
+     scrolling something into view could scroll the whole window, leaving a blank gap. */
+  overflow: hidden;
 }
 
 body {

@@ -32,13 +32,28 @@ export async function me(): Promise<string | null> {
   return meCache?.login ?? null;
 }
 
-let teamsCache: { login: string; teams: string[]; at: number } | null = null;
-async function myTeams(login: string): Promise<string[]> {
-  if (teamsCache?.login === login && Date.now() - teamsCache.at < 60 * 60_000) return teamsCache.teams; // new teams show within the hour
-  const r = await gh(["api", "user/teams", "--paginate", "--jq", '.[] | (.organization.login + "/" + .slug)'], 15_000);
-  const teams = r.ok ? r.out.split("\n").map((t) => t.trim()).filter(Boolean) : [];
-  if (r.ok) teamsCache = { login, teams, at: Date.now() };
-  return teams;
+// Your teams, and your squads: the small ones (SQUAD_MAX members or fewer) whose members'
+// PRs show up for you even when nobody requested the team (many teams never are: CODEOWNERS
+// or the author picks people). Org-wide groups like "all developers" aren't squads.
+const SQUAD_MAX = 25;
+type Teams = { teams: string[]; squads: { team: string; members: string[] }[] };
+let teamsCache: { login: string; at: number } & Teams | null = null;
+async function myTeams(login: string): Promise<Teams> {
+  if (teamsCache?.login === login && Date.now() - teamsCache.at < 60 * 60_000) return teamsCache; // new teams show within the hour
+  const r = await gh(["api", "user/teams", "--paginate", "--jq", '.[] | (.organization.login + "/" + .slug + " " + (.members_count | tostring))'], 15_000);
+  if (!r.ok) return teamsCache ?? { teams: [], squads: [] };
+  const rows = r.out.split("\n").map((l) => l.trim().split(" ")).filter((x) => x[0]);
+  const teams = rows.map((x) => x[0]);
+  const small = rows.filter((x) => Number(x[1]) > 0 && Number(x[1]) <= SQUAD_MAX).map((x) => x[0]);
+  const squads = await Promise.all(
+    small.map(async (team) => {
+      const [org, slug] = team.split("/");
+      const m = await gh(["api", `orgs/${org}/teams/${slug}/members`, "--paginate", "--jq", ".[].login"], 15_000);
+      return { team, members: m.ok ? m.out.split("\n").map((x) => x.trim()).filter((x) => x && x !== login) : [] };
+    }),
+  );
+  teamsCache = { login, teams, squads, at: Date.now() };
+  return teamsCache;
 }
 
 // myReviews: your own last review, asked for directly. latestReviews drops a reviewer
@@ -98,10 +113,14 @@ function toSummary(n: any, login: string, sources: Set<string>): PrSummary | nul
 // how you relate to it), a priority within the lane, and a short reason. null = hidden.
 type Lane = { lane: PrLane; priority: PrPriority; why: string };
 const DAY = 86_400_000;
+const squadOnly = (sources: Set<string>) => [...sources].every((s) => /^squad\d/.test(s) || s === "tracked") && [...sources].some((s) => /^squad\d/.test(s));
 function lane(p: PrSummary, login: string, sources: Set<string>): Lane | null {
   const src = [...sources];
   const asked = sources.has("review");
   const teamAsked = src.some((s) => /^team\d/.test(s));
+  const squad = src.some((s) => /^squad\d/.test(s));
+  // Here only because a teammate wrote it: drop it once it's approved or a month old.
+  if (squadOnly(sources) && (p.reviewDecision === "APPROVED" || Date.now() - Date.parse(p.updatedAt || "0") >= 30 * DAY)) return null;
   const pinged = sources.has("pinged");
   // Cleared: the full approval quorum is met; with no review rule, one approval clears it.
   const cleared = p.reviewDecision === "APPROVED" || (p.reviewDecision === null && p.approvals > 0);
@@ -141,6 +160,8 @@ function lane(p: PrSummary, login: string, sources: Set<string>): Lane | null {
   }
   if (teamAsked || pinged)
     return { lane: "team", priority: p.approvals > 0 ? "high" : "normal", why: pinged && !teamAsked ? "your team was tagged" : "awaiting your team's review" };
+  // A teammate's PR nobody asked you about: worth a look while it's fresh.
+  if (squad) return age >= 30 * DAY ? null : { lane: "team", priority: p.approvals > 0 ? "high" : "normal", why: "from your team, awaiting review" };
   // Mentioned or commented on: just so you know, and gone after a week.
   if (sources.has("mentions") || sources.has("commenter")) return age >= 7 * DAY ? null : { lane: "fyi", priority: "low", why: "mentioned" };
   return { lane: "fyi", priority: "low", why: "tracked" };
@@ -205,7 +226,7 @@ export async function reviewBoard(force = false): Promise<ReviewBoard> {
   const mark = (what: string) => lap.push(`${what} ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   const login = await me();
   if (!login) return { ...emptyBoard(), error: "The GitHub CLI isn't signed in. Run `gh auth login` in a terminal." };
-  const teams = await myTeams(login);
+  const { teams, squads } = await myTeams(login);
   mark("login+teams");
   // GitHub said no: keep showing the last board, with why.
   const failed = (err: string): ReviewBoard => {
@@ -221,6 +242,8 @@ export async function reviewBoard(force = false): Promise<ReviewBoard> {
     ["reviewed", `reviewed-by:${login}`],
     ["mentions", `mentions:${login}`],
     ["commenter", `commenter:${login}`],
+    // Your squads' PRs (members' PRs, whoever was asked), one search per squad.
+    ...squads.filter((s) => s.members.length).map((s, i): [string, string] => [`squad${i}`, `${s.members.slice(0, 30).map((m) => `author:${m}`).join(" ")} sort:updated-desc`]),
   ];
   // Light calls, not one heavy one: GitHub stops a GraphQL query after about 10 seconds
   // (HTTP 502), and the searches plus every lookup in one go got close to that. First
@@ -284,14 +307,16 @@ export async function reviewBoard(force = false): Promise<ReviewBoard> {
       nodes.set(n.url, e);
     }
   }
-  // Keep tracking every open PR we saw, until it's merged or closed.
-  void writeTracked([...nodes.keys()]);
+  // Keep tracking every open PR we saw, until it's merged or closed; not teammates' PRs
+  // that only the squad search found (that search finds them again while they matter).
+  void writeTracked([...nodes].filter(([, e]) => !squadOnly(e.sources)).map(([u]) => u));
   const shown = [...nodes.values()]
     .map(({ node, sources }) => {
       const pr = toSummary(node, login, sources);
       if (!pr) return null;
       const teamsAsked = [...sources].filter((s) => /^team\d/.test(s)).map((s) => teams[Number(s.slice(4))]).filter(Boolean);
-      return { ...pr, ...(teamsAsked.length ? { teams: teamsAsked } : {}) };
+      const squad = [...sources].filter((s) => /^squad\d/.test(s)).map((s) => squads.filter((q) => q.members.length)[Number(s.slice(5))]?.team).find(Boolean);
+      return { ...pr, ...(teamsAsked.length ? { teams: teamsAsked } : {}), ...(squad ? { squad } : {}) };
     })
     .filter((p): p is PrSummary => !!p)
     .sort((a, b) => RANK[a.priority] - RANK[b.priority] || b.updatedAt.localeCompare(a.updatedAt));

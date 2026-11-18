@@ -81,6 +81,7 @@ export function statusLine(p: PrSummary) {
   if (p.ci === "failing" && !/CI/.test(p.why)) bits.push("CI failing");
   if (p.lane === "team" && p.teams?.length) bits[0] = `asked @${p.teams.map(teamName).join(", @")}`;
   else if (p.lane === "team" && p.pinged) bits[0] = "your team was tagged";
+  else if (p.lane === "team" && p.squad) bits[0] = `from ${teamName(p.squad)}, awaiting review`;
   if (p.lane !== "mine" && p.author) bits.push(`@${p.author}`);
   return bits.join(" · ");
 }

@@ -452,7 +452,6 @@ function DiscussionTab({ pr, extras, busy, onAsk, review }: Props) {
       )}
       <section className="space-y-1.5">
         <label className="flex items-start gap-2 rounded-xl border border-line bg-panel px-3 py-2">
-          <span className="sr-only">Leave a comment</span>
           <textarea
             value={comment}
             onChange={(e) => {
@@ -461,6 +460,7 @@ function DiscussionTab({ pr, extras, busy, onAsk, review }: Props) {
             }}
             rows={comment.includes("\n") ? 4 : 1}
             placeholder="Leave a comment on the PR"
+            aria-label="Leave a comment on the PR"
             className="min-w-0 flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted"
           />
           <button onClick={() => void leaveComment()} disabled={!comment.trim() || commentState.busy} className={primary}>
@@ -636,12 +636,12 @@ function ThreadCard({ pr, t, busy, onAsk, onChanged }: { pr: PrSummary; t: Revie
             ))}
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <label className="flex min-w-[12rem] flex-1 items-center rounded-lg border border-line bg-bg px-2.5 py-1">
-                <span className="sr-only">Reply</span>
                 <input
                   value={reply}
                   onChange={(e) => setReply(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && reply.trim() && void act("reply")}
                   placeholder="Reply…"
+                  aria-label="Reply"
                   className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
                 />
               </label>
