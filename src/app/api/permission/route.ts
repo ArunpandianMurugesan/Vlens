@@ -11,6 +11,6 @@ export async function POST(req: Request) {
   const valid = answers && typeof answers === "object" && Object.values(answers).every((v) => typeof v === "string");
   if (!id || !(valid || isPermissionMode(approve) || (decision && DECISIONS.has(decision)))) return Response.json({ error: "bad request" }, { status: 400 });
   const reply = isPermissionMode(approve) ? { approve } : valid ? { answers: answers! } : decision === "deny" && message?.trim() ? { deny: message.trim() } : decision!;
-  if (!settle(id, reply)) return Response.json({ error: "That question is no longer waiting (it timed out or the run ended)." }, { status: 410 });
+  if (!settle(id, reply)) return Response.json({ error: "That question is no longer waiting (it was stopped or the run ended)." }, { status: 410 });
   return Response.json({ ok: true });
 }

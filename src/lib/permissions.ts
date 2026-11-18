@@ -13,24 +13,23 @@ export type Reply = Decision | { answers: Answers } | { deny: string } | { appro
 
 interface Pending {
   answer: (d: Reply) => void;
-  timer: ReturnType<typeof setTimeout>;
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 const g = globalThis as { lensPermissions?: Map<string, Pending> };
 const pending = (g.lensPermissions ??= new Map());
 
-// Nobody answering shouldn't hang a run forever.
-const TIMEOUT_MS = 10 * 60_000;
-
-// timeoutMs: a bot's issue thread waits longer, since nobody may be watching its card.
-export function waitForDecision(id: string, timeoutMs = TIMEOUT_MS): Promise<Reply> {
+// Waits until you answer, like the terminal does: step away and the question is
+// still there when you're back. It only goes when the run ends or you stop it.
+// timeoutMs: give up (deny) after that long instead.
+export function waitForDecision(id: string, timeoutMs?: number): Promise<Reply> {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => settle(id, "deny"), timeoutMs);
+    const timer = timeoutMs ? setTimeout(() => settle(id, "deny"), timeoutMs) : undefined;
     pending.set(id, { answer: resolve, timer });
   });
 }
 
-// Returns false if the question is gone (already answered, timed out, or the run ended).
+// Returns false if the question is gone (already answered, stopped, or the run ended).
 export function settle(id: string, d: Reply): boolean {
   asks.delete(id);
   const p = pending.get(id);

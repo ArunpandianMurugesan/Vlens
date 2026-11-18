@@ -109,8 +109,10 @@ async function runError(e: unknown, bootAtStart: Promise<string | null>) {
   }
   return before && now && before !== now
     ? "Vlens restarted in the middle of this reply, and that stopped Claude. Everything up to here is saved: send a message to carry on."
-    : "Lost the connection to Vlens mid-reply. Claude may still finish: the session updates here when it does.";
+    : LOST;
 }
+// Vlens is still up and so is the reply: only this window's stream of it broke.
+const LOST = "Lost the connection to Vlens mid-reply. Claude may still finish: the session updates here when it does.";
 
 // Reads the NDJSON stream from /api/agent or /api/chat and applies it to a LiveRun.
 async function readRun(
@@ -223,6 +225,8 @@ export function useTreeChat() {
   // id arrives). Each belongs to its own session: switching to another one
   // neither shows it there nor stops it, and several sessions can reply at once.
   const [rootRuns, setRootRuns] = useState<Record<string, RootRun>>({});
+  const rootRunsRef = useRef(rootRuns);
+  rootRunsRef.current = rootRuns;
   // A session that doesn't exist yet: the user picked "New session" and is choosing a folder.
   // worktree: start it in its own git worktree (see lib/worktree.ts).
   const [draft, setDraft] = useState<{ cwd: string; worktree?: boolean } | null>(null);
@@ -718,7 +722,10 @@ export function useTreeChat() {
         if ((e as Error).name === "AbortError") void finish();
         else {
           const error = await runError(e, boot);
-          patch((r) => ({ ...r, error }));
+          // The reply carries on without this stream: follow it in the session
+          // view instead (its progress and questions come with each refresh).
+          if (error === LOST && sessionId) void finish();
+          else patch((r) => ({ ...r, error }));
         }
       } finally {
         delete aborts.current[runId];
@@ -728,6 +735,10 @@ export function useTreeChat() {
   );
 
   const stop = useCallback((threadId: string) => {
+    // A reply in a session: closing its stream alone no longer stops it (a run whose
+    // window went away carries on, questions and all), so tell its Claude to stop.
+    const sessionId = Object.entries(rootRunsRef.current).find(([, r]) => r.runId === threadId)?.[0];
+    if (sessionId && !sessionId.startsWith("new:")) void fetch(`/api/sessions/${sessionId}/live`, { method: "DELETE" }).catch(() => {});
     aborts.current[threadId]?.abort();
     setLive((l) => without(l, threadId));
   }, []);

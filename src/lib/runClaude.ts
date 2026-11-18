@@ -42,6 +42,7 @@ interface Turn {
   blocks: Block[];
   listen: Listener;
   end: (r: { blocks: Block[]; error?: string }) => void;
+  detached?: boolean; // the window that asked for it went away; it carries on, seen through snapshot()
 }
 
 // One `claude -p` process, spoken to over stream-json on stdin/stdout.
@@ -130,11 +131,13 @@ export class ClaudeProc {
   // What's going on outside of any reply you're waiting on, for the session view.
   snapshot(): LiveState {
     const recent = Date.now() - 120_000;
+    // A reply nobody is streaming any more counts as Claude working on its own.
+    const busy = this.autoBusy || !!this.turn?.detached;
     return {
-      busy: this.autoBusy,
-      status: this.autoBusy ? this.status : null,
+      busy,
+      status: busy ? this.status : null,
       tasks: [...this.tasks.values()].filter((t) => t.status === "running" || t.startedAt + t.ms > recent).map((t) => ({ ...t })),
-      asks: this.turn ? [] : [...this.asks.values()],
+      asks: this.turn && !this.turn.detached ? [] : [...this.asks.values()],
     };
   }
 
@@ -155,14 +158,22 @@ export class ClaudeProc {
       // Claude is busy telling itself about a background task: go right after.
       if (this.autoBusy || this.turn) this.waiting.push(start);
       else start();
-      // Stop: end this reply, but keep the process (and its background work) going.
+      // The window stopped listening (reloaded, closed, lost the connection while
+      // the Mac slept): the reply carries on, and its questions keep waiting for
+      // you; the session view picks them up from snapshot(). Stop is stop().
       signal?.addEventListener("abort", () => {
         if (this.o.oneShot) return void this.child.kill("SIGTERM");
-        if (this.turn !== turn) return; // still waiting its turn (it won't start), or long done
-        for (const id of this.asks.keys()) settle(id, "deny");
-        void this.control({ subtype: "interrupt" });
+        turn.listen = () => {};
+        turn.detached = true;
       });
     });
+  }
+
+  // Stop: deny any open question and end what Claude is doing (a reply or a
+  // turn of its own), keeping the process and its background work.
+  stop(): Promise<boolean> {
+    for (const id of this.asks.keys()) settle(id, "deny");
+    return this.control({ subtype: "interrupt" });
   }
 
   // A message for Claude while it's working (a reply, or a turn of its own):
