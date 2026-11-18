@@ -203,7 +203,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
               {pr.title} <span className="font-normal text-muted">{pr.repo.split("/")[1]} #{pr.number}</span>
             </h1>
           ) : (
-            <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 text-xs text-muted">
+            <span className="flex min-w-0 flex-[1_1_22rem] flex-wrap items-center gap-x-1.5 text-xs text-muted">
               <span>
                 {pr.repo.split("/")[1]} #{pr.number}
               </span>

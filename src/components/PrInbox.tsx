@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Check, ChevronRight, EyeOff, GitCommit, MessageSquare, RefreshCw, Search, Sparkles, X } from "lucide-react";
+import { Bot, Check, ChevronRight, EyeOff, GitCommit, GitPullRequest, MessageSquare, RefreshCw, Search, Sparkles, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { InboxTab, Review } from "@/hooks/useReview";
 import type { Plan } from "@/lib/autopilotPlan";
@@ -188,7 +188,7 @@ function PrRow({ r, risk, onOpen }: { r: Row; risk: ReturnType<Review["riskOf"]>
 function Tile({ r }: { r: Row }) {
   const base = "flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-[0.7rem] font-bold";
   const cls = `${base} ${TONE[r.tone].tile}`;
-  const Icon = { ai: Bot, ci: X, ok: Check, commits: GitCommit, talk: MessageSquare, new: Sparkles, person: null }[r.tile];
+  const Icon = { ai: Bot, ci: X, ok: Check, commits: GitCommit, talk: MessageSquare, new: GitPullRequest, person: null }[r.tile];
   // Autopilot's own runs wear "AP"; drafts from a Review you clicked wear Claude's mark.
   if (r.tile === "ai")
     return r.by === "autopilot" ? (
