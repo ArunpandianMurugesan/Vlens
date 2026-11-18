@@ -5,8 +5,9 @@ export const runtime = "nodejs";
 
 // Stop for this session: ends what Claude is doing in it, your reply or a turn
 // of its own (after a background task reported back), and denies its open
-// questions. Closing a reply's stream doesn't stop it, so the window calls this.
-// Its process, and any other background work, keep going.
+// questions. A reply still waiting behind Claude's own turn is dropped instead,
+// leaving that turn alone. Closing a reply's stream doesn't stop it, so the
+// window calls this. Its process, and any other background work, keep going.
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   return (await (await getProvider()).interrupt(id)) ? Response.json({ ok: true }) : Response.json({ error: "Nothing to stop." }, { status: 409 });

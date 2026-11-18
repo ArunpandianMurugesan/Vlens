@@ -63,7 +63,9 @@ export class ClaudeProc {
   private streamed = false; // did this message's text arrive as deltas?
   private status: RunStatus | null = null;
   private turn: Turn | null = null;
-  private waiting: (() => void)[] = []; // turns sent while Claude was in one of its own
+  // Replies sent while Claude was in a turn of its own: go starts one when that
+  // turn ends, drop ends it unsent (Stop).
+  private waiting: { go: () => void; drop: () => void }[] = [];
   private tasks = new Map<string, TaskInfo>(); // sub-agents and background commands
   private asks = new Map<string, Extract<AgentEvent, { type: "permission" }>>(); // questions still waiting on you
   private controls = new Map<string, (ok: boolean) => void>(); // our control requests, by id
@@ -146,8 +148,10 @@ export class ClaudeProc {
     return new Promise((end) => {
       if (this.exited) return end({ blocks: [], error: "Claude isn't running anymore." });
       const turn: Turn = { blocks: [], listen, end };
+      // Not skipped when the window has gone away: a queued reply still goes, and
+      // shows through snapshot() like any reply nobody is streaming.
       const start = () => {
-        if (signal?.aborted || this.exited) return end({ blocks: [], ...(this.exited ? { error: "Claude isn't running anymore." } : {}) });
+        if (this.exited) return end({ blocks: [], error: "Claude isn't running anymore." });
         // Finished tasks from earlier replies drop off; running ones stay.
         for (const [id, t] of this.tasks) if (t.status !== "running") this.tasks.delete(id);
         this.turn = turn;
@@ -156,7 +160,7 @@ export class ClaudeProc {
         this.write({ type: "user", message: { role: "user", content } });
       };
       // Claude is busy telling itself about a background task: go right after.
-      if (this.autoBusy || this.turn) this.waiting.push(start);
+      if (this.autoBusy || this.turn) this.waiting.push({ go: start, drop: () => end({ blocks: [] }) });
       else start();
       // The window stopped listening (reloaded, closed, lost the connection while
       // the Mac slept): the reply carries on, and its questions keep waiting for
@@ -169,9 +173,15 @@ export class ClaudeProc {
     });
   }
 
-  // Stop: deny any open question and end what Claude is doing (a reply or a
-  // turn of its own), keeping the process and its background work.
+  // Stop, keeping the process and its background work. A reply still waiting
+  // behind Claude's own turn is what you're stopping: drop it unsent and leave
+  // that turn (and its questions) alone. Otherwise deny any open question and
+  // end what Claude is doing, your reply or a turn of its own.
   stop(): Promise<boolean> {
+    if (this.waiting.length) {
+      for (const w of this.waiting.splice(0)) w.drop();
+      return Promise.resolve(true);
+    }
     for (const id of this.asks.keys()) settle(id, "deny");
     return this.control({ subtype: "interrupt" });
   }
@@ -220,8 +230,7 @@ export class ClaudeProc {
   }
 
   private next() {
-    const go = this.waiting.shift();
-    if (go) go();
+    this.waiting.shift()?.go();
   }
 
   private exit(error: string | null) {
@@ -232,7 +241,7 @@ export class ClaudeProc {
     this.controls.clear();
     for (const t of this.tasks.values()) if (t.status === "running") t.status = "killed";
     this.endTurn(error ?? undefined);
-    for (const go of this.waiting.splice(0)) go(); // each ends at once: exited
+    for (const w of this.waiting.splice(0)) w.go(); // each ends at once: exited
     for (const cb of this.exitListeners) cb();
   }
 
