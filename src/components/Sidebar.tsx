@@ -136,7 +136,6 @@ export function Sidebar({
   tab,
   onTab,
   review,
-  onPickPr,
   actions,
   open,
   onClose,
@@ -455,13 +454,7 @@ export function Sidebar({
         </div>
 
         {tab === "review" ? (
-          <ReviewSidebar
-            review={review}
-            onPick={(url) => {
-              onPickPr(url);
-              onClose();
-            }}
-          />
+          <ReviewSidebar review={review} onDone={onClose} />
         ) : (
           <>
         <div className="px-3">

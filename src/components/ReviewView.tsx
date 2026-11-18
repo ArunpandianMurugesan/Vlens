@@ -2,10 +2,10 @@
 
 import {
   Check,
+  ChevronLeft,
   ExternalLink,
   GitBranch,
   GitMerge,
-  GitPullRequest,
   Loader2,
   RefreshCw,
   Sparkles,
@@ -16,12 +16,13 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { Review } from "@/hooks/useReview";
 import type { TreeChat } from "@/hooks/useTreeChat";
 import { addPrSession, usePrSessions } from "@/lib/prSessions";
-import type { PrSummary } from "@/lib/types";
-import { ago, groupOf } from "./ReviewSidebar";
+import { ago } from "./ReviewSidebar";
 import { ReviewResults } from "./ReviewResults";
 import { AutopilotBoard, RulesPage } from "./Autopilot";
+import { PrInbox } from "./PrInbox";
 import { isPrTab, PR_TABS, PrPage, TabNavLabel, usePrExtras } from "./PrPage";
 import { addressPrompt, beforeAfterPrompt, reviewPrompt } from "@/lib/reviewPrompt";
+import type { Depth } from "@/lib/autopilotPlan";
 import { MenuButton } from "./Sidebar";
 
 interface Props {
@@ -37,7 +38,7 @@ interface Props {
 type Tab = string;
 
 export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
-  const { pr, detail, cloneFor, prs, refresh, loading } = review;
+  const { pr, detail, cloneFor, refresh, loading } = review;
   // Each PR keeps its own tabs: the sessions its buttons started, carried on right here.
   const prSessions = usePrSessions(pr?.url);
   const extras = usePrExtras(pr?.url);
@@ -87,16 +88,8 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
       <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} /> Refresh
     </button>
   );
+  const [depth, setDepth] = useState<Depth>("standard"); // Review with Claude's depth
   const [merging, setMerging] = useState<{ method: "squash" | "merge" | "rebase"; busy: boolean; error: string | null } | null>(null);
-  // Nothing picked yet: open the first PR whose move is yours (else the first one).
-  const picked = useRef(false);
-  useEffect(() => {
-    if (picked.current || pr || !prs.length) return;
-    picked.current = true;
-    const first = prs.find((p) => groupOf(p) === "yours") ?? prs[0];
-    void review.select(first.url);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the list first loads
-  }, [prs.length, pr]);
   // A new PR: start fresh.
   useEffect(() => {
     setMerging(null);
@@ -104,23 +97,8 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
 
   if (review.rulesOpen) return <RulesPage review={review} onMenu={onMenu} />;
   if (review.boardOpen) return <AutopilotBoard review={review} onMenu={onMenu} />;
-  if (!pr) {
-    const needs = prs.filter((p) => groupOf(p) === "yours").length;
-    return (
-      <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-3 border-b border-line px-4 py-3">
-          <MenuButton onClick={onMenu} />
-          <h1 className="flex-1 font-medium">Vlens Review</h1>
-          {refreshBtn}
-        </header>
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
-          <GitPullRequest size={28} className="text-accent" />
-          <div className="text-xl font-semibold">{needs ? `${needs} PR${needs === 1 ? "" : "s"} wait${needs === 1 ? "s" : ""} on you` : "Your pull requests"}</div>
-          <p className="max-w-md text-sm text-muted">Pick a PR on the left. You can have Claude review it in its repo, or fix the feedback on your own PRs.</p>
-        </div>
-      </main>
-    );
-  }
+  if (!pr) return <PrInbox review={review} onMenu={onMenu} />;
+
 
   const clone = cloneFor(pr);
   const primaryBtn = "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50";
@@ -165,57 +143,92 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
   };
 
   const compact = !isPrTab(tab);
+  const listName = { new: "New", mine: "My PRs", reviews: "Needs my review" }[review.inbox];
+  const reviewNow = () => start(mine ? "Self-review" : "Review", reviewPrompt(pr, !!clone, review.riskOf(pr), depth), "default", clone ?? home);
+  const reviewBtn = (
+    <span className="inline-flex shrink-0 overflow-hidden rounded-lg">
+      <button onClick={reviewNow} disabled={busy} title={busy ? busyHint : `Review with Claude, ${depth} depth. Nothing is posted.`} className={`${mine ? "border border-r-0 border-line hover:text-accent" : "bg-accent text-white"} inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium disabled:opacity-50`}>
+        <Sparkles size={14} /> Review with Claude
+      </button>
+      <select
+        value={depth}
+        onChange={(e) => setDepth(e.target.value as Depth)}
+        aria-label={`Choose review depth: ${depth}`}
+        className={`${mine ? "border border-line bg-panel" : "border-l border-white/30 bg-accent text-white"} cursor-pointer px-1.5 text-xs outline-none`}
+      >
+        <option value="quick">Quick</option>
+        <option value="standard">Standard</option>
+        <option value="deep">Deep</option>
+      </select>
+    </span>
+  );
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      {/* On a session tab the header shrinks to one line: the review and chat need the room. */}
-      <header className={`flex gap-3 border-b border-line ${compact ? "items-center px-4 py-2" : "items-start px-5 py-3.5"}`}>
-        <MenuButton onClick={onMenu} className={compact ? "" : "mt-1"} />
-        <div className="min-w-0 flex-1">
-          <h1 className={compact ? "truncate text-sm font-semibold" : "text-lg font-semibold leading-snug"} title={compact ? pr.title : undefined}>
-            {pr.title}
-            {compact && <span className="ml-2 font-normal text-muted">{pr.repo.split("/")[1]} #{pr.number}</span>}
-          </h1>
-          <div className={`mt-0.5 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted ${compact ? "hidden" : "flex"}`}>
-            <a href={pr.url} target="_blank" rel="noreferrer" className="hover:text-accent hover:underline">
-              {pr.repo.split("/")[1]} #{pr.number}
+      <header className={`shrink-0 border-b border-line ${compact ? "px-4 pt-2" : "px-6 pt-3.5"}`}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <MenuButton onClick={onMenu} />
+          <button onClick={() => review.goInbox()} className="inline-flex shrink-0 items-center gap-0.5 rounded-md bg-sunken py-1 pl-1 pr-2 text-xs hover:text-accent">
+            <ChevronLeft size={14} /> {listName}
+          </button>
+          {compact ? (
+            <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" title={pr.title}>
+              {pr.title} <span className="font-normal text-muted">{pr.repo.split("/")[1]} #{pr.number}</span>
+            </h1>
+          ) : (
+            <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 text-xs text-muted">
+              <span>
+                {pr.repo.split("/")[1]} #{pr.number}
+              </span>
+              ·
+              <span className="inline-flex items-center gap-1 font-mono">
+                <GitBranch size={11} /> {pr.head} → {pr.base}
+              </span>
+              ·
+              <span>
+                <span className="text-emerald-600">+{pr.additions}</span> <span className="text-red-500">−{pr.deletions}</span>
+              </span>
+              · <span>by @{pr.author}</span>· <span>updated {ago(pr.updatedAt)} ago</span>
+            </span>
+          )}
+          <span className="flex shrink-0 flex-wrap items-center gap-2">
+            <a href={pr.url} target="_blank" rel="noreferrer" className={secondaryBtn}>
+              <ExternalLink size={13} /> Open on GitHub
             </a>
-            {!mine && <span>@{pr.author}</span>}
-            <span className="flex items-center gap-1 font-mono">
-              <GitBranch size={11} /> {pr.head} → {pr.base}
-            </span>
-            <span>
-              <span className="text-emerald-600">+{pr.additions}</span> <span className="text-red-500">−{pr.deletions}</span>
-            </span>
-            <span>updated {ago(pr.updatedAt)} ago</span>
-          </div>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          {mine ? (
-            <>
+            {refreshBtn}
+            {mine && (
               <button onClick={() => clone && start("Address feedback", addressPrompt(pr), "acceptEdits", clone)} disabled={!clone || busy} title={clone ? (busy ? busyHint : undefined) : "Clone this repo on your Mac first, so Claude can work on the branch."} className={primaryBtn}>
                 <Wrench size={14} /> Address feedback
               </button>
-              <button onClick={() => start("Self-review", reviewPrompt(pr, !!clone, review.riskOf(pr)), "default", clone ?? home)} disabled={busy} title={busy ? busyHint : undefined} className={secondaryBtn}>
-                <Sparkles size={14} /> Review with Claude
-              </button>
-              {beforeAfter}
+            )}
+            {reviewBtn}
+            {beforeAfter}
+            {mine && (
               <button onClick={() => setMerging({ method: "squash", busy: false, error: null })} disabled={!!mergeBlock} title={mergeBlock ?? "Merge it on GitHub"} className={secondaryBtn}>
                 <GitMerge size={14} /> Merge
               </button>
-            </>
-          ) : (
-            <>
-              <button onClick={() => start("Review", reviewPrompt(pr, !!clone, review.riskOf(pr)), "default", clone ?? home)} disabled={busy} title={busy ? busyHint : undefined} className={primaryBtn}>
-                <Sparkles size={14} /> Review with Claude
-              </button>
-              {beforeAfter}
-            </>
-          )}
-          <a href={pr.url} target="_blank" rel="noreferrer" title="Open on GitHub" aria-label="Open on GitHub" className="rounded-lg border border-line p-2 text-muted hover:border-accent hover:text-accent">
-            <ExternalLink size={14} />
-          </a>
-          {refreshBtn}
+            )}
+          </span>
         </div>
+        {!compact && <h1 className="mt-2.5 text-xl font-semibold leading-snug">{pr.title}</h1>}
+        <nav className="-mb-px mt-2 flex items-end gap-5 overflow-x-auto scroll-thin" role="tablist" aria-label="This PR">
+          {PR_TABS.map((t) => (
+            <TabButton key={t} on={tab === t} onClick={() => setTab(pr.url, t)}>
+              <TabNavLabel tab={t} extras={extras} detail={d?.data} />
+            </TabButton>
+          ))}
+          {(prSessions.length > 0 || starting?.url === pr.url) && <span className="mb-2.5 h-4 w-px shrink-0 bg-line" aria-hidden />}
+          {prSessions.map((s) => (
+            <TabButton key={s.id} on={tab === s.id} onClick={() => setTab(pr.url, s.id)} title={`Started ${ago(new Date(s.at).toISOString())} ago`}>
+              <Sparkles size={12} /> {s.kind}
+              <span className="font-normal text-muted">· {ago(new Date(s.at).toISOString())}</span>
+            </TabButton>
+          ))}
+          {starting?.url === pr.url && (
+            <TabButton on={tab === "new"} onClick={() => setTab(pr.url, "new")}>
+              <Loader2 size={12} className="animate-spin" /> {starting.kind}
+            </TabButton>
+          )}
+        </nav>
       </header>
 
       {merging && (
@@ -239,25 +252,6 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
         </div>
       )}
 
-      <nav className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-3 py-1.5 scroll-thin" aria-label="This PR">
-        {PR_TABS.map((t) => (
-          <TabButton key={t} on={tab === t} onClick={() => setTab(pr.url, t)}>
-            <TabNavLabel tab={t} extras={extras} detail={d?.data} />
-          </TabButton>
-        ))}
-        {(prSessions.length > 0 || starting?.url === pr.url) && <span className="mx-1 h-4 w-px shrink-0 bg-line" aria-hidden />}
-        {prSessions.map((s) => (
-          <TabButton key={s.id} on={tab === s.id} onClick={() => setTab(pr.url, s.id)} title={`Started ${ago(new Date(s.at).toISOString())} ago`}>
-            <Sparkles size={12} /> {s.kind}
-            <span className="text-muted">· {ago(new Date(s.at).toISOString())}</span>
-          </TabButton>
-        ))}
-        {starting?.url === pr.url && (
-          <TabButton on={tab === "new"} onClick={() => setTab(pr.url, "new")}>
-            <Loader2 size={12} className="animate-spin" /> {starting.kind}
-          </TabButton>
-        )}
-      </nav>
 
       {isPrTab(tab) ? (
         <PrPage
@@ -271,7 +265,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
           home={home}
           busy={busy}
           onTab={(t) => setTab(pr.url, t)}
-          onReview={() => (mine ? start("Self-review", reviewPrompt(pr, !!clone, review.riskOf(pr)), "default", clone ?? home) : start("Review", reviewPrompt(pr, !!clone, review.riskOf(pr)), "default", clone ?? home))}
+          onReview={reviewNow}
           onAsk={(kind, prompt) => start(kind, prompt, "default", clone ?? home)}
         />
       ) : (
@@ -289,10 +283,11 @@ const busyHint = "Claude is still starting the last one. Wait a moment.";
 function TabButton({ on, onClick, title, children }: { on: boolean; onClick: () => void; title?: string; children: ReactNode }) {
   return (
     <button
+      role="tab"
       onClick={onClick}
       title={title}
-      aria-pressed={on}
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs ${on ? "bg-sunken font-medium text-ink" : "text-muted hover:text-ink"}`}
+      aria-selected={on}
+      className={`inline-flex shrink-0 items-center gap-1.5 border-b-2 pb-2 pt-1 text-sm ${on ? "border-accent font-semibold text-ink" : "border-transparent text-muted hover:text-ink"}`}
     >
       {children}
     </button>

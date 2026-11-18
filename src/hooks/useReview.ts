@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type AutopilotRules, type AutopilotState, DEFAULT_RULES, type Plan, planFor } from "@/lib/autopilotPlan";
 import { type Risk, riskOf as scoreRisk } from "@/lib/risk";
 import { addPrSession } from "@/lib/prSessions";
+import { type News, type NewsTone, newsFor, readSeen, type Seen, snapshot, writeSeen } from "@/lib/prSeen";
 import type { PrDetail, PrSummary, ReviewBoard } from "@/lib/types";
 
 const DISMISSED_KEY = "lens.dismissedPRs";
@@ -17,6 +18,11 @@ function readDismissed(): Set<string> {
     return new Set();
   }
 }
+
+// The inbox lists in the left panel: what's new, your own PRs, reviews asked of you.
+export type InboxTab = "new" | "mine" | "reviews";
+const TAB_KEY = "lens.prTab";
+export const NEWS_RANK: Record<NewsTone, number> = { orange: 0, red: 1, green: 2, violet: 3, blue: 4 };
 
 // State for the Vlens Review tab: the PR board, which PR is open, and its details.
 export function useReview() {
@@ -119,11 +125,69 @@ export function useReview() {
     setSelected((s) => (s === url ? null : s));
   }, []);
 
-  const prs: PrSummary[] = (board?.prs ?? []).filter((p) => !dismissed.has(p.url));
+  const prs: PrSummary[] = useMemo(() => (board?.prs ?? []).filter((p) => !dismissed.has(p.url)), [board, dismissed]);
   const pr = prs.find((p) => p.url === selected) ?? null;
+
+  // Which inbox list shows when no PR is open; the left panel picks it.
+  const [inbox, setInboxState] = useState<InboxTab>("new");
+  useEffect(() => {
+    try {
+      const t = localStorage.getItem(TAB_KEY);
+      if (t === "mine" || t === "reviews" || t === "new") setInboxState(t);
+    } catch {}
+  }, []);
+  // Back to a list: closes the open PR, the board and the settings.
+  const goInbox = useCallback((t?: InboxTab) => {
+    setSelected(null);
+    setBoardOpen(false);
+    setRulesOpen(false);
+    if (t) {
+      setInboxState(t);
+      try {
+        localStorage.setItem(TAB_KEY, t);
+      } catch {}
+    }
+  }, []);
+
+  // "New": each PR compared with how it was when you last had it open (prSeen.ts).
+  const [seen, setSeen] = useState<Record<string, Seen> | null>(null);
+  useEffect(() => {
+    if (seen || !board?.fetchedAt) return;
+    let s = readSeen();
+    // First time: everything you have now counts as seen, except reviews asked of you.
+    if (!s) {
+      s = Object.fromEntries(prs.filter((p) => p.lane !== "needsYou" && p.lane !== "team").map((p) => [p.url, snapshot(p)]));
+      writeSeen(s);
+    }
+    setSeen(s);
+  }, [board?.fetchedAt, prs, seen]);
+  const markSeen = useCallback((list: PrSummary[]) => {
+    setSeen((cur) => {
+      const next = { ...(cur ?? {}), ...Object.fromEntries(list.map((p) => [p.url, snapshot(p)])) };
+      writeSeen(next);
+      return next;
+    });
+  }, []);
+  // A PR counts as seen once you leave it (so it stays in "New" while you read it).
+  const prev = useRef<PrSummary | null>(null);
+  useEffect(() => {
+    const was = prev.current;
+    if (was && was.url !== pr?.url) markSeen([was]);
+    prev.current = pr;
+  }, [pr?.url]); // eslint-disable-line react-hooks/exhaustive-deps
+  const news = useMemo(
+    () =>
+      seen
+        ? prs
+            .map((p) => ({ p, n: newsFor(p, seen[p.url], auto?.tracks[p.url]) }))
+            .filter((x): x is { p: PrSummary; n: News } => !!x.n)
+            .sort((a, b) => NEWS_RANK[a.n.tone] - NEWS_RANK[b.n.tone] || b.p.updatedAt.localeCompare(a.p.updatedAt))
+        : [],
+    [seen, prs, auto],
+  );
   const cloneFor = (p: PrSummary) => board?.clones[p.repo.toLowerCase()] ?? null;
 
-  return { board, prs, loading, load, refresh, selected, pr, detail, select, dismiss, cloneFor, auto, loadAuto, saveRules, setPaused, planOf, riskOf, runAction, rulesOpen, setRulesOpen, boardOpen, setBoardOpen };
+  return { board, prs, loading, load, refresh, selected, pr, detail, select, dismiss, cloneFor, auto, loadAuto, saveRules, setPaused, planOf, riskOf, runAction, inbox, goInbox, news, markSeen, rulesOpen, setRulesOpen, boardOpen, setBoardOpen };
 }
 
 export type Review = ReturnType<typeof useReview>;

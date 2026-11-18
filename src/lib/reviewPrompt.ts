@@ -31,7 +31,13 @@ function riskStep(risk: Risk) {
   ].join("\n");
 }
 
-export function reviewPrompt(p: PrSummary, hasClone: boolean, risk?: Risk) {
+const DEPTH_ASK: Record<Depth, string> = {
+  quick: "Look only for blockers: changes that break something real. Skip style, naming and nits.",
+  standard: "Look for real bugs and risks first, then anything worth fixing before merge. Keep nits few.",
+  deep: "Be thorough: edge cases, error handling, concurrency, security, data changes and missing tests. Still one finding per root cause.",
+};
+
+export function reviewPrompt(p: PrSummary, hasClone: boolean, risk?: Risk, depth: Depth = "standard") {
   return [
     `Review pull request #${p.number} in ${p.repo}: ${p.url}`,
     "",
@@ -39,6 +45,7 @@ export function reviewPrompt(p: PrSummary, hasClone: boolean, risk?: Risk) {
       ? "Use the lens:review skill in its PR Studio mode: run Steps 1 to 7 on this repo (its `.claude/review.md` overlay applies), and post nothing. Never post, approve, comment or push on GitHub."
       : "Read it with the gh CLI (gh pr view, gh pr diff). Look for real bugs and risks first. Never post, approve, comment or push on GitHub.",
     "If the PR links a Jira ticket, check the change against its acceptance criteria and say which are met.",
+    DEPTH_ASK[depth],
     priorCommentsStep(p),
     ...(risk ? [riskStep(risk)] : []),
     "",
@@ -67,11 +74,6 @@ export function addressPrompt(p: PrSummary) {
 }
 
 
-const DEPTH_ASK: Record<Depth, string> = {
-  quick: "Look only for blockers: changes that break something real. Skip style, naming and nits.",
-  standard: "Look for real bugs and risks first, then anything worth fixing before merge. Keep nits few.",
-  deep: "Be thorough: edge cases, error handling, concurrency, security, data changes and missing tests. Still one finding per root cause.",
-};
 
 // The autopilot runner's review. Claude can only read files here (no shell, no network),
 // so the runner saves what it needs first: the PR, its diff and its earlier comments.

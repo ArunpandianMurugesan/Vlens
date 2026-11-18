@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Bot, Check, ChevronLeft, ChevronRight, Hand, LayoutGrid, Loader2, Pause, Play, Plus, RotateCcw, Settings2, Trash2, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Bot, Check, ChevronLeft, ChevronRight, Hand, Loader2, Pause, Play, Plus, RotateCcw, Settings2, Trash2, Zap } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { Review } from "@/hooks/useReview";
 import {
@@ -51,15 +51,6 @@ export function PlanChip({ plan, enabled, always = false }: { plan: Plan | null;
   );
 }
 
-const SECTIONS: { id: PlanState | "done"; label: string; tone: string; folded?: boolean; states: PlanState[] }[] = [
-  { id: "handoff", label: "Handed to you", tone: "text-red-700 dark:text-red-400", states: ["handoff"] },
-  { id: "changed", label: "New changes since review", tone: "text-amber-700 dark:text-amber-400", states: ["changed"] },
-  { id: "queued", label: "Queue", tone: "text-violet-700 dark:text-violet-400", states: ["queued"] },
-  { id: "done", label: "Reviewed", tone: "text-emerald-700 dark:text-emerald-400", states: ["reviewed", "posted"] },
-  { id: "paused", label: "Paused", tone: "text-muted", folded: true, states: ["paused"] },
-  { id: "skip", label: "Skipped by the rules", tone: "text-muted", folded: true, states: ["skip"] },
-];
-
 const ACT_ICON: Record<Activity["kind"], string> = {
   reviewed: "🔍",
   posted: "📮",
@@ -70,116 +61,6 @@ const ACT_ICON: Record<Activity["kind"], string> = {
   rules: "⚙️",
   error: "⚠️",
 };
-
-// The sidebar's Autopilot tab.
-export function AutopilotPanel({ review, prs, onPick }: { review: Review; prs: PrSummary[]; onPick: (url: string) => void }) {
-  const { auto, selected, setRulesOpen, rulesOpen } = review;
-  const [open, setOpen] = useState<Record<string, boolean>>({});
-  const plans = useMemo(() => (auto ? prs.map((p) => ({ p, plan: planFor(p, auto) })) : []), [prs, auto]);
-  if (!auto) return <p className="px-3 py-4 text-center text-xs text-muted">Loading autopilot…</p>;
-  const r = auto.rules;
-  return (
-    <nav className="mt-1 flex-1 overflow-y-auto px-2 pb-3 scroll-thin" aria-label="Autopilot">
-      <div className="m-1 space-y-2 rounded-xl border border-line bg-panel px-3 py-2.5">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm">
-          <Bot size={15} className={r.enabled ? "text-accent" : "text-muted"} />
-          <span className="font-semibold">Autopilot</span>
-          <span className={`rounded-full px-1.5 text-[0.65rem] ${r.enabled ? "bg-accent/15 text-accent" : "bg-sunken text-muted"}`}>{r.enabled ? "on" : "off"}</span>
-          <button
-            onClick={() => review.setBoardOpen(true)}
-            aria-pressed={review.boardOpen && !rulesOpen}
-            className={`ml-auto inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${review.boardOpen && !rulesOpen ? "border-accent text-accent" : "border-line hover:border-accent hover:text-accent"}`}
-          >
-            <LayoutGrid size={11} /> Board
-          </button>
-          <button
-            onClick={() => setRulesOpen(true)}
-            aria-pressed={rulesOpen}
-            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${rulesOpen ? "border-accent text-accent" : "border-line hover:border-accent hover:text-accent"}`}
-          >
-            <Settings2 size={11} /> Settings
-          </button>
-        </div>
-        <p className="text-[0.7rem] leading-relaxed text-muted">
-          {auto.running ? <>Reviewing {auto.running.title.slice(0, 40)}… · </> : null}
-          {r.workflows.filter((w) => w.enabled).length} of {r.workflows.length} workflows on · {auto.today}/{r.dailyCap} reviews today.
-        </p>
-      </div>
-
-      {SECTIONS.map((g) => {
-        const list = plans.filter((x) => g.states.includes(x.plan.state));
-        if (!list.length) return null;
-        const folded = !!g.folded && !open[g.id];
-        return (
-          <div key={g.id} className="pt-2">
-            <button
-              onClick={() => g.folded && setOpen((o) => ({ ...o, [g.id]: !o[g.id] }))}
-              className={`flex w-full items-center gap-1.5 px-2 pb-1 text-left text-[0.75rem] font-bold ${g.tone} ${g.folded ? "hover:text-ink" : "cursor-default"}`}
-            >
-              {g.folded && <ChevronRight size={12} className={`transition-transform ${folded ? "" : "rotate-90"}`} />}
-              {g.label}
-              <span className="font-normal text-muted">{list.length}</span>
-            </button>
-            {!folded && (
-              <div className="space-y-1">
-                {list.map(({ p, plan }) => (
-                  <button
-                    key={p.url}
-                    onClick={() => onPick(p.url)}
-                    aria-current={p.url === selected}
-                    className={`flex w-full flex-col gap-1 rounded-lg border px-2.5 py-2 text-left transition ${p.url === selected ? "border-accent/40 bg-panel shadow-sm" : "border-transparent hover:bg-panel/60"}`}
-                  >
-                    <span className="line-clamp-2 w-full text-sm font-medium leading-snug">{p.title}</span>
-                    <span className="flex w-full items-center gap-1.5 text-[0.7rem]">
-                      <span className="shrink-0 text-muted">
-                        {p.repo.split("/")[1]} #{p.number}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-muted">{plan.why}</span>
-                      <PlanChip plan={plan} enabled={r.enabled} always />
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })}
-
-      <div className="pt-3">
-        <div className="px-2 pb-1 text-[0.75rem] font-bold text-muted">Activity</div>
-        {!auto.activity.length && <p className="px-2 text-xs text-muted">Nothing yet. Reviews you start and post show up here.</p>}
-        <ul className="space-y-0.5">
-          {auto.activity.slice(0, 25).map((a, i) => {
-            const known = a.url && prs.some((p) => p.url === a.url);
-            const body = (
-              <>
-                <span aria-hidden className="w-4 shrink-0 text-center">
-                  {ACT_ICON[a.kind]}
-                </span>
-                <span className="min-w-0 flex-1">
-                  {a.title && <span className="block truncate font-medium text-ink">{a.title}</span>}
-                  <span className="text-muted">{a.detail}</span>
-                </span>
-                <span className="shrink-0 text-muted">{ago(a.at)}</span>
-              </>
-            );
-            return (
-              <li key={`${a.at}-${i}`}>
-                {known ? (
-                  <button onClick={() => onPick(a.url!)} className="flex w-full items-start gap-1.5 rounded-md px-2 py-1 text-left text-[0.7rem] hover:bg-panel/60">
-                    {body}
-                  </button>
-                ) : (
-                  <div className="flex items-start gap-1.5 px-2 py-1 text-[0.7rem]">{body}</div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-    </nav>
-  );
-}
 
 // On a PR's Overview: what autopilot thinks of this PR, and a Pause for it.
 export function AutomationCard({ review, pr }: { review: Review; pr: PrSummary }) {
@@ -302,8 +183,11 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <header className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2.5">
+      <header className="flex flex-wrap items-center gap-3 border-b border-line px-6 py-3">
         <MenuButton onClick={onMenu} />
+        <button onClick={() => review.goInbox()} className="inline-flex shrink-0 items-center gap-0.5 rounded-md bg-sunken py-1 pl-1 pr-2 text-xs hover:text-accent">
+          <ChevronLeft size={14} /> PR Reviews
+        </button>
         <Bot size={16} className={r.enabled ? "text-accent" : "text-muted"} />
         <h1 className="text-sm font-semibold">Autopilot</h1>
         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${r.enabled ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-sunken text-muted"}`}>
@@ -326,8 +210,8 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
         </span>
       </header>
       <div className="flex-1 overflow-y-auto scroll-thin">
-        <div className="grid gap-4 px-5 py-5 lg:grid-cols-2 2xl:grid-cols-4">
-          <Column title="Needs you" n={needsYou.length + failed.length} tone="text-red-700 dark:text-red-400" empty="Nothing handed to you.">
+        <div className="grid items-start gap-4 px-6 py-5 md:grid-cols-2 xl:grid-cols-4">
+          <Column title="Needs you" n={needsYou.length + failed.length} tone="text-amber-800 dark:text-amber-300" dot="bg-amber-600" box="border-amber-500/40 bg-amber-500/5" empty="Nothing handed to you.">
             {failed.map(({ p }) => (
               <BoardCard key={p.url} risk={review.riskOf(p)} title={p.title} where={`${p.repo.split("/")[1]} #${p.number}`} why={`Review failed: ${auto.failed[p.url].error}`} tone="border-red-500/30 bg-red-500/5">
                 <button onClick={() => void act("retry", p.url)} disabled={busy || !!running} className={btnS}>
@@ -349,7 +233,7 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
               </BoardCard>
             ))}
           </Column>
-          <Column title="Running" n={running ? 1 : 0} tone="text-sky-700 dark:text-sky-400" empty={r.enabled ? "Nothing running. The next check picks the top of the queue." : "Nothing running. Autopilot is off: turn it on, or press Run now."}>
+          <Column title="Running" n={running ? 1 : 0} tone="" dot="bg-emerald-500" empty={r.enabled ? "Nothing running. The next check picks the top of the queue." : "Nothing running. Autopilot is off: turn it on, or press Run now."}>
             {running && (
               <BoardCard title={running.title} where={`${label(running.url).where} · ${running.workflow}`} why={`Started ${ago(running.startedAt)} ago at ${running.headSha.slice(0, 7)}`} tone="border-sky-500/30 bg-sky-500/5">
                 <ol className="w-full space-y-0.5 text-xs">
@@ -375,7 +259,7 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
               </BoardCard>
             )}
           </Column>
-          <Column title="In queue" n={queue.length} tone="text-violet-700 dark:text-violet-400" empty="The queue is empty.">
+          <Column title="In queue" n={queue.length} tone="" dot="bg-violet-500" empty="The queue is empty.">
             {queue.map(({ p, plan }, i) => (
               <BoardCard key={p.url} n={i + 1} risk={review.riskOf(p)} title={p.title} where={`${p.repo.split("/")[1]} #${p.number}`} wf={plan.workflow?.name} why={plan.state === "changed" ? "re-check after new commits" : i === 0 ? "next up" : "waiting"}>
                 <button onClick={() => open(p.url)} className={btnS}>
@@ -411,7 +295,7 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
               </div>
             )}
           </Column>
-          <Column title="Reviewed today" n={today.length} tone="text-emerald-700 dark:text-emerald-400" empty="No reviews yet today.">
+          <Column title="Reviewed today" n={today.length} tone="" dot="bg-sky-500" empty="No reviews yet today.">
             {today.map(([url, t]) => {
               const l = label(url);
               const posted = t.lastPost && Date.parse(t.lastPost.at) >= Date.parse(t.lastRun!.at);
@@ -453,11 +337,12 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
 
 const btnS = "inline-flex items-center gap-1 rounded-lg border border-line bg-panel px-2.5 py-1 text-xs hover:border-accent hover:text-accent disabled:opacity-50";
 
-function Column({ title, n, tone, empty, children }: { title: string; n: number; tone: string; empty: string; children?: ReactNode }) {
+function Column({ title, n, tone, dot, box = "border-line bg-sunken/50", empty, children }: { title: string; n: number; tone: string; dot: string; box?: string; empty: string; children?: ReactNode }) {
   return (
-    <section className="flex min-w-0 flex-col gap-2.5 rounded-2xl bg-sunken/50 p-3">
+    <section aria-label={title} className={`flex min-w-0 flex-col gap-2.5 rounded-2xl border p-3 ${box}`}>
       <h2 className={`flex items-center gap-1.5 px-1 text-sm font-semibold ${tone}`}>
-        {title} <span className="rounded-full bg-panel px-1.5 text-xs font-normal text-muted">{n}</span>
+        <span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden />
+        <span className="flex-1">{title}</span> <span className="rounded-full bg-panel px-1.5 text-xs font-normal text-muted">{n}</span>
       </h2>
       {children}
       {!n && <p className="px-1 text-xs leading-relaxed text-muted">{empty}</p>}
