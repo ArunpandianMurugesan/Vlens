@@ -245,6 +245,7 @@ export function planFor(pr: PrSummary, s: Pick<AutopilotState, "rules" | "paused
   if (r.repos.include.length && !r.repos.include.includes(repo)) return { state: "skip", why: "repo isn't in the limits' list" };
   if (!wf) return changed ? { state: "changed", why: changedWhy } : { state: "skip", why: "no workflow picks this kind of PR" };
   if (r.skipDrafts && pr.isDraft) return { state: "skip", why: "it's a draft", workflow };
+  if (pr.priority === "stale" && pr.lane !== "mine") return { state: "skip", why: "no activity for 30+ days", workflow };
   if (r.skipLabel && pr.labels.some((l) => l.toLowerCase() === r.skipLabel.toLowerCase())) return { state: "skip", why: `labelled ${r.skipLabel}`, workflow };
   if (pr.additions + pr.deletions > r.maxChangedLines) return { state: "handoff", why: `${pr.additions + pr.deletions} changed lines, over the ${r.maxChangedLines} limit`, workflow };
   const risk = riskOf(pr, r.sensitivePaths);

@@ -45,6 +45,7 @@ export interface News {
 // Most urgent first: a draft from Claude waiting on you, then CI, reviews, pushes, talk.
 export function newsFor(p: PrSummary, seen: Seen | undefined, track: PrTrack | undefined): News | null {
   if (!seen) {
+    if (p.isDraft || p.priority === "stale") return null; // listed in their folded sections, not news
     if (p.lane === "needsYou") return { chip: "New", tone: "blue", detail: "asks for your review", icon: "new" };
     if (p.lane === "team") return { chip: "New", tone: "blue", detail: "asks your team for a review", icon: "new" };
     return null;

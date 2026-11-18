@@ -64,7 +64,7 @@ const FIELDS = (login: string) => `
   additions deletions changedFiles mergeable reviewDecision
   author { login } repository { nameWithOwner }
   labels(first: 6) { nodes { name } }
-  latestReviews(first: 20) { nodes { author { login } state commit { oid } } }
+  latestReviews(first: 20) { nodes { author { login __typename } state commit { oid } } }
   myReviews: reviews(author: ${JSON.stringify(login)}, last: 5) { nodes { state commit { oid } } }
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
   baseRef { refUpdateRule { requiredApprovingReviewCount } branchProtectionRule { requiredApprovingReviewCount } }`;
@@ -95,7 +95,9 @@ function toSummary(n: any, login: string, sources: Set<string>): PrSummary | nul
     ci: ci === "SUCCESS" ? "passing" : ci === "FAILURE" || ci === "ERROR" ? "failing" : ci ? "pending" : "none",
     mergeable: n.mergeable ?? "UNKNOWN",
     reviewDecision: n.reviewDecision ?? null,
-    approvals: reviews.filter((r) => r.state === "APPROVED").length,
+    // People's approvals only: a bot's (like an agent that approves) doesn't mean anyone looked.
+    approvals: reviews.filter((r) => r.state === "APPROVED" && r.author?.__typename !== "Bot").length,
+    botApprovals: reviews.filter((r) => r.state === "APPROVED" && r.author?.__typename === "Bot").length,
     requiredApprovals: n.baseRef?.refUpdateRule?.requiredApprovingReviewCount ?? n.baseRef?.branchProtectionRule?.requiredApprovingReviewCount ?? null,
     myReview: mine?.state ?? null,
     // You reviewed an older commit and new code has landed since.
@@ -119,11 +121,11 @@ function lane(p: PrSummary, login: string, sources: Set<string>): Lane | null {
   const asked = sources.has("review");
   const teamAsked = src.some((s) => /^team\d/.test(s));
   const squad = src.some((s) => /^squad\d/.test(s));
-  // Here only because a teammate wrote it: drop it once it's approved or a month old.
-  if (squadOnly(sources) && (p.reviewDecision === "APPROVED" || Date.now() - Date.parse(p.updatedAt || "0") >= 30 * DAY)) return null;
   const pinged = sources.has("pinged");
   // Cleared: the full approval quorum is met; with no review rule, one approval clears it.
-  const cleared = p.reviewDecision === "APPROVED" || (p.reviewDecision === null && p.approvals > 0);
+  // On your own PRs GitHub's word stands (a bot's approval can satisfy the branch rule, so
+  // you can merge); on others', a person has to have approved, or it still needs a review.
+  const cleared = p.author === login ? p.reviewDecision === "APPROVED" || (p.reviewDecision === null && p.approvals > 0) : (p.reviewDecision === "APPROVED" || p.reviewDecision === null) && p.approvals > 0;
   const myReview = p.myReview && p.myReview !== "DISMISSED" ? p.myReview : null;
   const age = Date.now() - Date.parse(p.updatedAt || "0");
 
@@ -140,8 +142,8 @@ function lane(p: PrSummary, login: string, sources: Set<string>): Lane | null {
     return { lane: "mine", ...base };
   }
 
-  // Someone else's draft isn't ready, unless they asked you directly.
-  if (p.isDraft && !asked) return null;
+  // Someone else's draft isn't ready yet, unless they asked you directly: listed, folded.
+  if (p.isDraft && !asked) return { lane: squad || teamAsked || pinged ? "team" : "fyi", priority: "low", why: "draft" };
   // You reviewed before and the author asked you again: your turn.
   if (asked && myReview && myReview !== "APPROVED")
     return { lane: "needsYou", priority: p.changedSinceMyReview ? "high" : "normal", why: p.changedSinceMyReview ? "re-review requested · new commits" : "re-review requested" };
@@ -158,12 +160,14 @@ function lane(p: PrSummary, login: string, sources: Set<string>): Lane | null {
     const closing = p.approvals > 0;
     return { lane: "needsYou", priority: closing ? "high" : "normal", why: closing ? "awaiting your review · nearly cleared" : "awaiting your review" };
   }
-  if (teamAsked || pinged)
-    return { lane: "team", priority: p.approvals > 0 ? "high" : "normal", why: pinged && !teamAsked ? "your team was tagged" : "awaiting your team's review" };
-  // A teammate's PR nobody asked you about: worth a look while it's fresh.
-  if (squad) return age >= 30 * DAY ? null : { lane: "team", priority: p.approvals > 0 ? "high" : "normal", why: "from your team, awaiting review" };
-  // Mentioned or commented on: just so you know, and gone after a week.
-  if (sources.has("mentions") || sources.has("commenter")) return age >= 7 * DAY ? null : { lane: "fyi", priority: "low", why: "mentioned" };
+  // Your team's PRs (asked, tagged, or a teammate's): quiet ones (30+ days) sink, folded.
+  if (teamAsked || pinged || squad) {
+    const why = teamAsked ? "awaiting your team's review" : pinged ? "your team was tagged" : "from your team, awaiting review";
+    if (age >= 30 * DAY) return { lane: "team", priority: "stale", why: `${why} · quiet for ${Math.floor(age / DAY)} days` };
+    return { lane: "team", priority: p.approvals > 0 ? "high" : "normal", why };
+  }
+  // Mentioned or commented on: just so you know; older ones sink.
+  if (sources.has("mentions") || sources.has("commenter")) return { lane: "fyi", priority: age >= 7 * DAY ? "stale" : "low", why: "mentioned" };
   return { lane: "fyi", priority: "low", why: "tracked" };
 }
 
@@ -251,12 +255,16 @@ export async function reviewBoard(force = false): Promise<ReviewBoard> {
   const frag = `fragment pr on PullRequest {${FIELDS(login)}\n}`;
   // The searches go as a few small queries at once (GitHub runs each on its own), so the
   // wait is the slowest one, not the sum, and none gets near the limit.
+  // A squad's search can be long (every teammate's open PRs), so each goes on its own.
+  const isSquad = ([alias]: [string, string]) => alias.startsWith("squad");
+  const plain = searches.filter((s) => !isSquad(s));
   const chunks: [string, string][][] = [];
-  for (let i = 0; i < searches.length; i += 3) chunks.push(searches.slice(i, i + 3));
+  for (let i = 0; i < plain.length; i += 3) chunks.push(plain.slice(i, i + 3));
+  for (const s of searches.filter(isSquad)) chunks.push([s]);
   const [tracked, pinged, ...parts] = await Promise.all([
     readTracked(),
     pingedPrs(),
-    ...chunks.map((c) => graphql(`${frag}\nquery {\n${c.map(([alias, q]) => `  ${alias}: search(query: ${lit(`${q} is:pr is:open archived:false`)}, type: ISSUE, first: 25) { nodes { ...pr } }`).join("\n")}\n}`)),
+    ...chunks.map((c) => graphql(`${frag}\nquery {\n${c.map(([alias, q]) => `  ${alias}: search(query: ${lit(`${q} is:pr is:open archived:false`)}, type: ISSUE, first: ${alias.startsWith("squad") ? 100 : 50}) { nodes { ...pr } }`).join("\n")}\n}`)),
   ]);
   mark("searches");
   const bad = parts.find((x) => !x.data);

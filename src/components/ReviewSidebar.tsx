@@ -50,10 +50,12 @@ export type Section = { id: string; label: string; tone: string; head?: string; 
 export const SECTIONS: Record<"reviews" | "mine", Section[]> = {
   reviews: [
     { id: "needsYou", label: "Needs you", tone: "text-amber-700 dark:text-amber-400", test: (p) => p.lane === "needsYou" },
-    { id: "team", label: "Needs your team", tone: "text-sky-700 dark:text-sky-400", test: (p) => p.lane === "team" },
+    { id: "team", label: "Needs your team", tone: "text-sky-700 dark:text-sky-400", test: (p) => p.lane === "team" && !p.isDraft && p.priority !== "stale" },
     { id: "approvedWaiting", label: "Approved · awaiting others", tone: "text-violet-700 dark:text-violet-400", test: (p) => p.lane === "approvedWaiting" },
     { id: "waitingAuthor", label: "Waiting on author", tone: "text-muted", head: "text-teal-700 dark:text-teal-400", test: (p) => p.lane === "waitingAuthor" },
     { id: "done", label: "Done · your part", tone: "text-emerald-700 dark:text-emerald-400", test: (p) => p.lane === "done" },
+    { id: "teamDrafts", label: "Your team's drafts", tone: "text-muted", head: "text-violet-700 dark:text-violet-400", folded: true, test: (p) => p.lane === "team" && p.isDraft },
+    { id: "teamQuiet", label: "Your team · quiet 30+ days", tone: "text-muted", head: "text-slate-500 dark:text-slate-400", folded: true, test: (p) => p.lane === "team" && !p.isDraft && p.priority === "stale" },
     { id: "fyi", label: "FYI", tone: "text-muted", head: "text-slate-500 dark:text-slate-400", folded: true, test: (p) => p.lane === "fyi" },
   ],
   // vTower's "Your PRs" lane, ranked: blocked on you, ready, awaiting review, stale.
@@ -82,6 +84,7 @@ export function statusLine(p: PrSummary) {
   if (p.lane === "team" && p.teams?.length) bits[0] = `asked @${p.teams.map(teamName).join(", @")}`;
   else if (p.lane === "team" && p.pinged) bits[0] = "your team was tagged";
   else if (p.lane === "team" && p.squad) bits[0] = `from ${teamName(p.squad)}, awaiting review`;
+  if (p.botApprovals && !p.approvals) bits.push("only a bot approved");
   if (p.lane !== "mine" && p.author) bits.push(`@${p.author}`);
   return bits.join(" · ");
 }
@@ -95,7 +98,8 @@ export function ReviewSidebar({ review, onDone }: { review: Review; onDone: () =
   const count = {
     new: news.length,
     mine: prs.filter((p) => p.lane === "mine").length,
-    reviews: prs.filter((p) => p.lane === "needsYou" || p.lane === "team").length,
+    // What's waiting on you: not drafts, not quiet ones (those are listed, folded).
+    reviews: prs.filter((p) => p.lane === "needsYou" || (p.lane === "team" && !p.isDraft && p.priority !== "stale")).length,
   };
   const r = auto?.rules;
   const needsYou = auto ? prs.filter((p) => ["handoff"].includes(planOf(p)?.state ?? "") || auto.failed[p.url]?.headSha === p.headSha).length : 0;

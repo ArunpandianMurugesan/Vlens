@@ -252,7 +252,8 @@ export interface PrSummary {
   ci: "passing" | "failing" | "pending" | "none";
   mergeable: string; // MERGEABLE | CONFLICTING | UNKNOWN
   reviewDecision: string | null; // APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED | null
-  approvals: number;
+  approvals: number; // by people
+  botApprovals?: number; // by bots (not counted as anyone having reviewed it)
   requiredApprovals: number | null; // null when the branch has no rule (or we can't see it)
   myReview: string | null;
   changedSinceMyReview: boolean;
