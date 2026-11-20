@@ -33,11 +33,11 @@ Just want to use it? Download the dmg from the [latest release](https://github.c
 | **Home** | Start a session in any folder, see what needs you and what's running, today's numbers, and heavy sessions with Compact / Fresh start. |
 | **Notifications and menu bar** | Desktop alerts when Claude asks, has a plan, or finishes (terminal sessions too). The menu bar icon lists what's waiting and can Allow / Deny a permission. |
 | **PR Review** | Your GitHub PRs (New, My PRs, Needs my review), one page per PR, a risk score, Review with Claude, Address feedback and Merge. |
-| **Autopilot** | Off by default. Reviews PRs for you on a schedule, as drafts you post, within limits you set. |
+| **Review lifecycle** | Each PR tracked from review to merge: new commits after your review bring it back to Needs you, follow-up reviews check only the earlier asks and new code, and an optional per-PR switch re-reviews new commits as drafts. |
 | **Settings and Marketplace** | Account, model, skills, hooks, MCP servers in one place, plus your team's skills. |
 | **Get started** | First launch installs Claude Code, signs you in and connects GitHub. |
 
-Vlens only posts to GitHub from your own `gh` account, when you click (it asks first), or when you set an Autopilot workflow to post. It never approves a PR. Details: [What Vlens can do on GitHub as you](docs/GUIDE.md#what-vlens-can-do-on-github-as-you).
+Vlens only posts to GitHub from your own `gh` account, only when you click (it asks first). It never posts or approves on its own. Details: [What Vlens can do on GitHub as you](docs/GUIDE.md#what-vlens-can-do-on-github-as-you).
 
 ## How it's different
 
@@ -51,5 +51,5 @@ vTower and Vlens work together: type in vTower's terminals, and see and review i
 
 ## More
 
-- [docs/GUIDE.md](docs/GUIDE.md): the problems it solves, the full comparison, every feature in detail, PR Review and Autopilot, updating, building the dmg, releasing, and how the code is laid out.
+- [docs/GUIDE.md](docs/GUIDE.md): the problems it solves, the full comparison, every feature in detail, PR Review and the review lifecycle, updating, building the dmg, releasing, and how the code is laid out.
 - [CHANGELOG.md](CHANGELOG.md): what changed in each version.

@@ -257,6 +257,7 @@ export interface PrSummary {
   requiredApprovals: number | null; // null when the branch has no rule (or we can't see it)
   myReview: string | null;
   changedSinceMyReview: boolean;
+  myReviewSha?: string | null; // the commit your last review was on
   lane: PrLane;
   priority: PrPriority;
   why: string;

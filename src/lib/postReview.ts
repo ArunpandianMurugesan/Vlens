@@ -3,8 +3,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 // One GitHub review from YOUR account (your own gh), each finding inline at its line.
-// Used by "Post review as me" (api/review/post) and by autopilot workflows set to post
-// comments themselves. Only COMMENT or REQUEST_CHANGES: never an approval.
+// Used by "Post review as me" and the Discussion tab's Post (api/review/post), only on
+// your click. Only COMMENT or REQUEST_CHANGES: never an approval.
 
 const run = promisify(execFile);
 export type ReviewComment = { path: string; line: number; body: string };
@@ -14,7 +14,7 @@ async function myName() {
   if (name === null) name = (await run("gh", ["api", "user", "--jq", ".name // .login"], { timeout: 15_000 }).then((r) => r.stdout.trim().split(/\s+/)[0], () => "")) || "My";
   return name;
 }
-export const reviewHeader = async (autopilot = false) => `🤖 **${await myName()}'s agent**${autopilot ? " (autopilot)" : ""} says:`;
+export const reviewHeader = async () => `🤖 **${await myName()}'s agent** says:`;
 
 function ghReview(repo: string, number: number, payload: object) {
   return new Promise<string>((resolve, reject) => {

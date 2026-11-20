@@ -103,6 +103,7 @@ function toSummary(n: any, login: string, sources: Set<string>): PrSummary | nul
     myReview: mine?.state ?? null,
     // You reviewed an older commit and new code has landed since.
     changedSinceMyReview: !!(mine?.commit?.oid && n.headRefOid && mine.commit.oid !== n.headRefOid),
+    myReviewSha: mine?.commit?.oid ?? null,
     lane: "fyi",
     priority: "low",
     why: "",
@@ -116,6 +117,7 @@ function toSummary(n: any, login: string, sources: Set<string>): PrSummary | nul
 // how you relate to it), a priority within the lane, and a short reason. null = hidden.
 type Lane = { lane: PrLane; priority: PrPriority; why: string };
 const DAY = 86_400_000;
+const since = (p: PrSummary) => (p.myReviewSha ? ` at ${p.myReviewSha.slice(0, 7)}` : "");
 const squadOnly = (sources: Set<string>) => [...sources].every((s) => /^squad\d/.test(s) || s === "tracked") && [...sources].some((s) => /^squad\d/.test(s));
 function lane(p: PrSummary, login: string, sources: Set<string>): Lane | null {
   const src = [...sources];
@@ -147,10 +149,10 @@ function lane(p: PrSummary, login: string, sources: Set<string>): Lane | null {
   if (p.isDraft && !asked) return { lane: squad || teamAsked || pinged ? "team" : "fyi", priority: "low", why: "draft" };
   // You reviewed before and the author asked you again: your turn.
   if (asked && myReview && myReview !== "APPROVED")
-    return { lane: "needsYou", priority: p.changedSinceMyReview ? "high" : "normal", why: p.changedSinceMyReview ? "re-review requested · new commits" : "re-review requested" };
-  // A fix landed on something you flagged: your turn again, on top.
+    return { lane: "needsYou", priority: p.changedSinceMyReview ? "high" : "normal", why: p.changedSinceMyReview ? `re-review requested · new commits since your review${since(p)}` : "re-review requested" };
+  // The author pushed after your review (changes requested or comments): your turn again, on top.
   if ((myReview === "CHANGES_REQUESTED" || myReview === "COMMENTED") && p.changedSinceMyReview)
-    return { lane: "needsYou", priority: "high", why: "fix pushed · re-review" };
+    return { lane: "needsYou", priority: "high", why: `new commits since your review${since(p)}` };
   if (myReview === "APPROVED")
     return cleared ? { lane: "done", priority: "low", why: "approved · ready to merge" } : { lane: "approvedWaiting", priority: "normal", why: "you approved · awaiting others" };
   if (myReview === "CHANGES_REQUESTED") return { lane: "waitingAuthor", priority: "low", why: "changes requested · author's turn" };

@@ -8,7 +8,7 @@ const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 
-const PREFERRED_PORT = 3459; // a fixed port keeps the browser storage (theme, hidden PRs) stable
+const PREFERRED_PORT = 3459; // a fixed port keeps the browser storage (theme, seen PRs) stable
 // Dev mode (`npm run app` in desktop/) just opens the dev server instead.
 const DEV_URL = process.env.LENS_DEV_URL;
 

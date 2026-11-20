@@ -1,4 +1,4 @@
-import { logActivity } from "@/lib/autopilot";
+import { logActivity } from "@/lib/activity";
 import { isPrUrl, prSnapshot, recordRun, recordsFor } from "@/lib/reviewRecords";
 
 export const dynamic = "force-dynamic";

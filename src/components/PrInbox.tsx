@@ -1,9 +1,9 @@
 "use client";
 
-import { Bot, Check, ChevronRight, EyeOff, GitCommit, GitPullRequest, MessageSquare, RefreshCw, Search, Sparkles, X } from "lucide-react";
+import { Bot, Check, ChevronRight, FolderGit2, GitCommit, GitPullRequest, Loader2, MessageSquare, RefreshCw, Search, Sparkles, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { InboxTab, Review } from "@/hooks/useReview";
-import type { Plan } from "@/lib/autopilotPlan";
+import { type Stage, stageOf } from "@/lib/lifecycle";
 import type { News, NewsTone } from "@/lib/prSeen";
 import type { PrSummary } from "@/lib/types";
 import { RiskBadge } from "./RiskBadge";
@@ -11,12 +11,13 @@ import { ago, CI_DOT, meter, RANK, SECTIONS, statusLine } from "./ReviewSidebar"
 import { MenuButton } from "./Sidebar";
 
 // The PR lists, in the main area: New (what changed since you looked), My PRs (by whose
-// move it is) and Needs my review (with what autopilot did on each). One card per PR.
+// move it is) and Needs my review (with where each review stands). Inside each list,
+// PRs are nested by author, then repo (My PRs: by repo, they're all yours).
 
 const META: Record<InboxTab, [string, string]> = {
   new: ["New", "What changed on your PRs and reviews since you last looked"],
   mine: ["My PRs", "PRs you opened, by whose move it is"],
-  reviews: ["Needs my review", "PRs waiting on you or your team, with what Autopilot did on each"],
+  reviews: ["Needs my review", "PRs waiting on you or your team, and where each review stands"],
 };
 
 export const TONE: Record<NewsTone | "gray", { chip: string; tile: string; card: string }> = {
@@ -28,27 +29,21 @@ export const TONE: Record<NewsTone | "gray", { chip: string; tile: string; card:
   gray: { chip: "bg-sunken text-muted", tile: "bg-sunken text-muted", card: "border-line bg-panel" },
 };
 
-type Row = { p: PrSummary; tone: NewsTone | "gray"; chip: string; detail: string; tile: "ai" | "ci" | "ok" | "commits" | "talk" | "new" | "person"; by?: string };
+type Tile = "ai" | "ci" | "ok" | "commits" | "talk" | "new" | "person" | "running";
+type Row = { p: PrSummary; tone: NewsTone | "gray"; chip: string; detail: string; tile: Tile; auto?: boolean };
 
-// What autopilot did on a PR, as the row's chip and line. null: nothing to say.
-function autopilotRow(p: PrSummary, plan: Plan | null, by: string | undefined, enabled: boolean): Omit<Row, "p"> | null {
-  if (!plan) return null;
-  switch (plan.state) {
-    case "reviewed":
-      return { tone: "orange", chip: by === "autopilot" ? "Draft ready" : "Reviewed", detail: by === "autopilot" ? `Autopilot ${plan.why}. Nothing is posted until you say so.` : `Claude ${plan.why}`, tile: "ai", by };
-    case "handoff":
-      return { tone: "orange", chip: "Handed to you", detail: `Autopilot handed it to you: ${plan.why}`, tile: "ai", by: "autopilot" };
-    case "changed":
-      return { tone: "blue", chip: "New changes", detail: `Reviewed before · ${plan.why}`, tile: "ai", by };
-    case "posted":
-      return { tone: "green", chip: "Posted", detail: `Claude's ${plan.why}`, tile: "ai", by };
-    case "queued":
-      return enabled ? { tone: "violet", chip: "Queued", detail: `In the queue · ${plan.workflow?.name ?? "autopilot"} picks it on a coming check`, tile: "ai", by: "autopilot" } : null;
-    case "paused":
-      return { tone: "gray", chip: "Paused", detail: "You paused autopilot for this PR", tile: "person" };
-    default:
-      return null;
-  }
+// Where the PR's review stands (lifecycle.ts), as the row's chip and line. null: nothing to say.
+const STAGE_ROW: Record<Exclude<Stage, "none">, { tone: Row["tone"]; tile: Tile }> = {
+  running: { tone: "blue", tile: "running" },
+  failed: { tone: "red", tile: "ai" },
+  draft: { tone: "orange", tile: "ai" },
+  posted: { tone: "green", tile: "ai" },
+  newCommits: { tone: "violet", tile: "commits" },
+};
+function stageRow(p: PrSummary, review: Review): Omit<Row, "p"> | null {
+  const s = stageOf(p, review.life);
+  if (s.stage === "none") return null;
+  return { ...STAGE_ROW[s.stage], chip: s.chip, detail: s.detail, auto: s.auto };
 }
 
 function mineRow(p: PrSummary): Omit<Row, "p"> {
@@ -60,19 +55,41 @@ function mineRow(p: PrSummary): Omit<Row, "p"> {
   return { tone: "gray", chip: "Waiting", detail: statusLine(p), tile: "person" };
 }
 
-const NEWS_TILE: Record<News["icon"], Row["tile"]> = { claude: "ai", ci: "ci", approved: "ok", commits: "commits", activity: "talk", new: "new" };
+const NEWS_TILE: Record<News["icon"], Tile> = { claude: "ai", ci: "ci", approved: "ok", commits: "commits", activity: "talk", new: "new" };
+
+// Rows nested by author, then repo, each in the order its first (most urgent) row came.
+type RepoGroup = { repo: string; rows: Row[] };
+type AuthorGroup = { author: string; repos: RepoGroup[]; count: number };
+function nest(rows: Row[]): AuthorGroup[] {
+  const authors = new Map<string, Map<string, Row[]>>();
+  for (const r of rows) {
+    const repos = authors.get(r.p.author) ?? new Map<string, Row[]>();
+    authors.set(r.p.author, repos);
+    const list = repos.get(r.p.repo) ?? [];
+    repos.set(r.p.repo, list);
+    list.push(r);
+  }
+  return [...authors].map(([author, repos]) => ({ author, repos: [...repos].map(([repo, list]) => ({ repo, rows: list })), count: [...repos.values()].reduce((n, l) => n + l.length, 0) }));
+}
 
 export function PrInbox({ review, onMenu }: { review: Review; onMenu: () => void }) {
-  const { inbox, prs, news, planOf, auto, select, refresh, loading, board, markSeen, hidden, unhide } = review;
+  const { inbox, prs, news, life, refresh, loading, board, markSeen } = review;
   const [q, setQ] = useState("");
-  const [showHidden, setShowHidden] = useState(false);
-  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [open, setOpen] = useState<Record<string, boolean>>({}); // folded sections opened
+  const [shut, setShut] = useState<Record<string, boolean>>({}); // author groups closed
   const match = (p: PrSummary) => !q || `${p.title} ${p.repo} #${p.number} ${p.author}`.toLowerCase().includes(q.toLowerCase());
-  const enabled = !!auto?.rules.enabled;
 
   // Sections of rows; New has one.
   const groups = useMemo(() => {
-    if (inbox === "new") return [{ id: "new", label: "", folded: false, rows: news.filter((x) => match(x.p)).map(({ p, n }): Row => ({ p, tone: n.tone, chip: n.chip, detail: n.detail, tile: NEWS_TILE[n.icon], by: auto?.tracks[p.url]?.lastRun?.by })) }];
+    if (inbox === "new")
+      return [
+        {
+          id: "new",
+          label: "",
+          folded: false,
+          rows: news.filter((x) => match(x.p)).map(({ p, n }): Row => ({ p, tone: n.tone, chip: n.chip, detail: n.detail, tile: NEWS_TILE[n.icon], auto: n.icon === "claude" && life.tracks[p.url]?.lastRun?.by === "auto" })),
+        },
+      ];
     return SECTIONS[inbox].map((g) => ({
       id: g.id,
       label: g.label,
@@ -81,14 +98,18 @@ export function PrInbox({ review, onMenu }: { review: Review; onMenu: () => void
         .filter((p) => g.test(p) && match(p))
         .sort((a, b) => RANK[a.priority] - RANK[b.priority] || b.updatedAt.localeCompare(a.updatedAt))
         .map((p): Row => {
-          if (inbox === "mine") return { p, ...mineRow(p) };
-          const by = auto?.tracks[p.url]?.lastRun?.by;
-          const a = autopilotRow(p, planOf(p), by, enabled);
-          return { p, by, ...(a ?? { tone: p.lane === "needsYou" ? "orange" : "gray", chip: g.label, detail: statusLine(p), tile: "person" }) };
+          const s = stageRow(p, review);
+          if (inbox === "mine") {
+            // Your own PR: its status, unless a self-review is running, failed or waiting for you.
+            const st = stageOf(p, review.life).stage;
+            return { p, ...(s && (st === "running" || st === "draft" || st === "failed") ? s : mineRow(p)) };
+          }
+          return { p, ...(s ?? { tone: p.lane === "needsYou" ? "orange" : "gray", chip: g.label, detail: statusLine(p), tile: "person" }) };
         }),
     }));
-  }, [inbox, news, prs, q, planOf, auto, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [inbox, news, prs, q, life]); // eslint-disable-line react-hooks/exhaustive-deps
   const total = groups.reduce((n, g) => n + g.rows.length, 0);
+  const byAuthor = inbox !== "mine";
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
@@ -103,14 +124,9 @@ export function PrInbox({ review, onMenu }: { review: Review; onMenu: () => void
             Mark all seen
           </button>
         )}
-        {hidden.length > 0 && (
-          <button onClick={() => setShowHidden((v) => !v)} aria-expanded={showHidden} className="inline-flex items-center gap-1 text-xs text-muted hover:text-accent">
-            <EyeOff size={12} /> Hidden ({hidden.length})
-          </button>
-        )}
         <label className="flex h-8 w-60 items-center gap-1.5 rounded-lg bg-sunken px-2.5 text-sm text-muted focus-within:ring-2 focus-within:ring-accent/50">
           <Search size={14} />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by repo or title" aria-label="Filter by repo or title" className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-muted" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by repo, title or author" aria-label="Filter by repo, title or author" className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-muted" />
         </label>
         <button onClick={() => void refresh()} disabled={loading} aria-label="Get the latest from GitHub" title="Get the latest from GitHub" className="flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-panel text-muted hover:text-accent disabled:opacity-60">
           <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
@@ -119,21 +135,6 @@ export function PrInbox({ review, onMenu }: { review: Review; onMenu: () => void
       <div className="flex-1 overflow-y-auto scroll-thin">
         <div className="mx-auto max-w-5xl space-y-2 px-6 py-5">
           {board?.error && <p className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{board.error}</p>}
-          {showHidden && hidden.length > 0 && (
-            <section aria-label="Hidden PRs" className="space-y-1 rounded-xl border border-dashed border-line px-3.5 py-2.5 text-sm">
-              <div className="text-xs font-semibold text-muted">Hidden from PR Review ({hidden.length})</div>
-              {hidden.map((p) => (
-                <div key={p.url} className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate" title={p.title}>
-                    {p.title} <span className="text-xs text-muted">{p.repo.split("/")[1]} #{p.number}</span>
-                  </span>
-                  <button onClick={() => unhide(p.url)} className="shrink-0 rounded-md border border-line px-2 py-0.5 text-xs hover:border-accent hover:text-accent">
-                    Unhide
-                  </button>
-                </div>
-              ))}
-            </section>
-          )}
           {!board && <p className="py-8 text-center text-sm text-muted">Loading PRs from GitHub…</p>}
           {board && !total && !board.error && (
             <p className="py-10 text-center text-sm text-muted">
@@ -151,7 +152,38 @@ export function PrInbox({ review, onMenu }: { review: Review; onMenu: () => void
                     {g.label} <span className="font-normal">{g.rows.length}</span>
                   </button>
                 )}
-                {!folded && g.rows.map((r) => <PrRow key={r.p.url} r={r} risk={review.riskOf(r.p)} onOpen={() => void select(r.p.url)} />)}
+                {!folded &&
+                  (byAuthor ? (
+                    nest(g.rows).map((a) => {
+                      const key = `${inbox}:${g.id}:${a.author}`;
+                      const closed = !!shut[key] && !q;
+                      return (
+                        <div key={a.author} className="space-y-1.5">
+                          <button onClick={() => setShut((s) => ({ ...s, [key]: !s[key] }))} aria-expanded={!closed} className="flex w-full items-center gap-2 rounded-lg px-1 py-1 text-left text-sm hover:bg-sunken/60">
+                            <ChevronRight size={13} className={`shrink-0 text-muted transition-transform ${closed ? "" : "rotate-90"}`} />
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sunken text-[0.6rem] font-semibold uppercase">{a.author.slice(0, 2) || "?"}</span>
+                            <span className="font-medium">@{a.author || "unknown"}</span>
+                            <span className="text-xs text-muted">{a.count}</span>
+                          </button>
+                          {!closed && (
+                            <div className="ml-4 space-y-2 border-l border-line pl-4">
+                              {a.repos.map((r) => (
+                                <RepoBlock key={r.repo} group={r} review={review} />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    nest(g.rows).flatMap((a) => a.repos).reduce<RepoGroup[]>((out, r) => {
+                      // My PRs: every author is you, so only the repo level, merged across authors.
+                      const hit = out.find((x) => x.repo === r.repo);
+                      if (hit) hit.rows.push(...r.rows);
+                      else out.push({ repo: r.repo, rows: [...r.rows] });
+                      return out;
+                    }, []).map((r) => <RepoBlock key={r.repo} group={r} review={review} />)
+                  ))}
               </section>
             );
           })}
@@ -161,18 +193,32 @@ export function PrInbox({ review, onMenu }: { review: Review; onMenu: () => void
   );
 }
 
+function RepoBlock({ group, review }: { group: RepoGroup; review: Review }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5 px-1 text-xs text-muted" title={group.repo}>
+        <FolderGit2 size={12} className="shrink-0" />
+        <span className="truncate font-medium text-ink/80">{group.repo.split("/")[1] ?? group.repo}</span>
+        <span className="truncate">{group.repo.split("/")[0]}</span>
+        <span>· {group.rows.length}</span>
+      </div>
+      {group.rows.map((r) => (
+        <PrRow key={r.p.url} r={r} risk={review.riskOf(r.p)} onOpen={() => void review.select(r.p.url)} />
+      ))}
+    </div>
+  );
+}
+
 function PrRow({ r, risk, onOpen }: { r: Row; risk: ReturnType<Review["riskOf"]>; onOpen: () => void }) {
   const t = TONE[r.tone];
   const m = meter(r.p);
   return (
     <button onClick={onOpen} className={`flex w-full items-center gap-3.5 rounded-xl border px-3.5 py-3 text-left transition hover:border-accent/50 ${t.card}`}>
-      <Tile r={r} />
+      <TileMark r={r} />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex min-w-0 items-center gap-2">
           <strong className="truncate text-sm">{r.p.title}</strong>
-          <span className="shrink-0 text-[0.7rem] text-muted">
-            {r.p.repo.split("/")[1]} #{r.p.number}
-          </span>
+          <span className="shrink-0 text-[0.7rem] text-muted">#{r.p.number}</span>
         </span>
         <span className="truncate text-xs text-muted">{r.detail}</span>
       </span>
@@ -185,20 +231,21 @@ function PrRow({ r, risk, onOpen }: { r: Row; risk: ReturnType<Review["riskOf"]>
   );
 }
 
-function Tile({ r }: { r: Row }) {
+function TileMark({ r }: { r: Row }) {
   const base = "flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-[0.7rem] font-bold";
-  const cls = `${base} ${TONE[r.tone].tile}`;
-  const Icon = { ai: Bot, ci: X, ok: Check, commits: GitCommit, talk: MessageSquare, new: GitPullRequest, person: null }[r.tile];
-  // Autopilot's own runs wear "AP"; drafts from a Review you clicked wear Claude's mark.
-  if (r.tile === "ai")
-    return r.by === "autopilot" ? (
-      <span className={`${base} ${TONE.violet.tile}`} title="Autopilot">
-        AP
-      </span>
-    ) : (
-      <span className={`${base} ${TONE.violet.tile}`} title="Claude">
-        <Sparkles size={15} />
+  if (r.tile === "running")
+    return (
+      <span className={`${base} ${TONE.blue.tile}`} title="Claude is reviewing">
+        <Loader2 size={15} className="animate-spin" />
       </span>
     );
-  return <span className={cls}>{Icon ? <Icon size={15} /> : r.p.author.slice(0, 2).toUpperCase()}</span>;
+  // A review Claude did by itself (auto re-review) wears a bot; one you started, Claude's mark.
+  if (r.tile === "ai")
+    return (
+      <span className={`${base} ${TONE.violet.tile}`} title={r.auto ? "Auto review" : "Claude"}>
+        {r.auto ? <Bot size={15} /> : <Sparkles size={15} />}
+      </span>
+    );
+  const Icon = { ci: X, ok: Check, commits: GitCommit, talk: MessageSquare, new: GitPullRequest, person: null }[r.tile];
+  return <span className={`${base} ${TONE[r.tone].tile}`}>{Icon ? <Icon size={15} /> : r.p.author.slice(0, 2).toUpperCase()}</span>;
 }

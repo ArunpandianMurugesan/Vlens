@@ -1,4 +1,4 @@
-import { logActivity } from "@/lib/autopilot";
+import { logActivity } from "@/lib/activity";
 import { type ReviewComment, postReview, reviewHeader } from "@/lib/postReview";
 import { prSnapshot, recordPost, recordsFor } from "@/lib/reviewRecords";
 

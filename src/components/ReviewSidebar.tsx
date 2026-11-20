@@ -89,8 +89,6 @@ export function statusLine(p: PrSummary) {
   return bits.join(" · ");
 }
 
-// The PR Review left panel: where to go, not the lists themselves (those fill the
-// main area, PrInbox.tsx). New, My PRs, Needs my review, then Autopilot and how its day
 // The sidebar's top row in PR Review (in place of Home): the title, when GitHub was
 // last read, and a refresh.
 export function ReviewSidebarTitle({ review }: { review: Review }) {
@@ -108,19 +106,18 @@ export function ReviewSidebarTitle({ review }: { review: Review }) {
   );
 }
 
-// is going.
+// The PR Review left panel: where to go, not the lists themselves (those fill the
+// main area, PrInbox.tsx). New, My PRs, Needs my review, and any auto re-reviews.
 export function ReviewSidebar({ review, onDone }: { review: Review; onDone: () => void }) {
-  const { prs, inbox, goInbox, news, auto, selected, boardOpen, rulesOpen, setBoardOpen, planOf } = review;
-  const away = !!selected || boardOpen || rulesOpen; // a PR, the board or settings is open
+  const { prs, inbox, goInbox, news, life, selected, select } = review;
+  const away = !!selected; // a PR is open
   const count = {
     new: news.length,
     mine: prs.filter((p) => p.lane === "mine").length,
     // What's waiting on you: not drafts, not quiet ones (those are listed, folded).
     reviews: prs.filter((p) => p.lane === "needsYou" || (p.lane === "team" && !p.isDraft && p.priority !== "stale")).length,
   };
-  const r = auto?.rules;
-  const needsYou = auto ? prs.filter((p) => ["handoff"].includes(planOf(p)?.state ?? "") || auto.failed[p.url]?.headSha === p.headSha).length : 0;
-  const nextIn = r?.enabled && auto?.lastCheck ? Math.max(0, Math.ceil((Date.parse(auto.lastCheck) + r.intervalMinutes * 60_000 - Date.now()) / 60_000)) : null;
+  const watching = Object.keys(life.watch).length;
   const items = [
     { id: "new", label: "New", Icon: Sparkles, hot: true },
     { id: "mine", label: "My PRs", Icon: GitPullRequest, hot: false },
@@ -148,35 +145,27 @@ export function ReviewSidebar({ review, onDone }: { review: Review; onDone: () =
           );
         })}
       </nav>
-      <div className="mx-1.5 my-3 h-px bg-line" />
-      <button
-        onClick={() => {
-          setBoardOpen(true);
-          onDone();
-        }}
-        aria-current={boardOpen && !rulesOpen ? "page" : undefined}
-        className={`flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm ${boardOpen || rulesOpen ? "bg-accent/15 font-semibold" : "text-ink/80 hover:bg-panel/60"}`}
-      >
-        <Bot size={15} className={boardOpen || rulesOpen ? "text-accent" : "text-muted"} />
-        <span className="flex-1">Autopilot</span>
-        {needsYou > 0 && <span className="rounded-full bg-danger/15 px-1.5 text-[0.7rem] text-danger">{needsYou}</span>}
-        <span className={`flex items-center gap-1 text-[0.7rem] ${r?.enabled ? "text-success" : "text-muted"}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${r?.enabled ? "bg-success" : "bg-muted"}`} aria-hidden /> {r?.enabled ? "On" : "Off"}
-        </span>
-      </button>
       <span className="flex-1" />
-      {auto && r && (
+      {(life.running.length > 0 || watching > 0) && (
         <div className="mx-1 mb-3 space-y-1.5 rounded-xl border border-line bg-panel px-3 py-2.5 text-xs">
-          <strong className="block">Autopilot today</strong>
-          {auto.running.length ? (
-            <span className="flex items-center gap-1.5 text-sky-700 dark:text-sky-400">
-              <Loader2 size={11} className="animate-spin" /> <span className="truncate">{auto.running.length === 1 ? `Reviewing ${auto.running[0].title}` : `Reviewing ${auto.running.length} PRs at once`}</span>
-            </span>
-          ) : (
-            <span className="text-muted">
-              {auto.today} reviews today · {!r.enabled ? "off" : nextIn === null ? `every ${r.intervalMinutes} min` : nextIn === 0 ? "checking soon" : `next check in ${nextIn} min`}
-            </span>
-          )}
+          <strong className="flex items-center gap-1.5">
+            <Bot size={12} className="text-accent" /> Auto re-review
+          </strong>
+          {life.running.map((r) => (
+            <button
+              key={r.url}
+              onClick={() => {
+                void select(r.url);
+                onDone();
+              }}
+              className="flex w-full items-center gap-1.5 text-left text-sky-700 hover:underline dark:text-sky-400"
+            >
+              <Loader2 size={11} className="shrink-0 animate-spin" /> <span className="truncate">Reviewing {r.title}</span>
+            </button>
+          ))}
+          <span className="block text-muted">
+            On for {watching} PR{watching === 1 ? "" : "s"}. New commits get a follow-up review, as drafts.
+          </span>
         </div>
       )}
     </div>

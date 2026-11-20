@@ -1,23 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { type AutopilotRules, type AutopilotState, DEFAULT_RULES, type Plan, planFor } from "@/lib/autopilotPlan";
+import { EMPTY_LIFECYCLE, type Lifecycle } from "@/lib/lifecycle";
 import { type Risk, riskOf as scoreRisk } from "@/lib/risk";
 import { addPrSession } from "@/lib/prSessions";
 import { type News, type NewsTone, newsFor, readSeen, type Seen, snapshot, writeSeen } from "@/lib/prSeen";
 import type { PrDetail, PrSummary, ReviewBoard } from "@/lib/types";
 
-const DISMISSED_KEY = "lens.dismissedPRs";
 const POLL_MS = 10 * 60_000; // GitHub is polled lightly; the refresh button forces a fetch
-
-function readDismissed(): Set<string> {
-  try {
-    const a = JSON.parse(localStorage.getItem(DISMISSED_KEY) || "[]");
-    return new Set(Array.isArray(a) ? a : []);
-  } catch {
-    return new Set();
-  }
-}
 
 // The inbox lists in the left panel: what's new, your own PRs, reviews asked of you.
 export type InboxTab = "new" | "mine" | "reviews";
@@ -30,58 +20,39 @@ export function useReview() {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<string | null>(null); // PR url
   const [detail, setDetail] = useState<{ url: string; data?: PrDetail; error?: string } | null>(null);
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
-  useEffect(() => setDismissed(readDismissed()), []);
-
-  // Autopilot: its rules, log and each PR's past reviews (all local, so polled often).
-  const [auto, setAuto] = useState<AutopilotState | null>(null);
-  const [rulesOpen, setRulesOpen] = useState(false);
-  const [boardOpen, setBoardOpen] = useState(false); // the Autopilot board, in the main area
-  const loadAuto = useCallback(async () => {
-    const d = await fetch("/api/autopilot").then((r) => (r.ok ? r.json() : null)).catch(() => null);
-    if (d?.rules) setAuto(d);
+  // Each PR's review lifecycle (lifecycle.ts): past reviews and posts, which PRs
+  // re-review new commits by themselves, and what's running. All local, so polled often.
+  const [life, setLife] = useState<Lifecycle | null>(null);
+  const loadLife = useCallback(async () => {
+    const d = await fetch("/api/review/lifecycle").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (d?.tracks) setLife(d);
   }, []);
   // Every 30 s; every 3 s while a review runs, so its steps move.
-  const runningNow = !!auto?.running.length;
+  const runningNow = !!life?.running.length;
   useEffect(() => {
-    void loadAuto();
-    const t = setInterval(() => void loadAuto(), runningNow ? 3_000 : 30_000);
+    void loadLife();
+    const t = setInterval(() => void loadLife(), runningNow ? 3_000 : 30_000);
     return () => clearInterval(t);
-  }, [loadAuto, runningNow]);
-  // Autopilot's reviews show as tabs on their PR, like the ones you start.
+  }, [loadLife, runningNow]);
+  // Auto reviews show as tabs on their PR, like the ones you start.
   useEffect(() => {
-    if (!auto) return;
-    for (const r of auto.running) if (r.sessionId) addPrSession(r.url, { id: r.sessionId, kind: "Autopilot review", at: Date.parse(r.startedAt) });
-    for (const [url, t] of Object.entries(auto.tracks)) if (t.lastRun?.by === "autopilot") addPrSession(url, { id: t.lastRun.sessionId, kind: "Autopilot review", at: Date.parse(t.lastRun.at) });
-  }, [auto]);
-  const runAction = useCallback(
-    async (action: "run" | "stop" | "retry", url?: string): Promise<string> => {
-      const r = await fetch("/api/autopilot/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, url }) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach Vlens." }));
-      await loadAuto();
-      return r.error ?? r.message ?? "";
-    },
-    [loadAuto],
-  );
-  const saveRules = useCallback(
-    async (rules: AutopilotRules) => {
-      const r = await fetch("/api/autopilot/rules", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(rules) });
-      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? r.statusText);
-      await loadAuto();
-    },
-    [loadAuto],
-  );
-  const setPaused = useCallback(
-    async (p: PrSummary, paused: boolean) => {
-      const r = await fetch("/api/autopilot/pause", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: p.url, title: p.title, paused }) });
-      await loadAuto();
-      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? r.statusText);
-    },
-    [loadAuto],
-  );
-  const planOf = useCallback((p: PrSummary): Plan | null => (auto ? planFor(p, auto) : null), [auto]);
-  // The PR's risk score (risk.ts), with your sensitive paths from the autopilot settings.
-  const riskOf = useCallback((p: PrSummary): Risk => scoreRisk(p, auto?.rules.sensitivePaths ?? DEFAULT_RULES.sensitivePaths), [auto]);
+    if (!life) return;
+    for (const r of life.running) if (r.sessionId) addPrSession(r.url, { id: r.sessionId, kind: "Auto review", at: Date.parse(r.startedAt) });
+    for (const [url, t] of Object.entries(life.tracks)) if (t.lastRun?.by === "auto") addPrSession(url, { id: t.lastRun.sessionId, kind: "Auto review", at: Date.parse(t.lastRun.at) });
+  }, [life]);
+  // watch / unwatch: auto re-review for one PR. stop / retry: its running or failed review.
+  const lifeAction = useCallback(async (action: "watch" | "unwatch" | "stop" | "retry", p: PrSummary): Promise<string | null> => {
+    const r = await fetch("/api/review/lifecycle", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, url: p.url, headSha: p.headSha }) })
+      .then((x) => x.json())
+      .catch(() => ({ error: "Couldn't reach Vlens." }));
+    if (r?.tracks) setLife(r);
+    else await loadLife();
+    return r?.error ?? null;
+  }, [loadLife]);
+  const lifecycle = life ?? EMPTY_LIFECYCLE;
+  // The PR's risk score (risk.ts).
+  const riskOf = useCallback((p: PrSummary): Risk => scoreRisk(p), []);
 
   const load = useCallback(async (fresh = false) => {
     setLoading(true);
@@ -101,8 +72,6 @@ export function useReview() {
 
   const select = useCallback(async (url: string) => {
     setSelected(url);
-    setRulesOpen(false);
-    setBoardOpen(false);
     // Same PR (a refresh): keep showing what we have until the new data lands.
     setDetail((cur) => (cur?.url === url && cur.data ? cur : { url }));
     const d = await fetch(`/api/review/pr?url=${encodeURIComponent(url)}`).then((r) => r.json()).catch(() => ({ error: "Couldn't load this PR." }));
@@ -111,34 +80,11 @@ export function useReview() {
 
   // Fresh from GitHub: the PR list, plus the details of the PR you have open.
   const refresh = useCallback(async () => {
-    await Promise.all([load(true), loadAuto(), selected ? select(selected) : Promise.resolve()]);
-  }, [load, loadAuto, select, selected]);
+    await Promise.all([load(true), loadLife(), selected ? select(selected) : Promise.resolve()]);
+  }, [load, loadLife, select, selected]);
 
-  const dismiss = useCallback((url: string) => {
-    setDismissed((prev) => {
-      const next = new Set(prev).add(url);
-      try {
-        localStorage.setItem(DISMISSED_KEY, JSON.stringify([...next]));
-      } catch {}
-      return next;
-    });
-    setSelected((s) => (s === url ? null : s));
-  }, []);
-  // Bring a hidden PR back into the lists.
-  const unhide = useCallback((url: string) => {
-    setDismissed((prev) => {
-      const next = new Set(prev);
-      next.delete(url);
-      try {
-        localStorage.setItem(DISMISSED_KEY, JSON.stringify([...next]));
-      } catch {}
-      return next;
-    });
-  }, []);
-
-  const prs: PrSummary[] = useMemo(() => (board?.prs ?? []).filter((p) => !dismissed.has(p.url)), [board, dismissed]);
-  // PRs you hid that are still open on GitHub (the inbox's "Hidden (n)").
-  const hidden: PrSummary[] = useMemo(() => (board?.prs ?? []).filter((p) => dismissed.has(p.url)), [board, dismissed]);
+  // Every open PR shows: nothing is hidden.
+  const prs: PrSummary[] = useMemo(() => board?.prs ?? [], [board]);
   const pr = prs.find((p) => p.url === selected) ?? null;
 
   // Which inbox list shows when no PR is open; the left panel picks it.
@@ -149,11 +95,9 @@ export function useReview() {
       if (t === "mine" || t === "reviews" || t === "new") setInboxState(t);
     } catch {}
   }, []);
-  // Back to a list: closes the open PR, the board and the settings.
+  // Back to a list: closes the open PR.
   const goInbox = useCallback((t?: InboxTab) => {
     setSelected(null);
-    setBoardOpen(false);
-    setRulesOpen(false);
     if (t) {
       setInboxState(t);
       try {
@@ -192,15 +136,15 @@ export function useReview() {
     () =>
       seen
         ? prs
-            .map((p) => ({ p, n: newsFor(p, seen[p.url], auto?.tracks[p.url]) }))
+            .map((p) => ({ p, n: newsFor(p, seen[p.url], life?.tracks[p.url]) }))
             .filter((x): x is { p: PrSummary; n: News } => !!x.n)
             .sort((a, b) => NEWS_RANK[a.n.tone] - NEWS_RANK[b.n.tone] || b.p.updatedAt.localeCompare(a.p.updatedAt))
         : [],
-    [seen, prs, auto],
+    [seen, prs, life],
   );
   const cloneFor = (p: PrSummary) => board?.clones[p.repo.toLowerCase()] ?? null;
 
-  return { board, prs, loading, load, refresh, selected, pr, detail, select, dismiss, unhide, hidden, cloneFor, auto, loadAuto, saveRules, setPaused, planOf, riskOf, runAction, inbox, goInbox, news, markSeen, rulesOpen, setRulesOpen, boardOpen, setBoardOpen };
+  return { board, prs, loading, load, refresh, selected, pr, detail, select, cloneFor, life: lifecycle, lifeLoaded: !!life, loadLife, lifeAction, riskOf, inbox, goInbox, news, markSeen };
 }
 
 export type Review = ReturnType<typeof useReview>;

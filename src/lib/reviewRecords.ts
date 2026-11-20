@@ -16,7 +16,7 @@ export interface ReviewRun {
   headSha: string;
   diffHash: string;
   at: string;
-  by?: "autopilot"; // started by the autopilot runner (else by you)
+  by?: "auto" | "autopilot"; // Claude started it on new commits by itself ("autopilot": from older versions); else you
   carried?: boolean; // a rebase: same diff as an earlier review, so that review carries over
 }
 export interface ReviewPost {

@@ -18,11 +18,10 @@ import type { TreeChat } from "@/hooks/useTreeChat";
 import { addPrSession, type PrSession, usePrSessions } from "@/lib/prSessions";
 import { ago } from "./ReviewSidebar";
 import { ReviewResults } from "./ReviewResults";
-import { AutopilotBoard, RulesPage } from "./Autopilot";
 import { PrInbox } from "./PrInbox";
 import { isPrTab, PR_TABS, PrPage, TabNavLabel, usePrExtras } from "./PrPage";
 import { addressPrompt, beforeAfterPrompt, reviewPrompt } from "@/lib/reviewPrompt";
-import type { Depth } from "@/lib/autopilotPlan";
+import type { Depth } from "@/lib/reviewPrompt";
 import { MenuButton } from "./Sidebar";
 
 interface Props {
@@ -135,8 +134,6 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
     if (pr?.url) setMerged((m) => (m && m.url !== pr.url ? null : m));
   }, [pr?.url]);
 
-  if (review.rulesOpen) return <RulesPage review={review} onMenu={onMenu} />;
-  if (review.boardOpen) return <AutopilotBoard review={review} onMenu={onMenu} />;
   const mergedLine = merged && (
     <div role="status" className="flex flex-wrap items-center gap-2 border-b border-line bg-success/10 px-5 py-2 text-sm text-success">
       <Check size={14} /> Merged ✓ <span className="min-w-0 truncate text-ink">{merged.label}</span>
@@ -203,17 +200,27 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
 
   const compact = !isPrTab(tab);
   const listName = { new: "New", mine: "My PRs", reviews: "Needs my review" }[review.inbox];
+  // Reviewed before at an older commit: a follow-up review (the earlier findings and only
+  // the new commits), so review → fix → review converges instead of finding new nits.
+  const take = extras.take;
+  const followUp = take && pr.headSha && take.headSha !== pr.headSha ? { sha: take.headSha, earlier: take.result.findings } : undefined;
   const reviewNow = async () => {
     const useSkill = await fetch("/api/review-skill")
       .then((r) => r.json())
       .then((d: { useSkill?: boolean }) => !!d.useSkill, () => false);
-    start(mine ? "Self-review" : "Review", reviewPrompt(pr, !!clone, review.riskOf(pr), depth, useSkill), "default", clone ?? home);
+    start(mine ? "Self-review" : "Review", reviewPrompt(pr, !!clone, review.riskOf(pr), depth, useSkill, followUp), "default", clone ?? home);
   };
   const reviewBtn = (
     <span className="inline-flex shrink-0 overflow-hidden rounded-lg">
-      <button onClick={reviewNow} disabled={busy} title={busy ? busyHint : `Review with Claude, ${depth} depth. Nothing is posted.`} className={`${mine ? "border border-r-0 border-line hover:text-accent" : "bg-accent text-on-accent"} inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium disabled:opacity-50`}>
-        <Sparkles size={14} /> Review with Claude
+      <button
+        onClick={reviewNow}
+        disabled={busy || !extras.takeLoaded}
+        title={busy ? busyHint : followUp ? `Follow-up review: checks the earlier findings (at ${followUp.sha.slice(0, 7)}) and only the new commits. Nothing is posted.` : `Review with Claude, ${depth} depth. Nothing is posted.`}
+        className={`${mine ? `border ${followUp ? "" : "border-r-0"} border-line hover:text-accent` : "bg-accent text-on-accent"} inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium disabled:opacity-50`}
+      >
+        <Sparkles size={14} /> {followUp ? "Follow-up review" : "Review with Claude"}
       </button>
+      {!followUp && (
       <select
         value={depth}
         onChange={(e) => setDepth(e.target.value as Depth)}
@@ -224,6 +231,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
         <option value="standard">Standard</option>
         <option value="deep">Deep</option>
       </select>
+      )}
     </span>
   );
   return (
@@ -351,7 +359,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
 const busyHint = "Claude is still starting the last one. Wait a moment.";
 
 // The newest session of each kind, oldest kind first (older ones of a kind came from
-// before reviews carried on in one session, or from autopilot's earlier runs).
+// before reviews carried on in one session, or from earlier auto reviews).
 function latestPerKind(list: PrSession[]): PrSession[] {
   const by = new Map<string, PrSession>();
   for (const s of list) {

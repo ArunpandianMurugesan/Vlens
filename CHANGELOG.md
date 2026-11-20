@@ -4,6 +4,19 @@ Every Vlens release (called Claude Lens up to 1.0.1), newest first. The version 
 
 Versions follow [semantic versioning](https://semver.org): **major** for big changes in how Vlens works, **minor** for new features, **patch** for fixes.
 
+## Unreleased
+
+PR Review is now about each PR's **review lifecycle**. Autopilot is gone.
+
+- **Autopilot removed**: no background reviewer, no workflows, rules, queue, labels or board. Nothing reviews PRs on a timer any more.
+- **New commits bring a PR back**: when the author pushes after your review, it moves to **Needs you** with "new commits since your review at abc1234". Cards show where each review stands: Draft ready, Posted, New commits, Reviewing…, Follow-up ready.
+- **Follow-up review**: once a PR has a review at an older commit, Review with Claude becomes Follow-up review. It checks the earlier findings and comments, reads only the new commits, raises only blockers and shoulds, and says **Ready to approve** when nothing is left. This stops the review → fix → review loop that kept finding new nits.
+- **Auto re-review new commits**: a switch on each PR (off by default). When the author pushes, Claude does the follow-up review by itself, locked down to reading files, and leaves drafts on the Discussion tab. It never posts, and it only runs while Vlens is open.
+- **Approve** from the Discussion tab (others' PRs, after a confirm).
+- **No hidden PRs**: Hide and Hidden (n) are gone; every open PR shows.
+- **Lists nested by author, then repo** in New, My PRs (repo only) and Needs my review.
+- A PR's review carries on in its one Review session instead of opening a new tab each time.
+
 ## 1.2.0 — 2026-11-18
 
 A big one: PR Review with Claude and an optional Autopilot, a new Home, and many session tools. Coach and Retro are gone.

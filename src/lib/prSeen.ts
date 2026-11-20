@@ -1,4 +1,4 @@
-import type { PrTrack } from "./autopilotPlan";
+import type { PrTrack } from "./lifecycle";
 import type { PrSummary } from "./types";
 
 // The Inbox's "New" tab: what changed on each PR since you last had it open. Vlens keeps
@@ -51,9 +51,11 @@ export function newsFor(p: PrSummary, seen: Seen | undefined, track: PrTrack | u
     return null;
   }
   const run = track?.lastRun;
-  const posted = track?.lastPost && run && Date.parse(track.lastPost.at) >= Date.parse(run.at);
+  const post = track?.lastPost;
+  // Posted after this review, or posted with the same changes (a rebase carried the review over).
+  const posted = !!post && !!run && (Date.parse(post.at) >= Date.parse(run.at) || (!!post.diffHash && post.diffHash === run.diffHash));
   if (run && !posted && run.headSha === p.headSha && Date.parse(run.at) > Date.parse(seen.at))
-    return { chip: "Draft ready", tone: "orange", detail: `Claude reviewed it at ${run.headSha.slice(0, 7)}. Nothing is posted until you say so.`, icon: "claude" };
+    return { chip: run.by === "auto" ? "Auto review ready" : "Draft ready", tone: "orange", detail: `Claude reviewed it${run.by === "auto" ? " by itself" : ""} at ${run.headSha.slice(0, 7)}. Nothing is posted until you say so.`, icon: "claude" };
   if (p.ci === "failing" && seen.ci !== "failing") return { chip: "CI failed", tone: "red", detail: p.lane === "mine" ? "a check failed on your latest push" : "a check failed on the latest push", icon: "ci" };
   if (p.reviewDecision !== seen.decision) {
     if (p.reviewDecision === "APPROVED") return { chip: "Approved", tone: "green", detail: p.lane === "mine" ? "approved, ready to merge once checks pass" : "approved", icon: "approved" };

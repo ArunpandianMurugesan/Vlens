@@ -14,7 +14,7 @@ Claude Code is great, but a working day with it looks like eight terminal tabs a
 | **Sessions you forgot** | "I worked on that three days ago, which session was it?" | History: the last 15 days, day by day, with Resume here / Terminal. Crashed sessions are offered back with Restore. ⌘K finds any session. |
 | **Hidden limits and context** | You hit the 5-hour limit, or a session got slow and expensive. | Home and the sidebar show 5-hour and weekly limits. Home lists heavy sessions with Compact and Fresh start. |
 | **Setup scattered across files** | Skills, hooks and MCP servers live in different JSON files. | One Settings page for account, model, skills, hooks, MCP servers and notifications, plus a Marketplace for your team's skills. |
-| **PR reviews in another tool** | Review requests live on GitHub, the work lives in Claude. | PR Review: your PRs by whose move it is, one page per PR, Review with Claude, Address feedback, and an optional Autopilot. |
+| **PR reviews in another tool** | Review requests live on GitHub, the work lives in Claude. | PR Review: your PRs by whose move it is, one page per PR, Review with Claude, Address feedback, and follow-up reviews that track each PR until it's merged. |
 
 ## How Vlens is different
 
@@ -30,7 +30,7 @@ There are already three good ways to work with Claude Code. Vlens is the layer t
 | **Prompts (permissions, questions, plans)** | Yes | Yes (it's a terminal) | Yes | Yes, same choices as the terminal (keys 1–3, Esc, Shift+Tab modes) |
 | **History of closed sessions** | `claude --resume` picker | No | Its own sessions | **15 days by day**, with resume in Vlens or the terminal |
 | **Limits and context health** | `/usage`, `/context` | Status line | Settings | Home and sidebar: limits, heavy sessions with Compact / Fresh start |
-| **Team tools** | `gh` by hand | No | PR status for its own sessions | **PR Review** (all your PRs, Claude reviews, Autopilot) and a skills **Marketplace** |
+| **Team tools** | `gh` by hand | No | PR status for its own sessions | **PR Review** (all your PRs, Claude reviews and follow-ups) and a skills **Marketplace** |
 | **Skills, hooks, MCP** | Edit JSON files | No | Partly | One Settings page, writes the same files the CLI reads |
 
 **Vlens and vTower work together.** vTower is where you type in terminals; Vlens is where you see every session at once, read the diagrams and review the plan. A session you open in a vTower tab shows up in Vlens's sidebar live (before its first message, too), Vlens's notifications cover it when it goes from working to waiting, and the Hooks page marks the hooks vTower installed so you don't edit them by accident. If you want to keep typing in Vlens instead, **Take over here** ends the terminal process and continues the same conversation.
@@ -132,18 +132,20 @@ Click **PR Review** in the sidebar (⌘2). It reads GitHub through the `gh` CLI,
 | **My PRs** | PRs you opened: Your move, Ready to merge, Awaiting review, Drafts, Stale (30+ days). |
 | **Needs my review** | Needs you, Needs your team, Approved · awaiting others, Waiting on author, Done · your part, FYI. Recent PRs from your teammates show under Needs your team. |
 
-Each card shows a risk badge and a mark for who reviewed it: a Claude mark for a review you started, **AP** for one Autopilot did. **Hide** (on a PR's Summary tab) takes a PR off the lists in this browser; **Hidden (n)** in the list brings it back.
+Inside each list, PRs are nested by **author**, then **repo** (My PRs only by repo: they're all yours). Click an author to fold their PRs. Nothing is hidden: every open PR shows until it's merged or closed.
+
+Each card shows a risk badge and where its review stands: **Draft ready**, **Posted**, **New commits** (the author pushed since your review), **Reviewing…** or **Auto review ready**. A Claude mark means a review you started, a bot means one Claude did by itself (auto re-review).
 
 **The PR page** has four tabs:
 
 | Tab | What's on it |
 | --- | --- |
-| **Summary** | The description, Claude's take (findings, risk, earlier comments fixed), and Hide. |
+| **Summary** | The description, and Claude's take: findings, risk, earlier comments fixed, and **Ready to approve** when a follow-up review finds nothing left. |
 | **Discussion** | Claude's draft comments and the PR's review threads, by file and line. |
 | **Files changed** | The changed files. |
 | **Checks** | CI checks and merge conflicts. |
 
-The rail on the right (wide windows) shows the **Automation** card (what Autopilot will do with this PR, and **Pause autopilot for this PR**), the **risk** score, details, **Reviewers**, and this PR's sessions.
+The rail on the right (wide windows) shows the **Review lifecycle** card (last review, last post, the PR's commit now, and the **Auto re-review new commits** switch), the **risk** score, details, **Reviewers**, and this PR's sessions.
 
 **Actions** at the top:
 
@@ -152,6 +154,7 @@ The rail on the right (wide windows) shows the **Automation** card (what Autopil
 | **Open on GitHub** | Opens the PR in your browser. |
 | **Refresh** | Gets the latest from GitHub. |
 | **Review with Claude** | Starts a Vlens session that reviews the PR, at Quick, Standard or Deep depth. It runs in your local clone, or reads the PR with `gh` from your home folder if you don't have one. It posts nothing. The findings show in a results panel, where you keep, edit and post them (see below). |
+| **Follow-up review** | Takes the place of Review with Claude once the PR has a review at an older commit. See **The review lifecycle** below. |
 | **Address feedback** | Your own PRs, needs a local clone. It switches your clone to the PR's branch (it asks first), then a session reads the review comments and failing checks and makes the fixes. Claude is told not to push or reply on GitHub without asking you. |
 | **Before/after** | Only for `vendasta/galaxy`, with a local clone. Uses galaxy's own `galaxy-before-after` skill to take before and after screenshots of what the PR changes. |
 | **Merge** | Your own PRs, once they're approved, CI isn't failing and there are no conflicts. Pick squash, merge commit or rebase, then confirm. |
@@ -173,66 +176,45 @@ Every PR gets a score from 0 to 100, with the reasons listed. It's worked out fr
 
 ### What Vlens can do on GitHub as you
 
-> Everything below uses your own `gh` login. **Vlens never approves a PR.** Review with Claude on its own posts nothing.
+> Everything below uses your own `gh` login, and only when you click. **Vlens never posts or approves on its own**: Review with Claude and auto re-reviews post nothing.
 >
 > | Action | Where | When it asks first |
 > | --- | --- | --- |
 > | Post a review (Comment or Request changes) | Results panel **Post review as me**; Discussion tab **Post** / **Post N as one review** | Always: a confirm names the PR and your account. Asks again if the PR has new commits. |
 > | Reply to a thread, resolve or unresolve it, comment on the PR | Discussion tab | Only when you click. The text is what you typed. |
 > | Merge | **Merge** on your own PR | A confirm bar with the merge method. |
-> | Add or swap a state label (and create the label in the repo if it's missing) | Autopilot | Only if you turn on **GitHub labels** in Autopilot settings. Off by default. |
-> | Post a review by itself | Autopilot | Only for a workflow you set to **Post comments itself**. No confirm per post. Off in every default workflow. |
+> | Approve | Discussion tab **Approve** (not on your own PRs) | Always: a confirm names the PR and your account. |
 >
 > **Address feedback** and **Before/after** are normal Claude sessions in your clone: they follow your permission prompts, and Claude is told not to push or post without asking you.
 
-## Autopilot
+## The review lifecycle
 
-Autopilot reviews PRs for you in the background, with Claude, one at a time. It is **off by default**. Open it from **Autopilot** in the PR Review panel.
+A PR goes round a loop: you review it with Claude, you post, the author pushes fixes, you check again, until it's approved and merged. Vlens tracks where each PR is in that loop.
 
-**The board** shows four columns: **Needs you** (PRs handed to you, and failed reviews with **Retry**), **Running** (the review going on now, with its steps and **Stop**), **In queue**, and **Reviewed today**, plus an **Activity** log. At the top:
+```
+ Needs my review ──► Review with Claude ──► you post ──► Waiting on author
+        ▲                                                     │
+        └──── Needs you · "new commits since your review" ◄───┘
+                (auto re-review on: the follow-up drafts are already waiting)
+```
 
-- **Run now**: review the next PR in the queue now, even when Autopilot is off.
-- **Turn on** / **Pause**: the main switch.
-- **Settings**: workflows and limits.
+**New commits.** When the author pushes after your review (Comment or Request changes), the PR moves back to **Needs you**, saying "new commits since your review at abc1234".
 
-**Workflows** decide which PRs it reviews and what it does with the review. They're checked top to bottom; the first one that fits a PR handles it.
+**Follow-up review.** Once a PR has a Claude review at an older commit, the button becomes **Follow-up review**. A second full review always finds something new (one more nit, one more question), so review → fix → review never ends. A follow-up converges instead:
 
-| Part | Choices |
-| --- | --- |
-| **When** | Someone asks me to review · My team is asked to review · I open or push to my PR · A PR gets a label |
-| **Review** | Quick (blockers only) · Standard (bugs and risks) · Deep (slow and thorough) |
-| **Then** | Draft only, I post it · Show findings to me only · Post comments itself |
-| **Re-check** | Review again when the PR gets new commits |
+1. It checks each earlier ask (Claude's last findings and the PR's earlier inline comments): fixed, unfixed or unverified.
+2. It reads only what the new commits changed (`gh api …/compare/<reviewed>...<now>`); after a force-push it falls back to the whole diff.
+3. New findings only on lines the new commits touched, and only blockers or shoulds. A blocker may be raised anywhere.
+4. It says **Ready to approve** when every earlier blocker and should is fixed and nothing new blocks the merge.
 
-The four built-in workflows all keep reviews as drafts or private. Only "Review PRs that need me" is on at first.
+**Auto re-review new commits** (a switch on each PR's Review lifecycle card, off by default). When the author pushes, Claude does the follow-up review by itself and leaves the findings as drafts on the Discussion tab, marked with a bot. It never posts. If the PR was never reviewed, the first new commit gets a full review.
 
-**Limits and hand-offs** (shared by all workflows):
-
-| Setting | Default |
-| --- | --- |
-| Look for PRs every | 10 min (5–240) |
-| At most, reviews per day | 10 (1–100) |
-| Skip draft PRs | On |
-| Skip PRs with this label | `skip-ai-review` |
-| Hand it to me: more changed lines than | 1000 |
-| Hand it to me: risk score at or above | 70 (0 = off) |
-| Hand it to me: touches these paths | migrations, auth / billing / payments, `.github/workflows`, `CODEOWNERS`, `CLAUDE.md` |
-| Hand it to me: in my own words | Empty. Claude reads this and can hand a PR to you. |
-| Only these repos / never these repos | Empty (all repos) |
-
-A PR that's handed to you shows under **Needs you**. **Pause autopilot for this PR** on the PR's Automation card leaves that one alone.
-
-**GitHub labels** (off by default): put `ai-reviewed` or `ai-handed-off` (names you can change) on PRs Autopilot handles. **Desktop alerts**: when a PR is handed to you, a review is ready, Autopilot posted, or a review failed.
-
-**Safety:**
-
-- Before Claude starts, Vlens saves the PR, its diff and earlier comments to a folder. Claude can then only **Read, Grep and Glob**: no shell, no MCP, no network, no `.env`, `.pem` or `.key` files. It can't post, push or run anything.
-- Posting is done by Vlens, only for a "Post comments itself" workflow: Comment or Request changes, never approve.
-- If you pause the PR, turn Autopilot off, or change or remove the workflow while a review runs, nothing is posted. The review is kept as drafts for you.
-- A review whose text looks like it contains a secret (a private key or an API token) is never posted. It's kept as drafts.
-- Only one Vlens per Mac runs Autopilot at a time (the app and a dev server share the data folder).
-- A review stops after 20 minutes. **Stop** counts as a failed review at that commit: it isn't picked again until you **Retry** or the PR gets new commits.
+- There's no timer and no background schedule: it runs when Vlens reads your PR list (every 10 minutes while Vlens is open, or ↻). So it only runs while Vlens is open.
+- At most two run at once. The PR's card shows the steps and **Stop**; a failed one shows **Retry**. A stopped or failed review isn't started again at that commit until you retry or the author pushes again.
 - If the PR was only rebased (same changes), the last review still stands.
+- A desktop alert says when the drafts are ready, or when it failed.
+
+**Safety of auto re-reviews:** before Claude starts, Vlens saves the PR, its diffs, earlier comments and the last review's findings to a folder. Claude can then only **Read, Grep and Glob**: no shell, no MCP, no network, no `.env`, `.pem` or `.key` files. It can't post, push or run anything. A review stops after 20 minutes. Only one Vlens on a Mac reviews a given PR at a time (the app and a dev server share the data folder).
 
 ## Marketplace
 
@@ -299,7 +281,7 @@ The app is only ad-hoc signed (no Apple developer ID), so the first time, open i
 - **Optional, for Review with Claude:** the Vendasta dev-agent toolkit's marketplace (`claude plugin marketplace add` it, so it lands in `~/.claude/plugins/marketplaces/vendasta-dev-agent-toolkit`). With it, reviews use its `lens:review` skill; without it, Claude reviews with `gh` and your local code. Switch it in Settings → Diagrams & whiteboard.
 - It reads your login shell's `PATH` at startup, so it finds `claude`, `gh` and `git` like your terminal does.
 - **Vlens → Open at Login** starts it when you log in. **Show Server Log** opens `~/Library/Logs/Vlens/server.log`.
-- Vlens's data (pins, settings, threads, Autopilot settings and log, trash) lives in `~/Library/Application Support/Vlens/`, shared with the dev server. If you used Claude Lens before, its folder is copied here the first time Vlens starts (Claude Lens keeps its own).
+- Vlens's data (pins, settings, threads, review records and auto re-review switches, trash) lives in `~/Library/Application Support/Vlens/`, shared with the dev server. If you used Claude Lens before, its folder is copied here the first time Vlens starts (Claude Lens keeps its own).
 
 ## Updating
 
@@ -352,7 +334,7 @@ Your sessions, pins and settings stay; they live outside the app.
 | PR Review (GitHub via `gh`) | `src/lib/github.ts`, `src/components/PrInbox.tsx`, `PrPage.tsx`, `ReviewView.tsx` |
 | Posting a review, merge, thread actions | `src/lib/postReview.ts`, `src/app/api/review/{post,merge,thread}` |
 | Risk score | `src/lib/risk.ts` |
-| Autopilot (rules, runner, labels) | `src/lib/autopilotPlan.ts`, `autopilot.ts`, `autopilotRunner.ts`, `prLabelsGh.ts`, `src/components/Autopilot.tsx` |
+| Review lifecycle and auto re-review | `src/lib/lifecycle.ts`, `reviewWatch.ts`, `reviewWatchRunner.ts`, `reviewRecords.ts`, `src/components/PrLifecycle.tsx` |
 | Worktrees, forks, archive | `src/lib/worktree.ts`, `fork.ts`, `archive.ts` |
 | Terminal panel and CLI view | `src/lib/terminals.ts`, `src/components/TerminalPanel.tsx` |
 | Terminal profiles | `src/lib/termProfiles.ts`, `termThemes.ts` |

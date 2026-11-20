@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { logActivity } from "@/lib/autopilot";
+import { logActivity } from "@/lib/activity";
 import { gh } from "@/lib/github";
 import { isPrUrl } from "@/lib/reviewRecords";
 
@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 // The Discussion tab's GitHub actions, each only when you click it, from YOUR account
 // (your own gh): reply to a review thread, resolve or unresolve it, or leave a comment
 // on the PR, or approve it. The text is yours, posted as you wrote it. Approve is only
-// ever your own click: Autopilot never approves.
+// ever your own click: Vlens never approves on its own.
 
 type Body = { action?: string; url?: string; commentId?: number; threadId?: string; body?: string };
 

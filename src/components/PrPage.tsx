@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, CircleDot, ExternalLink, EyeOff, FileCode, FolderGit2, GitBranch, Loader2, MessageSquare, Sparkles, X } from "lucide-react";
+import { Bot, Check, CircleDot, ExternalLink, FileCode, FolderGit2, GitBranch, Loader2, MessageSquare, Sparkles, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import type { Review } from "@/hooks/useReview";
 import type { Discussion, ReviewThread, Take } from "@/lib/prDiscussion";
@@ -8,7 +8,7 @@ import type { ReviewPost } from "@/lib/reviewRecords";
 import type { PrSession } from "@/lib/prSessions";
 import type { Finding } from "@/lib/reviewResult";
 import type { PrDetail, PrSummary } from "@/lib/types";
-import { AutomationCard } from "./Autopilot";
+import { LifecycleCard } from "./PrLifecycle";
 import { levelOf } from "@/lib/risk";
 import { Markdown } from "./Markdown";
 import { RISK_TONE, RiskBox } from "./RiskBadge";
@@ -16,7 +16,7 @@ import { confirmPost, plural } from "./ReviewResults";
 import { ago, GROUPS, groupOf } from "./ReviewSidebar";
 
 // One PR, in four tabs (Summary, Discussion, Files changed, Checks) with a rail on the
-// right: what autopilot does with it, its details, reviewers and sessions. Claude's
+// right: where its review stands, its details, reviewers and sessions. Claude's
 // drafts sit next to the human threads, at the same file and line.
 
 export const PR_TABS = ["summary", "discussion", "files", "checks"] as const;
@@ -150,7 +150,7 @@ export function PrPage(props: Props) {
   const { tab, detail } = props;
   return (
     // A container query, not the window's width: the rail sits beside the page when this
-    // area is wide, and under it when narrow (so Autopilot, Risk and Reviewers stay reachable).
+    // area is wide, and under it when narrow (so the lifecycle, Risk and Reviewers stay reachable).
     <div className="@container flex min-h-0 min-w-0 flex-1">
       <div className="flex min-h-0 w-full flex-col overflow-y-auto scroll-thin @4xl:flex-row @4xl:overflow-hidden">
       <div className="min-w-0 @4xl:flex-1 @4xl:overflow-y-auto scroll-thin">
@@ -176,7 +176,6 @@ export function PrPage(props: Props) {
 // ── Summary ──
 
 function SummaryTab({ pr, review, d, extras, sessions, busy, onTab, onReview }: Props & { d: PrDetail }) {
-  const [confirmHide, setConfirmHide] = useState(false);
   const group = GROUPS.find((g) => g.id === groupOf(pr))!;
   const take = extras.take;
   const sev = useMemo(() => {
@@ -191,22 +190,6 @@ function SummaryTab({ pr, review, d, extras, sessions, busy, onTab, onReview }: 
       <div className={`flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 text-sm ${group.id === "yours" ? "bg-warning/10" : group.id === "ready" ? "bg-success/10" : "bg-sunken"}`}>
         <span className={`font-medium ${group.tone}`}>{group.label}:</span> {pr.why}
         {pr.isDraft && <span className="rounded bg-panel px-1.5 text-xs text-muted">draft</span>}
-        <span className="flex-1" />
-        {confirmHide ? (
-          <span className="flex items-center gap-1.5 text-xs text-muted">
-            Hide this PR from PR Review? (Hidden in the list brings it back)
-            <button onClick={() => review.dismiss(pr.url)} className="rounded-md border border-line px-2 py-0.5 hover:text-ink">
-              Hide
-            </button>
-            <button onClick={() => setConfirmHide(false)} className="rounded-md px-1" aria-label="Cancel">
-              <X size={12} />
-            </button>
-          </span>
-        ) : (
-          <button onClick={() => setConfirmHide(true)} className="inline-flex items-center gap-1 text-xs text-muted hover:text-ink">
-            <EyeOff size={12} /> Hide
-          </button>
-        )}
       </div>
 
       <section className="rounded-2xl border border-violet-500/30 bg-violet-500/5 px-4 py-3.5">
@@ -219,6 +202,7 @@ function SummaryTab({ pr, review, d, extras, sessions, busy, onTab, onReview }: 
             </span>
           )}
           {stale && <span className="rounded bg-warning/15 px-1.5 text-[0.65rem] text-warning">PR changed since</span>}
+          {!stale && take?.result.ready && <span className="rounded bg-success/15 px-1.5 text-[0.65rem] font-semibold text-success">Ready to approve</span>}
         </div>
         {!extras.takeLoaded ? (
           <p className="text-sm text-muted">Looking for a review…</p>
@@ -250,8 +234,8 @@ function SummaryTab({ pr, review, d, extras, sessions, busy, onTab, onReview }: 
                 </button>
               )}
               {stale && (
-                <button onClick={onReview} disabled={busy} className={secondary}>
-                  <Sparkles size={12} /> Review again
+                <button onClick={onReview} disabled={busy} title="Checks the earlier findings and only the new commits" className={secondary}>
+                  <Sparkles size={12} /> Follow-up review
                 </button>
               )}
             </div>
@@ -309,9 +293,9 @@ function DiscussionTab({ pr, extras, busy, onAsk, review, sessions }: Props) {
   const take = extras.take;
   const disc = extras.discussion;
   const open = extras.openDrafts;
-  // Drafts from a run Autopilot did on its own wear "AP"; from a Review you clicked, "Claude".
-  const track = review.auto?.tracks[pr.url]?.lastRun;
-  const byAutopilot = !!take && ((track?.sessionId === take.sessionId && track.by === "autopilot") || sessions.some((s) => s.id === take.sessionId && s.kind === "Autopilot review"));
+  // Drafts from an auto re-review wear a bot; from a Review you clicked, Claude's mark.
+  const track = review.life.tracks[pr.url]?.lastRun;
+  const byAuto = !!take && ((track?.sessionId === take.sessionId && track.by === "auto") || sessions.some((s) => s.id === take.sessionId && (s.kind === "Auto review" || s.kind === "Autopilot review")));
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
     for (const d of extras.drafts) if (d.state !== "discarded") out.push({ kind: "draft", key: d.key, file: d.f.file, line: d.f.line, d });
@@ -358,7 +342,7 @@ function DiscussionTab({ pr, extras, busy, onAsk, review, sessions }: Props) {
     if (r.j.error) return setPosting({ keys: whole ? ["*", ...keys] : keys, error: r.j.error });
     setPosting(null);
     setPostedNow({ what: whole ? `Posted ${plural(ds.length, "comment")} as one review.` : "Posted the comment.", url: r.j.url || pr.url });
-    await Promise.all([extras.reload(), review.loadAuto()]);
+    await Promise.all([extras.reload(), review.loadLife()]);
   };
   const leaveComment = async () => {
     setCommentState({ busy: true });
@@ -388,10 +372,10 @@ function DiscussionTab({ pr, extras, busy, onAsk, review, sessions }: Props) {
       {open.length > 0 && take && (
         <section className="space-y-2 rounded-2xl border border-violet-500/30 bg-violet-500/5 px-4 py-3">
           <div className="flex flex-wrap items-center gap-3">
-            <Mark ap={byAutopilot} big />
+            <Mark ap={byAuto} big />
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold">
-                {byAutopilot ? "Autopilot" : "Claude"} drafted {open.length} comment{open.length === 1 ? "" : "s"}
+                {byAuto ? "Auto review" : "Claude"} drafted {open.length} comment{open.length === 1 ? "" : "s"}
               </div>
               <div className="text-xs text-muted">
                 Reviewed at <span className="font-mono">{take.headSha.slice(0, 7)}</span> · nothing is posted yet
@@ -449,7 +433,7 @@ function DiscussionTab({ pr, extras, busy, onAsk, review, sessions }: Props) {
             <DraftCard
               key={x.key}
               d={x.d}
-              ap={byAutopilot}
+              ap={byAuto}
               text={edits[x.d.key]}
               onEdit={(t) => setEdits((e) => ({ ...e, [x.d.key]: t }))}
               posting={posting && posting.keys[0] !== "*" && posting.keys[0] === x.d.key ? posting : null}
@@ -535,7 +519,7 @@ function DiscussionTab({ pr, extras, busy, onAsk, review, sessions }: Props) {
             </a>
           </p>
         )}
-        <p className="text-xs text-muted">Posts and approvals go out from your GitHub account after you confirm. Autopilot never approves.</p>
+        <p className="text-xs text-muted">Posts and approvals go out from your GitHub account, only after you confirm.</p>
       </section>
     </>
   );
@@ -598,12 +582,12 @@ function Where({ file, line, chip, toggle }: { file: string; line: number | null
   );
 }
 
-// Who wrote a draft: "AP" for Autopilot's own runs, Claude's mark for a Review you clicked.
+// Who wrote a draft: a bot for an auto re-review, Claude's mark for a Review you clicked.
 function Mark({ ap, big = false }: { ap: boolean; big?: boolean }) {
   const size = big ? "h-8 w-8 rounded-lg text-[0.7rem]" : "h-6 w-6 rounded-full text-[0.6rem]";
   return (
-    <span title={ap ? "Autopilot" : "Claude"} className={`flex shrink-0 items-center justify-center bg-violet-500/15 font-bold text-violet-700 dark:text-violet-300 ${size}`}>
-      {ap ? "AP" : <Sparkles size={big ? 14 : 12} />}
+    <span title={ap ? "Auto review" : "Claude"} className={`flex shrink-0 items-center justify-center bg-violet-500/15 font-bold text-violet-700 dark:text-violet-300 ${size}`}>
+      {ap ? <Bot size={big ? 14 : 12} /> : <Sparkles size={big ? 14 : 12} />}
     </span>
   );
 }
@@ -654,7 +638,7 @@ function DraftCard({
         <Mark ap={ap} />
         <div className="min-w-0 flex-1 space-y-2 text-sm">
           <div className="flex items-center gap-1.5 text-xs">
-            <span className="font-medium">{ap ? "Autopilot" : "Claude"}</span>
+            <span className="font-medium">{ap ? "Auto review" : "Claude"}</span>
             <span className={`rounded px-1 text-[0.65rem] ${SEV_TONE[s]}`}>{s}</span>
             {text !== undefined && text !== d.f.body && <span className="text-muted">· edited</span>}
           </div>
@@ -833,7 +817,7 @@ function Rail({ pr, review, detail, extras, sessions, clone, home, onTab }: Prop
   const failed = d?.checks.filter((c) => checkTone(c.state) === "bg-red-500").length ?? 0;
   return (
     <aside className="grid w-full gap-3 border-t border-line px-4 py-5 @xl:grid-cols-2 @4xl:flex @4xl:w-80 @4xl:shrink-0 @4xl:flex-col @4xl:overflow-y-auto @4xl:border-l @4xl:border-t-0 scroll-thin">
-      <AutomationCard review={review} pr={pr} />
+      <LifecycleCard review={review} pr={pr} />
       <RiskBox risk={review.riskOf(pr)} adjust={extras.take?.headSha === pr.headSha ? extras.take.result.risk : null} />
       <RailBox title="Details">
         <Row k="Branch">
@@ -877,7 +861,7 @@ function Rail({ pr, review, detail, extras, sessions, clone, home, onTab }: Prop
         ) : (
           <p className="text-xs text-muted">No reviews yet.</p>
         )}
-        <p className="pt-1 text-[0.7rem] text-muted">Approve from the Discussion tab, only when you click it. Autopilot never approves.</p>
+        <p className="pt-1 text-[0.7rem] text-muted">Approve from the Discussion tab, only when you click it.</p>
       </RailBox>
       <RailBox title="This PR's sessions">
         {sessions.map((s) => (

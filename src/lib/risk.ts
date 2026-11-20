@@ -4,7 +4,9 @@ import type { PrSummary } from "./types";
 // you can read. No AI here, so it's free, instant and the same every time. Claude can
 // move it by up to 20 when it reviews (the review's "risk" field), and says why.
 //
-// Autopilot uses it to decide what it must not handle alone (rules.riskHandoff).
+// Paths that always count as sensitive (+25): migrations, auth and money, CI, and the
+// files that steer reviews and agents.
+export const SENSITIVE_PATHS = ["(^|/)migrations?/", "(^|/)(auth|billing|payments?)/", "\\.github/workflows/", "(^|/)(CODEOWNERS|CLAUDE\\.md)$"];
 
 export interface RiskFactor {
   points: number;
@@ -15,7 +17,7 @@ export interface Risk {
   score: number;
   level: RiskLevel;
   factors: RiskFactor[]; // biggest first
-  sensitive: string[]; // files matching your "hand it to me" paths
+  sensitive: string[]; // files matching SENSITIVE_PATHS
   partial: boolean; // the file list wasn't loaded, so only size counted
 }
 
@@ -40,7 +42,7 @@ function safeRegexes(list: string[]) {
   });
 }
 
-export function riskOf(pr: PrSummary, sensitivePaths: string[] = []): Risk {
+export function riskOf(pr: PrSummary, sensitivePaths: string[] = SENSITIVE_PATHS): Risk {
   const f: RiskFactor[] = [];
   const add = (points: number, why: string) => points && f.push({ points, why });
   const lines = pr.additions + pr.deletions;
@@ -54,7 +56,7 @@ export function riskOf(pr: PrSummary, sensitivePaths: string[] = []): Risk {
 
   const sensRe = safeRegexes(sensitivePaths);
   const sensitive = paths.filter((p) => sensRe.some((re) => re.test(p)));
-  if (sensitive.length) add(25, `touches your sensitive paths: ${short(sensitive)}`);
+  if (sensitive.length) add(25, `touches sensitive paths: ${short(sensitive)}`);
   const secret = hits(SECRET);
   if (secret.length) add(20, `secrets or credentials: ${short(secret)}`);
   const migration = hits(MIGRATION).filter((p) => !sensitive.includes(p));

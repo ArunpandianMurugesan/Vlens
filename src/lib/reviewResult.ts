@@ -7,7 +7,9 @@ export type Finding = { id?: string; file: string; line: number; body: string; s
 export type PriorCheck = { commentId?: number; file?: string; line?: number; author?: string; status: "fixed" | "unfixed" | "unverified"; evidence?: string };
 // Claude's move of Vlens's risk score (risk.ts), -20 to +20, with its reason.
 export type RiskAdjust = { adjust: number; why: string };
-export type ReviewResult = { kind: "review"; verdict: string; summary: string; findings: Finding[]; priorChecks: PriorCheck[]; risk: RiskAdjust | null; handoff: string | null };
+export type ReviewResult = { kind: "review"; verdict: string; summary: string; findings: Finding[]; priorChecks: PriorCheck[]; risk: RiskAdjust | null; handoff: string | null; ready: boolean | null };
+// ready: a follow-up review's call that every earlier ask is fixed and nothing blocks the
+// merge (see FOLLOW_UP in reviewPrompt.ts). null on a first review.
 export type Shot = { label: string; before?: string; after?: string };
 export type ShotsResult = { kind: "shots"; verdict: string; summary: string; shots: Shot[] };
 
@@ -50,6 +52,7 @@ export function parseResult(text: string): ReviewResult | ShotsResult | null {
               ? { adjust: Math.max(-20, Math.min(20, Math.round(Number(j.risk.adjust)))), why: String(j.risk.why ?? "").slice(0, 300) }
               : null,
           handoff: typeof j.handoff === "string" && j.handoff.trim() ? j.handoff.trim().slice(0, 300) : null,
+          ready: typeof j.ready === "boolean" ? j.ready : null,
         };
       if (Array.isArray(j.shots)) return { kind: "shots", verdict: String(j.verdict ?? ""), summary: String(j.summary ?? ""), shots: j.shots };
     } catch {}
