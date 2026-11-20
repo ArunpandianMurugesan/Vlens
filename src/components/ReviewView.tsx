@@ -71,7 +71,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
   // Sessions with a reply on its way from here (a second prompt would run Claude twice on one session).
   const inFlight = useRef(new Set<string>());
   // A prompt waiting for its session to open in the chat before it's sent.
-  const [follow, setFollow] = useState<{ url: string; id: string; kind: string; prompt: string; mode: "default" | "plan" | "acceptEdits"; title: string } | null>(null);
+  const [follow, setFollow] = useState<{ url: string; id: string; kind: string; prompt: string; mode: "default" | "plan" | "acceptEdits" | "auto"; title: string } | null>(null);
   const noteReview = (url: string, id: string, kind: string, title: string) => {
     // A review: note which commit it reads, so Post can tell if the PR moves on.
     if (kind === "Review" || kind === "Self-review")
@@ -90,7 +90,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the session opens
   }, [follow, chat.session?.id]);
-  const start = (kind: string, prompt: string, mode: "default" | "plan" | "acceptEdits", cwd: string) => {
+  const start = (kind: string, prompt: string, mode: "default" | "plan" | "acceptEdits" | "auto", cwd: string) => {
     if (!pr || busy) return;
     const url = pr.url;
     const existing = perKind.find((s) => s.kind === kind);
@@ -218,7 +218,9 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
     const useSkill = await fetch("/api/review-skill")
       .then((r) => r.json())
       .then((d: { useSkill?: boolean }) => !!d.useSkill, () => false);
-    start(mine ? "Self-review" : "Review", reviewPrompt(pr, !!clone, review.riskOf(pr), depth, useSkill, followUp), "default", clone ?? home);
+    // Auto mode: a review only reads (the PR, the code, git and gh), so Claude's safety check
+    // approves those steps and you aren't asked about each command. Risky ones still ask.
+    start(mine ? "Self-review" : "Review", reviewPrompt(pr, !!clone, review.riskOf(pr), depth, useSkill, followUp), "auto", clone ?? home);
   };
   const reviewBtn = (
     <span className="inline-flex shrink-0 overflow-hidden rounded-lg">
