@@ -33,6 +33,27 @@ function jsonBlocks(text: string): string[] {
   return out.reverse();
 }
 
+// The text without its result blocks (the ```json a review or before/after hands back):
+// Vlens shows those as drafts and panels, so the chat keeps only Claude's words.
+export function withoutResultJson(text: string): string {
+  if (!text.includes("```json")) return text;
+  let out = text;
+  for (const m of [...text.matchAll(/```json[^\S\n]*\n?/g)].reverse()) {
+    const from = m.index! + m[0].length;
+    for (let end = text.indexOf("```", from); end >= 0; end = text.indexOf("```", end + 3)) {
+      try {
+        const j = JSON.parse(text.slice(from, end));
+        if (j && (Array.isArray(j.findings) || Array.isArray(j.shots))) out = out.slice(0, m.index!) + out.slice(end + 3);
+        break;
+      } catch {}
+    }
+  }
+  // Still streaming in: a result block that hasn't closed yet.
+  const open = out.lastIndexOf("```json");
+  if (open >= 0 && out.indexOf("```", open + 7) < 0 && /"(findings|shots|verdict)"\s*:/.test(out.slice(open))) out = out.slice(0, open);
+  return out.trimEnd();
+}
+
 // The last ```json block in this text that holds findings or shots.
 export function parseResult(text: string): ReviewResult | ShotsResult | null {
   for (const raw of jsonBlocks(text)) {

@@ -194,7 +194,7 @@ const STATUS_TONE: Record<PriorCheck["status"], string> = {
   unverified: "bg-sunken text-muted",
 };
 
-function PriorChecks({ pr, checks }: { pr: PrSummary; checks: PriorCheck[] }) {
+export function PriorChecks({ pr, checks }: { pr: PrSummary; checks: PriorCheck[] }) {
   if (!checks.length) return null;
   const count = (s: PriorCheck["status"]) => checks.filter((c) => c.status === s).length;
   return (

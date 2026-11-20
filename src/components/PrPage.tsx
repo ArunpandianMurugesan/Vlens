@@ -12,7 +12,7 @@ import { LifecycleCard } from "./PrLifecycle";
 import { levelOf } from "@/lib/risk";
 import { Markdown } from "./Markdown";
 import { RISK_TONE, RiskBox } from "./RiskBadge";
-import { confirmPost, plural } from "./ReviewResults";
+import { confirmPost, plural, PriorChecks } from "./ReviewResults";
 import { ago, GROUPS, groupOf } from "./ReviewSidebar";
 
 // One PR, in four tabs (Summary, Discussion, Files changed, Checks) with a rail on the
@@ -24,7 +24,9 @@ export type PrTab = (typeof PR_TABS)[number];
 export const isPrTab = (t: string): t is PrTab => (PR_TABS as readonly string[]).includes(t);
 
 // Claude's latest review of the PR and its GitHub threads, fetched when the PR opens.
-export function usePrExtras(url: string | undefined) {
+// `headSha` is the PR's commit now and `carried` a review Vlens carried over to it (a
+// rebase, same changes): drafts from a review of an older commit are cleared.
+export function usePrExtras(url: string | undefined, headSha?: string, carried?: { headSha: string; sessionId: string } | null) {
   const [take, setTake] = useState<{ url: string; take: Take | null } | null>(null);
   const [disc, setDisc] = useState<{ url: string; data?: Discussion; error?: string } | null>(null);
   const [posts, setPosts] = useState<{ url: string; posts: ReviewPost[] } | null>(null);
@@ -62,7 +64,10 @@ export function usePrExtras(url: string | undefined) {
   const ps = useMemo(() => (posts && posts.url === url ? posts.posts : []), [posts, url]);
   // Claude's drafts and where each stands. A review posted whole (from the results panel,
   // or "Post all" here) covers them all; one posted here covers itself.
-  const drafts = useMemo<Draft[]>(() => {
+  // The author pushed since this review: its drafts are about code that changed, so they go.
+  // A follow-up review checks them against the new code and drafts what's still open.
+  const outdated = !!tk && !!headSha && tk.headSha !== headSha && !(carried?.headSha === headSha && carried.sessionId === tk.sessionId);
+  const all = useMemo<Draft[]>(() => {
     if (!tk) return [];
     // One session can hold several reviews (Review with Claude carries on in it), so a
     // draft is known by its session, the commit reviewed and its place in that review.
@@ -74,7 +79,11 @@ export function usePrExtras(url: string | undefined) {
       return { i, f, key, state: whole ? "posted" : post ? "posted" : discarded.has(key) ? "discarded" : "open", url: post?.url ?? null };
     });
   }, [tk, ps, discarded]);
+  const drafts = outdated ? NO_DRAFTS : all;
+  const clearedN = outdated ? all.filter((d) => d.state === "open").length : 0;
   return {
+    // Claude's unposted drafts that new commits cleared, and the commit they were for.
+    cleared: clearedN && tk ? { n: clearedN, sha: tk.headSha } : null,
     take: tk,
     takeLoaded: !!take && take.url === url,
     discussion: disc && disc.url === url ? disc : null,
@@ -86,6 +95,7 @@ export function usePrExtras(url: string | undefined) {
 }
 export type Draft = { i: number; f: Finding; key: string; state: "open" | "posted" | "discarded"; url: string | null };
 const DISCARD_KEY = "lens.discardedDrafts";
+const NO_DRAFTS: Draft[] = [];
 export type PrExtras = ReturnType<typeof usePrExtras>;
 
 const SEV_TONE: Record<string, string> = {
@@ -230,7 +240,7 @@ function SummaryTab({ pr, review, d, extras, sessions, busy, onTab, onReview }: 
               )}
               {hasSession && (
                 <button onClick={() => onTab(take.sessionId)} className={secondary}>
-                  Open the review to post
+                  Open the review chat
                 </button>
               )}
               {stale && (
@@ -283,11 +293,13 @@ async function threadAction(body: object): Promise<{ ok?: boolean; error?: strin
     .catch(() => ({ error: "Couldn't reach Vlens." }));
 }
 
-function DiscussionTab({ pr, extras, busy, onAsk, review, sessions }: Props) {
+function DiscussionTab({ pr, extras, busy, onAsk, onReview, review, sessions }: Props) {
   const [filter, setFilter] = useState<Filter>("all");
   const [edits, setEdits] = useState<Record<string, string>>({}); // draft key -> edited text
   const [posting, setPosting] = useState<{ keys: string[]; error?: string; moved?: boolean } | null>(null);
   const [postedNow, setPostedNow] = useState<{ what: string; url: string } | null>(null);
+  // "Post N as one review" as a comment or a request for changes (from Claude's verdict, until you pick).
+  const [asks, setAsks] = useState<"COMMENT" | "REQUEST_CHANGES" | null>(null);
   const [comment, setComment] = useState("");
   const [commentState, setCommentState] = useState<{ busy?: boolean; error?: string; done?: boolean; approved?: boolean }>({});
   const take = extras.take;
@@ -310,10 +322,12 @@ function DiscussionTab({ pr, extras, busy, onAsk, review, sessions }: Props) {
   // the review asks first; "Post anyway" pins it to the commit the review read.
   // `whole`: the review with Claude's summary on top ("Post N as one review"); else just
   // that draft as one comment.
+  const mine = pr.lane === "mine"; // GitHub doesn't let you approve, or ask changes on, your own PR
   const post = async (ds: Draft[], whole: boolean, force = false) => {
     if (!take || !ds.length) return;
     // "Post anyway" (force) follows a confirm already given.
-    const what = whole ? `${plural(ds.length, "comment")} as one review` : "1 comment";
+    const event = whole && !mine ? (asks ?? (take.result.verdict === "REQUEST_CHANGES" ? "REQUEST_CHANGES" : "COMMENT")) : "COMMENT";
+    const what = whole ? `${plural(ds.length, "comment")} as one ${event === "REQUEST_CHANGES" ? "request-changes " : ""}review` : "1 comment";
     if (!force && !confirmPost(pr, what, review.board?.login)) return;
     setPostedNow(null);
     const keys = ds.map((d) => d.key);
@@ -328,7 +342,7 @@ function DiscussionTab({ pr, extras, busy, onAsk, review, sessions }: Props) {
       body: JSON.stringify({
         repo: pr.repo,
         number: pr.number,
-        event: "COMMENT",
+        event,
         body,
         comments: inline.map((d) => ({ path: d.f.file, line: d.f.line, body: bodyOf(d) })),
         sessionId: take.sessionId,
@@ -354,7 +368,6 @@ function DiscussionTab({ pr, extras, busy, onAsk, review, sessions }: Props) {
   };
   // Approve on GitHub, from your account, with the comment box's text as its message.
   // GitHub doesn't let you approve your own PR, so the button is only on others'.
-  const mine = pr.lane === "mine";
   const approve = async () => {
     const open = extras.openDrafts.length;
     const warn = open ? `\n\n${plural(open, "Claude draft")} still open (not posted).` : "";
@@ -388,11 +401,42 @@ function DiscussionTab({ pr, extras, busy, onAsk, review, sessions }: Props) {
             >
               Discard all
             </button>
+            {!mine && (
+              <select
+                value={asks ?? (take.result.verdict === "REQUEST_CHANGES" ? "REQUEST_CHANGES" : "COMMENT")}
+                onChange={(e) => setAsks(e.target.value as "COMMENT" | "REQUEST_CHANGES")}
+                aria-label="Post as"
+                className="rounded-lg border border-line bg-bg px-2 py-1 text-xs"
+              >
+                <option value="COMMENT">Comment</option>
+                <option value="REQUEST_CHANGES">Request changes</option>
+              </select>
+            )}
             <button onClick={() => void post(open, true)} disabled={!!posting && !posting.error} className={primary}>
               {posting && !posting.error && posting.keys[0] === "*" ? <Loader2 size={12} className="animate-spin" /> : null} Post {open.length} as one review
             </button>
           </div>
           {posting?.error && posting.keys[0] === "*" && <PostError p={posting} onForce={() => void post(open, true, true)} onCancel={() => setPosting(null)} />}
+        </section>
+      )}
+      {take && !extras.cleared && take.result.priorChecks.length > 0 && (
+        <details className="rounded-2xl border border-line bg-panel px-4 py-2.5 text-xs">
+          <summary className="cursor-pointer font-medium text-muted">
+            Your earlier comments: {take.result.priorChecks.filter((c) => c.status === "fixed").length} of {take.result.priorChecks.length} fixed
+          </summary>
+          <div className="mt-2">
+            <PriorChecks pr={pr} checks={take.result.priorChecks} />
+          </div>
+        </details>
+      )}
+      {extras.cleared && (
+        <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-line bg-panel px-4 py-3 text-xs text-muted">
+          <span className="min-w-0 flex-1">
+            New commits since Claude&apos;s review at <span className="font-mono">{extras.cleared.sha.slice(0, 7)}</span>, so its {plural(extras.cleared.n, "unposted draft")} {extras.cleared.n === 1 ? "is" : "are"} cleared. A follow-up review checks them against the new code.
+          </span>
+          <button onClick={onReview} disabled={busy} title="Checks the earlier findings and only the new commits" className={secondary}>
+            <Sparkles size={12} /> Follow-up review
+          </button>
         </section>
       )}
       {postedNow && (

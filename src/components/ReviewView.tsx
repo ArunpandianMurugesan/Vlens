@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Bot,
   Check,
   ChevronLeft,
   ExternalLink,
@@ -12,12 +13,13 @@ import {
   Wrench,
   ImageIcon,
 } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { Review } from "@/hooks/useReview";
 import type { TreeChat } from "@/hooks/useTreeChat";
 import { addPrSession, type PrSession, usePrSessions } from "@/lib/prSessions";
 import { ago } from "./ReviewSidebar";
-import { ReviewResults } from "./ReviewResults";
+import { ReviewResults, resultOf } from "./ReviewResults";
+import type { ReviewResult } from "@/lib/reviewResult";
 import { PrInbox } from "./PrInbox";
 import { isPrTab, PR_TABS, PrPage, TabNavLabel, usePrExtras } from "./PrPage";
 import { addressPrompt, beforeAfterPrompt, reviewPrompt } from "@/lib/reviewPrompt";
@@ -41,7 +43,7 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
   const { pr, detail, cloneFor, refresh, loading } = review;
   // Each PR keeps its own tabs: the sessions its buttons started, carried on right here.
   const prSessions = usePrSessions(pr?.url);
-  const extras = usePrExtras(pr?.url);
+  const extras = usePrExtras(pr?.url, pr?.headSha, pr ? review.life.tracks[pr.url]?.lastRun : null);
   const [tabOf, setTabOf] = useState<Record<string, Tab>>({});
   const [starting, setStarting] = useState<{ url: string; kind: string } | null>(null);
   const tab = (pr && tabOf[pr.url]) || "summary";
@@ -56,9 +58,16 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the tab changes
   }, [tab, pr?.url]);
   const busy = !!chat.rootPending || !!starting;
+  // What the open session handed back: a review's comments go to Discussion; before/after shots show here.
+  const sessionResult = useMemo(() => (chat.session && chat.session.id === tab ? resultOf(chat.session.messages) : null), [chat.session, tab]);
   // One session per PR and kind: the PR's newest session of each kind is its tab, and
   // clicking the same button again carries on in that session instead of opening another.
-  const tabs = latestPerKind(prSessions);
+  const perKind = latestPerKind(prSessions);
+  // Claude's reviews (yours, and the ones it ran by itself) share one tab: the one you're
+  // on, else the latest. Each kind still keeps its own session to carry on in.
+  const reviews = perKind.filter((s) => REVIEW_KINDS.has(s.kind));
+  const shownReview = reviews.find((s) => s.id === tab) ?? reviews.at(-1);
+  const tabs = perKind.filter((s) => !REVIEW_KINDS.has(s.kind) || s === shownReview);
   // Sessions with a reply on its way from here (a second prompt would run Claude twice on one session).
   const inFlight = useRef(new Set<string>());
   // A prompt waiting for its session to open in the chat before it's sent.
@@ -84,8 +93,9 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
   const start = (kind: string, prompt: string, mode: "default" | "plan" | "acceptEdits", cwd: string) => {
     if (!pr || busy) return;
     const url = pr.url;
-    const existing = tabs.find((s) => s.kind === kind);
+    const existing = perKind.find((s) => s.kind === kind);
     if (existing) {
+      addPrSession(url, { ...existing, at: Date.now() }); // now its latest: it's the one the review tab shows
       setTab(url, existing.id);
       if (!inFlight.current.has(existing.id)) setFollow({ url, id: existing.id, kind, prompt, mode, title: pr.title });
       return;
@@ -296,13 +306,13 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
           {(tabs.length > 0 || starting?.url === pr.url) && <span className="mb-2.5 h-4 w-px shrink-0 bg-line" aria-hidden />}
           {tabs.map((s) => (
             <TabButton key={s.id} on={tab === s.id} onClick={() => setTab(pr.url, s.id)} title={`Started ${ago(new Date(s.at).toISOString())} ago`}>
-              <Sparkles size={12} /> {s.kind}
+              {AUTO_KINDS.has(s.kind) ? <Bot size={12} /> : <Sparkles size={12} />} {tabLabel(s.kind)}
               <span className="font-normal text-muted">· {ago(new Date(s.at).toISOString())}</span>
             </TabButton>
           ))}
           {starting?.url === pr.url && (
             <TabButton on={tab === "new"} onClick={() => setTab(pr.url, "new")}>
-              <Loader2 size={12} className="animate-spin" /> {starting.kind}
+              <Loader2 size={12} className="animate-spin" /> {tabLabel(starting.kind)}
             </TabButton>
           )}
         </nav>
@@ -348,13 +358,46 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
         />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          {chat.session?.id === tab && <ReviewResults pr={pr} sessionId={tab} messages={chat.session.messages} login={review.board?.login} />}
+          {chat.session?.id === tab &&
+            (sessionResult?.kind === "review" ? (
+              <ReviewNote result={sessionResult} latest={extras.take?.sessionId === tab} cleared={!!extras.cleared} onOpen={() => setTab(pr.url, "discussion")} />
+            ) : (
+              <ReviewResults pr={pr} sessionId={tab} messages={chat.session.messages} login={review.board?.login} />
+            ))}
           <div className="flex min-h-0 flex-1">{renderChat({ compact: true })}</div>
         </div>
       )}
     </main>
   );
 }
+
+// A review session's comments live in Discussion (as drafts, next to the human threads),
+// so its tab shows only where they are, and the chat with Claude below.
+function ReviewNote({ result, latest, cleared, onOpen }: { result: ReviewResult; latest: boolean; cleared: boolean; onOpen: () => void }) {
+  const n = result.findings.length;
+  const what = !latest
+    ? "An earlier review. The latest review's comments are in Discussion."
+    : cleared
+      ? "The PR has new commits since this review, so its drafts are cleared. A follow-up review checks them against the new code."
+      : n
+        ? `${n} comment${n === 1 ? "" : "s"} drafted. Edit, post or discard them in Discussion.`
+        : "No comments to post.";
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line bg-sunken/30 px-5 py-2 text-xs">
+      <Check size={13} className="shrink-0 text-accent" />
+      <span className="font-medium">Review done</span>
+      {latest && result.ready && <span className="rounded-full bg-success/10 px-2 py-0.5 font-semibold text-success">Ready to approve</span>}
+      <span className="min-w-0 flex-1 text-muted">{what}</span>
+      <button onClick={onOpen} className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1 hover:border-accent hover:text-accent">
+        Open Discussion
+      </button>
+    </div>
+  );
+}
+
+const REVIEW_KINDS = new Set(["Review", "Self-review", "Auto review", "Autopilot review"]);
+const AUTO_KINDS = new Set(["Auto review", "Autopilot review"]);
+const tabLabel = (kind: string) => (REVIEW_KINDS.has(kind) ? "Claude review" : kind);
 
 const busyHint = "Claude is still starting the last one. Wait a moment.";
 

@@ -5,6 +5,7 @@ import { useMemo, useRef, useState } from "react";
 import type { LiveRun, ToolRun } from "@/hooks/useTreeChat";
 import { useSnippetHighlights } from "@/lib/highlight";
 import { splitPasted } from "@/lib/pasted";
+import { withoutResultJson } from "@/lib/reviewResult";
 import { unavailableCommand } from "@/lib/slash";
 import type { Block, ChatMessage, SubThread } from "@/lib/types";
 import { FILE_TOOLS, FileChip } from "./FileChip";
@@ -273,7 +274,10 @@ function groupBlocks(blocks: Block[], stopped = false) {
     | { type: "tools"; runs: ToolRun[] };
   const out: Piece[] = [];
   for (const b of blocks) {
-    if (b.kind === "text") out.push({ type: "text", text: b.text });
+    if (b.kind === "text") {
+      const text = withoutResultJson(b.text); // a review's result shows as drafts, not raw JSON
+      if (text.trim()) out.push({ type: "text", text });
+    }
     else if (b.kind === "thinking") out.push({ type: "thinking", text: b.text });
     else if (b.kind === "notice") out.push({ type: "notice", text: b.text });
     else if (b.kind === "tool_use") {
