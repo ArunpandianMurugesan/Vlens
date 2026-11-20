@@ -489,11 +489,12 @@ export function Sidebar({
           <CrashedBanner actions={actions} run={run} />
           {pinned.length > 0 && (
             <>
-              <Section label="Pinned" count={pinned.length} open={!folded.has("pinned") || !!q} onToggle={() => toggleSection("pinned")} />
-              {(!folded.has("pinned") || !!q) && <div className="mb-3">{list("pinned", pinned)}</div>}
+              <Section first label="Pinned" count={pinned.length} open={!folded.has("pinned") || !!q} onToggle={() => toggleSection("pinned")} />
+              {(!folded.has("pinned") || !!q) && <div className="mb-1">{list("pinned", pinned)}</div>}
             </>
           )}
           <Section
+            first={pinned.length === 0}
             label="Sessions"
             count={current.length}
             open={!folded.has("sessions") || !!q}
@@ -517,7 +518,6 @@ export function Sidebar({
           )}
           {archived.length > 0 && (
             <>
-              <div className="mt-3" />
               <Section label="Archived" count={archived.length} open={archivedOpen} onToggle={toggleArchived} />
               {archivedOpen && list("archived", archived)}
             </>
@@ -647,13 +647,16 @@ const FLIPPED_KEY = "lens.flippedFolders"; // folders flipped from their default
 const ARCHIVED_KEY = "lens.archivedOpen"; // the Archived list is folded or open
 const SECTIONS_KEY = "lens.foldedSections"; // Pinned or Sessions folded
 
-function Section({ label, count, open, onToggle, action }: { label: string; count: number; open: boolean; onToggle: () => void; action?: React.ReactNode }) {
+// A section's heading (Pinned, Sessions, Archived): small caps and a count pill, so it
+// reads as a heading at a glance and not as one more folder row. Sections after the
+// first sit under a thin line.
+function Section({ label, count, open, onToggle, action, first }: { label: string; count: number; open: boolean; onToggle: () => void; action?: React.ReactNode; first?: boolean }) {
   return (
-    <div className="flex items-center gap-1 px-2 pb-1">
-      <button onClick={onToggle} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-semibold text-muted hover:text-ink">
-        <ChevronRight size={12} className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
+    <div className={`flex items-center gap-1 px-2 pb-1.5 ${first ? "" : "mt-2 border-t border-line/70 pt-3"}`}>
+      <button onClick={onToggle} aria-expanded={open} className="group flex min-w-0 flex-1 items-center gap-1.5 text-left text-[0.68rem] font-bold uppercase tracking-[0.08em] text-ink/70 hover:text-ink">
+        <ChevronRight size={12} className={`shrink-0 text-muted transition-transform group-hover:text-ink ${open ? "rotate-90" : ""}`} />
         {label}
-        <span className="font-normal">{count}</span>
+        <span className="rounded-full bg-line/70 px-1.5 text-[0.65rem] font-semibold tracking-normal text-muted">{count}</span>
       </button>
       {action}
     </div>
