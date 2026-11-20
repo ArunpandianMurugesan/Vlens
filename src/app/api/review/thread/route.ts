@@ -8,7 +8,8 @@ export const runtime = "nodejs";
 
 // The Discussion tab's GitHub actions, each only when you click it, from YOUR account
 // (your own gh): reply to a review thread, resolve or unresolve it, or leave a comment
-// on the PR. The text is yours, posted as you wrote it.
+// on the PR, or approve it. The text is yours, posted as you wrote it. Approve is only
+// ever your own click: Autopilot never approves.
 
 type Body = { action?: string; url?: string; commentId?: number; threadId?: string; body?: string };
 
@@ -54,5 +55,13 @@ export async function POST(req: Request) {
     return Response.json({ ok: true, url: r.out.trim() });
   }
 
-  return Response.json({ error: "Expected reply, resolve, unresolve or comment." }, { status: 400 });
+  if (b.action === "approve") {
+    // The comment box's text, if any, goes out as the approval's message.
+    const r = text ? await ghIn(["pr", "review", url, "--approve", "--body-file", "-"], text) : await gh(["pr", "review", url, "--approve"]);
+    if (!r.ok) return Response.json({ error: `GitHub didn't take it: ${r.err.slice(0, 300)}` }, { status: 502 });
+    await logActivity({ kind: "posted", url, detail: "You approved the PR" });
+    return Response.json({ ok: true });
+  }
+
+  return Response.json({ error: "Expected reply, resolve, unresolve, comment or approve." }, { status: 400 });
 }

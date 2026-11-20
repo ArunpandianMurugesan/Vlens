@@ -15,7 +15,7 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { Review } from "@/hooks/useReview";
 import type { TreeChat } from "@/hooks/useTreeChat";
-import { addPrSession, usePrSessions } from "@/lib/prSessions";
+import { addPrSession, type PrSession, usePrSessions } from "@/lib/prSessions";
 import { ago } from "./ReviewSidebar";
 import { ReviewResults } from "./ReviewResults";
 import { AutopilotBoard, RulesPage } from "./Autopilot";
@@ -57,22 +57,58 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the tab changes
   }, [tab, pr?.url]);
   const busy = !!chat.rootPending || !!starting;
+  // One session per PR and kind: the PR's newest session of each kind is its tab, and
+  // clicking the same button again carries on in that session instead of opening another.
+  const tabs = latestPerKind(prSessions);
+  // Sessions with a reply on its way from here (a second prompt would run Claude twice on one session).
+  const inFlight = useRef(new Set<string>());
+  // A prompt waiting for its session to open in the chat before it's sent.
+  const [follow, setFollow] = useState<{ url: string; id: string; kind: string; prompt: string; mode: "default" | "plan" | "acceptEdits"; title: string } | null>(null);
+  const noteReview = (url: string, id: string, kind: string, title: string) => {
+    // A review: note which commit it reads, so Post can tell if the PR moves on.
+    if (kind === "Review" || kind === "Self-review")
+      void fetch("/api/review/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, sessionId: id, title }) }).catch(() => {});
+  };
+  useEffect(() => {
+    if (!follow || chat.session?.id !== follow.id) return;
+    const f = follow;
+    setFollow(null);
+    if (chat.rootPending || inFlight.current.has(f.id)) return; // it's already working: just show it
+    inFlight.current.add(f.id);
+    noteReview(f.url, f.id, f.kind, f.title);
+    void chat.sendRoot(f.prompt, f.mode).finally(() => {
+      inFlight.current.delete(f.id);
+      void extras.reload(); // its findings show in Summary and Discussion as drafts
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the session opens
+  }, [follow, chat.session?.id]);
   const start = (kind: string, prompt: string, mode: "default" | "plan" | "acceptEdits", cwd: string) => {
     if (!pr || busy) return;
     const url = pr.url;
+    const existing = tabs.find((s) => s.kind === kind);
+    if (existing) {
+      setTab(url, existing.id);
+      if (!inFlight.current.has(existing.id)) setFollow({ url, id: existing.id, kind, prompt, mode, title: pr.title });
+      return;
+    }
     setStarting({ url, kind });
     setTab(url, "new");
+    let started: string | null = null;
     void chat
       .sendRoot(prompt, mode, undefined, [], cwd, (id) => {
         fresh.current = id;
+        started = id;
+        inFlight.current.add(id);
         addPrSession(url, { id, kind, at: Date.now() });
-        // A review: note which commit it reads, so Post can tell if the PR moves on.
-        if (kind === "Review" || kind === "Self-review")
-          void fetch("/api/review/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, sessionId: id, title: pr.title }) }).catch(() => {});
+        noteReview(url, id, kind, pr.title);
         setTabOf((all) => (all[url] === "new" ? { ...all, [url]: id } : all));
         setStarting(null);
       })
-      .finally(() => setStarting((s) => (s?.url === url ? null : s)));
+      .finally(() => {
+        if (started) inFlight.current.delete(started);
+        setStarting((s) => (s?.url === url ? null : s));
+        void extras.reload(); // its findings show in Summary and Discussion as drafts
+      });
   };
   const [loadingDetail, setLoadingDetail] = useState(false);
   const refreshing = loading || loadingDetail || (!!detail && !detail.data && !detail.error);
@@ -249,8 +285,8 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
               <TabNavLabel tab={t} extras={extras} detail={d?.data} />
             </TabButton>
           ))}
-          {(prSessions.length > 0 || starting?.url === pr.url) && <span className="mb-2.5 h-4 w-px shrink-0 bg-line" aria-hidden />}
-          {prSessions.map((s) => (
+          {(tabs.length > 0 || starting?.url === pr.url) && <span className="mb-2.5 h-4 w-px shrink-0 bg-line" aria-hidden />}
+          {tabs.map((s) => (
             <TabButton key={s.id} on={tab === s.id} onClick={() => setTab(pr.url, s.id)} title={`Started ${ago(new Date(s.at).toISOString())} ago`}>
               <Sparkles size={12} /> {s.kind}
               <span className="font-normal text-muted">· {ago(new Date(s.at).toISOString())}</span>
@@ -313,6 +349,17 @@ export function ReviewView({ review, onMenu, chat, renderChat, home }: Props) {
 }
 
 const busyHint = "Claude is still starting the last one. Wait a moment.";
+
+// The newest session of each kind, oldest kind first (older ones of a kind came from
+// before reviews carried on in one session, or from autopilot's earlier runs).
+function latestPerKind(list: PrSession[]): PrSession[] {
+  const by = new Map<string, PrSession>();
+  for (const s of list) {
+    const cur = by.get(s.kind);
+    if (!cur || s.at > cur.at) by.set(s.kind, s);
+  }
+  return [...by.values()].sort((a, b) => a.at - b.at);
+}
 
 function TabButton({ on, onClick, title, children }: { on: boolean; onClick: () => void; title?: string; children: ReactNode }) {
   return (

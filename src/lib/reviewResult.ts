@@ -11,10 +11,29 @@ export type ReviewResult = { kind: "review"; verdict: string; summary: string; f
 export type Shot = { label: string; before?: string; after?: string };
 export type ShotsResult = { kind: "shots"; verdict: string; summary: string; shots: Shot[] };
 
+// Every ```json block's JSON, last first. A finding's body often holds its own fenced
+// code (a ```suggestion), so the block doesn't end at the first ``` after it: it ends
+// at the first ``` that leaves valid JSON before it.
+function jsonBlocks(text: string): string[] {
+  const out: string[] = [];
+  const starts = [...text.matchAll(/```json[^\S\n]*\n?/g)];
+  for (const m of starts) {
+    const from = m.index! + m[0].length;
+    for (let end = text.indexOf("```", from); end >= 0; end = text.indexOf("```", end + 3)) {
+      const raw = text.slice(from, end);
+      try {
+        JSON.parse(raw);
+        out.push(raw);
+        break;
+      } catch {}
+    }
+  }
+  return out.reverse();
+}
+
 // The last ```json block in this text that holds findings or shots.
 export function parseResult(text: string): ReviewResult | ShotsResult | null {
-  const blocks = [...text.matchAll(/```json\s*([\s\S]*?)```/g)].map((x) => x[1]).reverse();
-  for (const raw of blocks) {
+  for (const raw of jsonBlocks(text)) {
     try {
       const j = JSON.parse(raw);
       if (Array.isArray(j.findings))

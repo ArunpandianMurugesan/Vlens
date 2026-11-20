@@ -29,8 +29,9 @@ export async function POST(req: Request) {
   const sessionId = typeof b.sessionId === "string" ? b.sessionId : null;
   try {
     const now = await prSnapshot(prUrl, true);
-    // The commit this review read, when Vlens saw it start.
-    const reviewed = sessionId ? (await recordsFor(prUrl)).runs.find((r) => r.sessionId === sessionId) : undefined;
+    // The commit this review read, when Vlens saw it start (the newest run: one session
+    // can hold several reviews).
+    const reviewed = sessionId ? (await recordsFor(prUrl)).runs.findLast((r) => r.sessionId === sessionId) : undefined;
     const moved = !!reviewed && reviewed.headSha !== now.headSha;
     if (moved && !b.force)
       return Response.json(

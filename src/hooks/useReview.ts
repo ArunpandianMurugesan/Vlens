@@ -43,7 +43,7 @@ export function useReview() {
     if (d?.rules) setAuto(d);
   }, []);
   // Every 30 s; every 3 s while a review runs, so its steps move.
-  const runningNow = !!auto?.running;
+  const runningNow = !!auto?.running.length;
   useEffect(() => {
     void loadAuto();
     const t = setInterval(() => void loadAuto(), runningNow ? 3_000 : 30_000);
@@ -52,8 +52,7 @@ export function useReview() {
   // Autopilot's reviews show as tabs on their PR, like the ones you start.
   useEffect(() => {
     if (!auto) return;
-    const r = auto.running;
-    if (r?.sessionId) addPrSession(r.url, { id: r.sessionId, kind: "Autopilot review", at: Date.parse(r.startedAt) });
+    for (const r of auto.running) if (r.sessionId) addPrSession(r.url, { id: r.sessionId, kind: "Autopilot review", at: Date.parse(r.startedAt) });
     for (const [url, t] of Object.entries(auto.tracks)) if (t.lastRun?.by === "autopilot") addPrSession(url, { id: t.lastRun.sessionId, kind: "Autopilot review", at: Date.parse(t.lastRun.at) });
   }, [auto]);
   const runAction = useCallback(

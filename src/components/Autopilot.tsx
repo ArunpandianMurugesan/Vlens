@@ -156,6 +156,7 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
   // Re-checks of PRs that moved on wait in the queue when their workflow re-checks; otherwise they need you.
   const changed = by("changed");
   const running = auto.running;
+  const full = running.length >= r.workers; // every worker busy
   const failedHere = (p: PrSummary) => auto.failed[p.url]?.headSha === p.headSha;
   const failed = plans.filter((x) => failedHere(x.p));
   // A PR that moved on since its review needs you only when its workflow doesn't re-check it.
@@ -164,7 +165,7 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
     return !!wf && !wf.recheck;
   };
   const needsYou = [...by("handoff"), ...changed.filter(recheckOff)].filter((x) => !failedHere(x.p));
-  const queue = [...changed.filter((x) => wfOf(x.plan.workflow?.id)?.recheck), ...by("queued")].filter((x) => !failedHere(x.p) && x.p.url !== running?.url);
+  const queue = [...changed.filter((x) => wfOf(x.plan.workflow?.id)?.recheck), ...by("queued")].filter((x) => !failedHere(x.p) && !running.some((x2) => x2.url === x.p.url));
   const nextIn = r.enabled && auto.lastCheck ? Math.max(0, Math.ceil((Date.parse(auto.lastCheck) + r.intervalMinutes * 60_000 - Date.now()) / 60_000)) : null;
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
@@ -200,12 +201,12 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
           <span className={`h-1.5 w-1.5 rounded-full ${r.enabled ? "bg-success" : "bg-muted"}`} aria-hidden /> {r.enabled ? "On" : "Off"}
         </span>
         <span className="text-xs text-muted">
-          {auto.today} of {r.dailyCap} reviews today · {nextIn === null ? `checks every ${r.intervalMinutes} min` : nextIn === 0 ? "checking soon" : `next check in ${nextIn} min`}
+          {auto.today} reviews today · {running.length} of {r.workers} workers busy · {nextIn === null ? `checks every ${r.intervalMinutes} min` : nextIn === 0 ? "checking soon" : `next check in ${nextIn} min`}
         </span>
         {note && <span className="text-xs text-accent">{note}</span>}
         {err && <span role="alert" className="text-xs text-danger">{err}</span>}
         <span className="ml-auto flex items-center gap-2">
-          <button onClick={() => void act("run")} disabled={busy || !!running} title="Review the next PR in the queue now, even when autopilot is off" className={btnS}>
+          <button onClick={() => void act("run")} disabled={busy || full} title={full ? `All ${r.workers} workers are busy` : "Fill the free workers from the queue now, even when autopilot is off"} className={btnS}>
             <Zap size={12} /> Run now
           </button>
           <button onClick={() => void toggle()} disabled={busy} className={btnS}>
@@ -221,7 +222,7 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
           <Column title="Needs you" n={needsYou.length + failed.length} tone="text-amber-800 dark:text-amber-300" dot="bg-amber-600" box="border-amber-500/40 bg-amber-500/5" empty="Nothing handed to you.">
             {failed.map(({ p }) => (
               <BoardCard key={p.url} risk={review.riskOf(p)} title={p.title} where={`${p.repo.split("/")[1]} #${p.number}`} why={`Review failed: ${auto.failed[p.url].error}`} tone="border-red-500/30 bg-red-500/5">
-                <button onClick={() => void act("retry", p.url)} disabled={busy || !!running} className={btnS}>
+                <button onClick={() => void act("retry", p.url)} disabled={busy || full} className={btnS}>
                   Retry
                 </button>
                 <button onClick={() => open(p.url)} className={btnS}>
@@ -240,12 +241,12 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
               </BoardCard>
             ))}
           </Column>
-          <Column title="Running" n={running ? 1 : 0} tone="" dot="bg-emerald-500" empty={r.enabled ? "Nothing running. The next check picks the top of the queue." : "Nothing running. Autopilot is off: turn it on, or press Run now."}>
-            {running && (
-              <BoardCard title={running.title} where={`${label(running.url).where} · ${running.workflow}`} why={`Started ${ago(running.startedAt)} ago at ${running.headSha.slice(0, 7)}`} tone="border-sky-500/30 bg-sky-500/5">
+          <Column title={`Running (${r.workers} at once)`} n={running.length} tone="" dot="bg-emerald-500" empty={r.enabled ? "Nothing running. The next check fills the workers from the top of the queue." : "Nothing running. Autopilot is off: turn it on, or press Run now."}>
+            {running.map((run) => (
+              <BoardCard key={run.url} title={run.title} where={`${label(run.url).where} · ${run.workflow}`} why={`Started ${ago(run.startedAt)} ago at ${run.headSha.slice(0, 7)}`} tone="border-sky-500/30 bg-sky-500/5">
                 <ol className="w-full space-y-0.5 text-xs">
-                  {running.steps.map((s, i) => {
-                    const lastStep = i === running.steps.length - 1;
+                  {run.steps.map((s, i) => {
+                    const lastStep = i === run.steps.length - 1;
                     return (
                       <li key={`${s.at}-${i}`} className={`flex items-center gap-1.5 ${lastStep ? "font-medium" : "text-muted"}`}>
                         {lastStep ? <Loader2 size={11} className="shrink-0 animate-spin text-sky-600" /> : <Check size={11} className="shrink-0 text-success" />}
@@ -253,22 +254,22 @@ export function AutopilotBoard({ review, onMenu }: { review: Review; onMenu: () 
                       </li>
                     );
                   })}
-                  {!running.steps.length && <li className="text-muted">Starting…</li>}
+                  {!run.steps.length && <li className="text-muted">Starting…</li>}
                 </ol>
-                {prs.some((x) => x.url === running.url) && (
-                  <button onClick={() => open(running.url)} className={btnS}>
+                {prs.some((x) => x.url === run.url) && (
+                  <button onClick={() => open(run.url)} className={btnS}>
                     Watch
                   </button>
                 )}
-                <button onClick={() => void act("stop")} disabled={busy} className={btnS}>
+                <button onClick={() => void act("stop", run.url)} disabled={busy} className={btnS}>
                   Stop
                 </button>
               </BoardCard>
-            )}
+            ))}
           </Column>
           <Column title="In queue" n={queue.length} tone="" dot="bg-violet-500" empty="The queue is empty.">
             {queue.map(({ p, plan }, i) => (
-              <BoardCard key={p.url} n={i + 1} risk={review.riskOf(p)} title={p.title} where={`${p.repo.split("/")[1]} #${p.number}`} wf={plan.workflow?.name} why={plan.state === "changed" ? "re-check after new commits" : i === 0 ? "next up" : "waiting"}>
+              <BoardCard key={p.url} n={i + 1} risk={review.riskOf(p)} title={p.title} where={`${p.repo.split("/")[1]} #${p.number}`} wf={plan.workflow?.name} why={plan.state === "changed" ? "re-check after new commits" : i < r.workers - running.length ? "next up" : "waiting for a free worker"}>
                 <button onClick={() => open(p.url)} className={btnS}>
                   Open
                 </button>
@@ -557,8 +558,8 @@ export function RulesPage({ review, onMenu }: { review: Review; onMenu: () => vo
               <Row label="Look for PRs every (min)">
                 <input type="number" min={5} max={240} value={draft.intervalMinutes} onChange={(e) => set({ intervalMinutes: Number(e.target.value) })} className={`${field} w-24`} />
               </Row>
-              <Row label="At most, reviews per day">
-                <input type="number" min={1} max={100} value={draft.dailyCap} onChange={(e) => set({ dailyCap: Number(e.target.value) })} className={`${field} w-24`} />
+              <Row label="Reviews at the same time (1–5)">
+                <input type="number" min={1} max={5} value={draft.workers} onChange={(e) => set({ workers: Number(e.target.value) })} className={`${field} w-24`} />
               </Row>
               <Field label="Only these repos (owner/name, one per line; empty = all)">
                 <textarea value={text.include} onChange={(e) => setText({ ...text, include: e.target.value })} rows={2} className={`${input} font-mono text-xs`} placeholder="vendasta/galaxy" />

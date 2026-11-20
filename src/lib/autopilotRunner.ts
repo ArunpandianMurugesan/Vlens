@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { autopilotState, handedAlready, logActivity, markHanded, setFailed } from "./autopilot";
 import { type AutopilotRules, type AutopilotState, type Depth, planFor, type Workflow } from "./autopilotPlan";
-import { runner } from "./autopilotStatus";
+import { type Run, runner } from "./autopilotStatus";
 import { gh, reviewBoard } from "./github";
 import { trackRun } from "./lensRuns";
 import { DATA_DIR } from "./paths";
@@ -16,9 +16,12 @@ import { parseResult } from "./reviewResult";
 import { riskOf } from "./risk";
 import type { PrSummary } from "./types";
 
-// The autopilot runner: every minute it checks whether it's time to look for work
-// (your interval), picks the next PR from the queue (the first matching workflow wins,
-// within your daily cap), and reviews it with Claude, one at a time.
+// The autopilot runner, a worker pool: every minute it checks whether it's time to look
+// for work (your interval), then fills each free worker (up to `workers` at once) with
+// the next PR from the queue (the first matching workflow wins). There's no daily limit:
+// the number of workers is the only throttle.
+// When a worker finishes, it takes the next PR straight away, so the queue drains
+// without waiting for the next interval.
 //
 // Locked down: before Claude starts, Vlens saves the PR, its diff and its earlier
 // comments to a folder. Claude then gets only Read, Grep and Glob (no shell, no MCP,
@@ -69,44 +72,56 @@ export function ensureRunner() {
 }
 
 // Run now (force): look for work even if autopilot is off or it isn't time yet.
-export async function check(force: boolean): Promise<string> {
-  if (runner.running) return "A review is already running.";
-  if (runner.busy) return "Already checking.";
+// refill: a worker just finished, so look again now (still only while autopilot is on).
+export async function check(force: boolean, refill = false): Promise<string> {
+  if (runner.busy) {
+    if (refill) runner.again = true;
+    return "Already checking.";
+  }
   runner.busy = true;
   try {
     if (!(await holdLock())) return "Another Vlens on this Mac is running autopilot.";
     const s = await autopilotState();
+    const free = s.rules.workers - runner.runs.size;
+    if (free <= 0) return runner.runs.size === 1 ? "A review is already running." : `All ${s.rules.workers} workers are busy.`;
     if (!force) {
       if (!s.rules.enabled) return "Autopilot is off.";
       const last = runner.lastCheck ? Date.parse(runner.lastCheck) : 0;
-      if (Date.now() - last < s.rules.intervalMinutes * 60_000) return "Not time yet.";
+      if (!refill && Date.now() - last < s.rules.intervalMinutes * 60_000) return "Not time yet.";
     }
-    runner.lastCheck = new Date().toISOString();
-    const day = new Date().toDateString();
-    if (s.today >= s.rules.dailyCap) {
-      if (runner.capLogged !== day) {
-        runner.capLogged = day;
-        await logActivity({ kind: "skipped", detail: `Daily cap reached (${s.rules.dailyCap} reviews). Autopilot waits until tomorrow.` });
-      }
-      return "Daily cap reached.";
-    }
+    if (!refill) runner.lastCheck = new Date().toISOString();
     const board = await reviewBoard(false);
     if (board.error && !board.prs.length) return board.error;
-    const pick = await nextPr(board.prs, s);
-    if (!pick) return "Nothing in the queue.";
-    void review(pick.pr, pick.wf, s.rules, board.clones[pick.pr.repo.toLowerCase()] ?? null, force);
-    return `Reviewing ${pick.pr.repo} #${pick.pr.number}.`;
+    const picks = (await queue(board.prs, s)).filter((x) => !runner.runs.has(x.pr.url)).slice(0, free);
+    if (!picks.length) return runner.runs.size ? "Nothing more in the queue." : "Nothing in the queue.";
+    for (const { pr, wf } of picks) startReview(pr, wf, s.rules, board.clones[pr.repo.toLowerCase()] ?? null, force);
+    return `Reviewing ${picks.map(({ pr }) => `${pr.repo.split("/")[1]} #${pr.number}`).join(", ")}.`;
   } catch (e) {
     await logActivity({ kind: "error", detail: `Autopilot couldn't check for work: ${(e as Error).message.slice(0, 200)}` });
     return (e as Error).message;
   } finally {
     runner.busy = false;
+    if (runner.again) {
+      runner.again = false;
+      setTimeout(() => void check(false, true), 0);
+    }
   }
+}
+
+// A worker takes the PR, and when it's done the pool looks for the next one.
+function startReview(pr: PrSummary, wf: Workflow, rules: AutopilotRules, clone: string | null, forced: boolean) {
+  let cancelled = false;
+  const run: Run = { url: pr.url, title: pr.title, headSha: pr.headSha, workflow: wf.name, startedAt: new Date().toISOString(), sessionId: null, steps: [], kill: () => (cancelled = true) };
+  runner.runs.set(pr.url, run);
+  void review(run, pr, wf, rules, clone, forced, () => cancelled).finally(() => {
+    runner.runs.delete(pr.url);
+    void check(false, true);
+  });
 }
 
 // The queue, in the board's order: re-checks of reviewed PRs first, then new ones;
 // within each, by workflow order, then the most recently updated. Hand-offs are logged.
-async function nextPr(prs: PrSummary[], s: AutopilotState): Promise<{ pr: PrSummary; wf: Workflow } | null> {
+async function queue(prs: PrSummary[], s: AutopilotState): Promise<{ pr: PrSummary; wf: Workflow }[]> {
   const order = (id?: string) => s.rules.workflows.findIndex((w) => w.id === id);
   const cands: { pr: PrSummary; wf: Workflow; changed: boolean }[] = [];
   for (const pr of prs) {
@@ -122,23 +137,22 @@ async function nextPr(prs: PrSummary[], s: AutopilotState): Promise<{ pr: PrSumm
     if (plan.state === "queued" || (plan.state === "changed" && wf.recheck)) cands.push({ pr, wf, changed: plan.state === "changed" });
   }
   cands.sort((a, b) => Number(b.changed) - Number(a.changed) || order(a.wf.id) - order(b.wf.id) || b.pr.updatedAt.localeCompare(a.pr.updatedAt));
-  return cands[0] ?? null;
+  return cands;
 }
 
-const step = (text: string) => {
-  if (!runner.running) return;
-  const last = runner.running.steps.at(-1);
+// A line in this run's progress, shown on the board.
+const stepOf = (run: Run) => (text: string) => {
+  const last = run.steps.at(-1);
   if (last?.text === text) return;
-  runner.running.steps.push({ at: new Date().toISOString(), text });
-  if (runner.running.steps.length > 40) runner.running.steps.shift();
+  run.steps.push({ at: new Date().toISOString(), text });
+  if (run.steps.length > 40) run.steps.shift();
 };
 
-async function review(pr: PrSummary, wf: Workflow, rules: AutopilotRules, clone: string | null, forced: boolean) {
-  const startedAt = new Date().toISOString();
-  let cancelled = false;
-  runner.running = { url: pr.url, title: pr.title, headSha: pr.headSha, workflow: wf.name, startedAt, sessionId: null, steps: [], kill: () => (cancelled = true) };
+async function review(run: Run, pr: PrSummary, wf: Workflow, rules: AutopilotRules, clone: string | null, forced: boolean, cancelled: () => boolean) {
+  const startedAt = run.startedAt;
+  const step = stepOf(run);
   const checkStop = () => {
-    if (cancelled) throw new Error("Stopped.");
+    if (cancelled()) throw new Error("Stopped.");
   };
   const fail = async (error: string) => {
     await setFailed(pr.url, { headSha: pr.headSha, at: new Date().toISOString(), error, title: pr.title });
@@ -160,7 +174,7 @@ async function review(pr: PrSummary, wf: Workflow, rules: AutopilotRules, clone:
     checkStop();
     const risk = riskOf(pr, rules.sensitivePaths);
     const prompt = autopilotPrompt(pr, { dir, hasClone: !!clone, risk, depth: wf.depth, handoffNotes: rules.handoffNotes });
-    const out = await runClaude(prompt, clone ?? dir, dir, wf.depth);
+    const out = await runClaude(run, prompt, clone ?? dir, dir, wf.depth);
     if (!out.ok) return await fail(out.error);
     const result = parseResult(out.text);
     if (result?.kind !== "review") return await fail("Claude finished without a review result.");
@@ -210,8 +224,6 @@ async function review(pr: PrSummary, wf: Workflow, rules: AutopilotRules, clone:
     });
   } catch (e) {
     await fail((e as Error).message.slice(0, 300));
-  } finally {
-    runner.running = null;
   }
 }
 
@@ -268,7 +280,8 @@ async function prune() {
 const short = (p: string) => p.split("/").slice(-2).join("/");
 
 // One locked-down `claude -p`: read-only tools, no MCP, nothing to approve.
-function runClaude(prompt: string, cwd: string, dir: string, depth: Depth): Promise<{ ok: true; text: string; sessionId: string } | { ok: false; error: string }> {
+function runClaude(run: Run, prompt: string, cwd: string, dir: string, depth: Depth): Promise<{ ok: true; text: string; sessionId: string } | { ok: false; error: string }> {
+  const step = stepOf(run);
   const env = { ...process.env };
   delete env.CLAUDECODE;
   delete env.CLAUDE_CODE_ENTRYPOINT;
@@ -293,7 +306,7 @@ function runClaude(prompt: string, cwd: string, dir: string, depth: Depth): Prom
           const ev = JSON.parse(line);
           if (ev.session_id && !sessionId) {
             sessionId = ev.session_id;
-            if (runner.running) runner.running.sessionId = sessionId;
+            run.sessionId = sessionId;
           }
           if (ev.type === "assistant")
             for (const b of ev.message?.content ?? []) {
@@ -313,14 +326,12 @@ function runClaude(prompt: string, cwd: string, dir: string, depth: Depth): Prom
       stopped = true;
       child.kill("SIGTERM");
     }, RUN_TIMEOUT_MS);
-    if (runner.running) {
-      const before = runner.running.kill;
-      runner.running.kill = () => {
-        before?.();
-        stopped = true;
-        child.kill("SIGTERM");
-      };
-    }
+    const before = run.kill;
+    run.kill = () => {
+      before?.();
+      stopped = true;
+      child.kill("SIGTERM");
+    };
     child.on("close", () => {
       clearTimeout(timer);
       if (result && !result.is_error && sessionId) resolve({ ok: true, text: String(result.result ?? ""), sessionId });
@@ -330,11 +341,11 @@ function runClaude(prompt: string, cwd: string, dir: string, depth: Depth): Prom
   });
 }
 
-// Stop: end the running review. It counts as failed at this commit, so it isn't
-// picked again until you retry it or the PR moves on.
-export function stopRun(): boolean {
-  if (!runner.running?.kill) return false;
-  runner.running.kill();
-  return true;
+// Stop: end that PR's running review (or every one, with no url). It counts as failed
+// at this commit, so it isn't picked again until you retry it or the PR moves on.
+export function stopRun(url?: string): boolean {
+  const runs = url ? [runner.runs.get(url)].filter((r): r is Run => !!r) : [...runner.runs.values()];
+  for (const r of runs) r.kill?.();
+  return runs.length > 0;
 }
 

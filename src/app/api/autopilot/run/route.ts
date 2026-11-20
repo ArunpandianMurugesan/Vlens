@@ -6,11 +6,12 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 // POST { action }: "run" looks for the next PR now (even when autopilot is off),
-// "stop" ends the running review, "retry" clears a failed PR and looks again.
+// "stop" ends a running review (that PR's, given a url; else all), "retry" clears a
+// failed PR and looks again.
 export async function POST(req: Request) {
   ensureRunner();
   const b = (await req.json().catch(() => ({}))) as { action?: string; url?: string };
-  if (b.action === "stop") return Response.json({ ok: stopRun(), message: "Stopping the review." });
+  if (b.action === "stop") return Response.json({ ok: stopRun(isPrUrl(String(b.url ?? "")) ? String(b.url) : undefined), message: "Stopping the review." });
   if (b.action === "retry") {
     if (!isPrUrl(String(b.url ?? ""))) return Response.json({ error: "Which PR?" }, { status: 400 });
     await setFailed(String(b.url), null);

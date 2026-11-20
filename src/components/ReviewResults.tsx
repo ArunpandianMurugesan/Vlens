@@ -78,7 +78,7 @@ function useTrack(prUrl: string, sessionId: string) {
       .then((r) => r.json())
       .then((d) => {
         if (stop || !d.record) return;
-        setTrack({ run: d.record.runs.find((r: Run) => r.sessionId === sessionId) ?? null, current: d.current ?? null, posts: d.record.posts ?? [] });
+        setTrack({ run: d.record.runs.findLast((r: Run) => r.sessionId === sessionId) ?? null, current: d.current ?? null, posts: d.record.posts ?? [] });
       })
       .catch(() => {});
     return () => {

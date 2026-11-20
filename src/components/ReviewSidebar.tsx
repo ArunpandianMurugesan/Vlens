@@ -168,18 +168,15 @@ export function ReviewSidebar({ review, onDone }: { review: Review; onDone: () =
       {auto && r && (
         <div className="mx-1 mb-3 space-y-1.5 rounded-xl border border-line bg-panel px-3 py-2.5 text-xs">
           <strong className="block">Autopilot today</strong>
-          {auto.running ? (
+          {auto.running.length ? (
             <span className="flex items-center gap-1.5 text-sky-700 dark:text-sky-400">
-              <Loader2 size={11} className="animate-spin" /> <span className="truncate">Reviewing {auto.running.title}</span>
+              <Loader2 size={11} className="animate-spin" /> <span className="truncate">{auto.running.length === 1 ? `Reviewing ${auto.running[0].title}` : `Reviewing ${auto.running.length} PRs at once`}</span>
             </span>
           ) : (
             <span className="text-muted">
-              {auto.today} of {r.dailyCap} reviews · {!r.enabled ? "off" : nextIn === null ? `every ${r.intervalMinutes} min` : nextIn === 0 ? "checking soon" : `next check in ${nextIn} min`}
+              {auto.today} reviews today · {!r.enabled ? "off" : nextIn === null ? `every ${r.intervalMinutes} min` : nextIn === 0 ? "checking soon" : `next check in ${nextIn} min`}
             </span>
           )}
-          <div className="h-1.5 rounded-full bg-sunken">
-            <div className="h-1.5 rounded-full bg-accent" style={{ width: `${Math.min(100, (auto.today / r.dailyCap) * 100)}%` }} />
-          </div>
         </div>
       )}
     </div>

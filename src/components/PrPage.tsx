@@ -64,10 +64,12 @@ export function usePrExtras(url: string | undefined) {
   // or "Post all" here) covers them all; one posted here covers itself.
   const drafts = useMemo<Draft[]>(() => {
     if (!tk) return [];
+    // One session can hold several reviews (Review with Claude carries on in it), so a
+    // draft is known by its session, the commit reviewed and its place in that review.
     const sid = tk.sessionId;
-    const whole = ps.some((p) => p.sessionId === sid && !p.key?.startsWith("draft:"));
+    const whole = ps.some((p) => p.sessionId === sid && p.headSha === tk.headSha && !p.key?.startsWith("draft:"));
     return tk.result.findings.map((f, i) => {
-      const key = `${sid}:${i}`;
+      const key = `${sid}:${tk.headSha.slice(0, 7)}:${i}`;
       const post = ps.find((p) => p.key === `draft:${key}`);
       return { i, f, key, state: whole ? "posted" : post ? "posted" : discarded.has(key) ? "discarded" : "open", url: post?.url ?? null };
     });
@@ -303,7 +305,7 @@ function DiscussionTab({ pr, extras, busy, onAsk, review, sessions }: Props) {
   const [posting, setPosting] = useState<{ keys: string[]; error?: string; moved?: boolean } | null>(null);
   const [postedNow, setPostedNow] = useState<{ what: string; url: string } | null>(null);
   const [comment, setComment] = useState("");
-  const [commentState, setCommentState] = useState<{ busy?: boolean; error?: string; done?: boolean }>({});
+  const [commentState, setCommentState] = useState<{ busy?: boolean; error?: string; done?: boolean; approved?: boolean }>({});
   const take = extras.take;
   const disc = extras.discussion;
   const open = extras.openDrafts;
@@ -346,7 +348,7 @@ function DiscussionTab({ pr, extras, busy, onAsk, review, sessions }: Props) {
         body,
         comments: inline.map((d) => ({ path: d.f.file, line: d.f.line, body: bodyOf(d) })),
         sessionId: take.sessionId,
-        key: all ? `drafts:${take.sessionId}` : `draft:${ds[0].key}`,
+        key: all ? `drafts:${take.sessionId}:${take.headSha.slice(0, 7)}` : `draft:${ds[0].key}`,
         force,
       }),
     })
@@ -365,6 +367,20 @@ function DiscussionTab({ pr, extras, busy, onAsk, review, sessions }: Props) {
     setComment("");
     setCommentState({ done: true });
     await extras.reload();
+  };
+  // Approve on GitHub, from your account, with the comment box's text as its message.
+  // GitHub doesn't let you approve your own PR, so the button is only on others'.
+  const mine = pr.lane === "mine";
+  const approve = async () => {
+    const open = extras.openDrafts.length;
+    const warn = open ? `\n\n${plural(open, "Claude draft")} still open (not posted).` : "";
+    if (!window.confirm(`Approve ${pr.repo}#${pr.number} as ${review.board?.login ? `@${review.board.login}` : "you"}?${comment.trim() ? "\n\nWith your comment as the message." : ""}${warn}`)) return;
+    setCommentState({ busy: true });
+    const r = await threadAction({ action: "approve", url: pr.url, body: comment });
+    if (r.error) return setCommentState({ error: r.error });
+    setComment("");
+    setCommentState({ approved: true });
+    await Promise.all([extras.reload(), review.refresh()]);
   };
 
   return (
@@ -496,8 +512,21 @@ function DiscussionTab({ pr, extras, busy, onAsk, review, sessions }: Props) {
           <button onClick={() => void leaveComment()} disabled={!comment.trim() || commentState.busy} className={primary}>
             {commentState.busy ? <Loader2 size={12} className="animate-spin" /> : null} Comment
           </button>
+          {!mine && (
+            <button onClick={() => void approve()} disabled={commentState.busy} title="Approve this PR on GitHub, as you" className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-success/50 px-2.5 py-1 text-xs font-medium text-success hover:bg-success/10 disabled:opacity-50">
+              <Check size={12} /> Approve
+            </button>
+          )}
         </label>
         {commentState.error && <p className="text-xs text-danger">{commentState.error}</p>}
+        {commentState.approved && (
+          <p className="text-xs text-success">
+            Approved on GitHub.{" "}
+            <a href={pr.url} target="_blank" rel="noreferrer" className="underline hover:text-accent">
+              Open the PR
+            </a>
+          </p>
+        )}
         {commentState.done && (
           <p className="text-xs text-success">
             Posted on GitHub.{" "}
@@ -506,7 +535,7 @@ function DiscussionTab({ pr, extras, busy, onAsk, review, sessions }: Props) {
             </a>
           </p>
         )}
-        <p className="text-xs text-muted">Posts go out from your GitHub account after you confirm. Vlens and Autopilot never approve.</p>
+        <p className="text-xs text-muted">Posts and approvals go out from your GitHub account after you confirm. Autopilot never approves.</p>
       </section>
     </>
   );
@@ -848,7 +877,7 @@ function Rail({ pr, review, detail, extras, sessions, clone, home, onTab }: Prop
         ) : (
           <p className="text-xs text-muted">No reviews yet.</p>
         )}
-        <p className="pt-1 text-[0.7rem] text-muted">Approve stays on GitHub. Vlens and Autopilot never approve.</p>
+        <p className="pt-1 text-[0.7rem] text-muted">Approve from the Discussion tab, only when you click it. Autopilot never approves.</p>
       </RailBox>
       <RailBox title="This PR's sessions">
         {sessions.map((s) => (

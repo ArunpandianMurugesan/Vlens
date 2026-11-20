@@ -30,7 +30,7 @@ export interface AutopilotRules {
   workflows: Workflow[]; // in order: the first match wins
   // Limits and "hand it to me when…": shared by every workflow.
   intervalMinutes: number; // how often it looks for PRs to review
-  dailyCap: number; // reviews per day, at most (they use your Claude plan)
+  workers: number; // reviews that run at the same time (the worker pool's size)
   skipDrafts: boolean;
   skipLabel: string; // a PR with this GitHub label is never picked
   maxChangedLines: number; // bigger PRs go to you instead
@@ -66,7 +66,7 @@ export const DEFAULT_RULES: AutopilotRules = {
   enabled: false,
   workflows: DEFAULT_WORKFLOWS,
   intervalMinutes: 10,
-  dailyCap: 10,
+  workers: 2,
   skipDrafts: true,
   skipLabel: "skip-ai-review",
   maxChangedLines: 1000,
@@ -145,7 +145,7 @@ export function normalizeRules(x: unknown): AutopilotRules {
     enabled: typeof r.enabled === "boolean" ? r.enabled : d.enabled,
     workflows,
     intervalMinutes: num(r.intervalMinutes, d.intervalMinutes, 5, 240),
-    dailyCap: num(r.dailyCap, d.dailyCap, 1, 100),
+    workers: num(r.workers, d.workers, 1, 5),
     skipDrafts: typeof r.skipDrafts === "boolean" ? r.skipDrafts : d.skipDrafts,
     skipLabel: typeof r.skipLabel === "string" ? r.skipLabel.trim().slice(0, 50) : d.skipLabel,
     maxChangedLines: num(r.maxChangedLines, d.maxChangedLines, 50, 100_000),
@@ -189,7 +189,7 @@ export interface Activity {
   detail: string;
 }
 
-// The review the runner is doing right now (autopilotRunner.ts).
+// A review the runner is doing right now (autopilotRunner.ts); up to `workers` at once.
 export interface RunningReview {
   url: string;
   title: string;
@@ -202,7 +202,7 @@ export interface RunningReview {
 
 export interface AutopilotState {
   rules: AutopilotRules;
-  running: RunningReview | null;
+  running: RunningReview[]; // oldest first
   failed: Record<string, { headSha: string; at: string; error: string; title?: string }>; // PR url -> its last failed run
   lastCheck: string | null; // when the runner last looked for work
   paused: Record<string, string>; // PR url -> when
